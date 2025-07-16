@@ -1,6 +1,6 @@
 {
     "name": "movie-library",
-    "version": "0.0.3",
+    "version": "0.0.4",
     "description": "A video file management application for Mac",
     "main": "main.js",
     "scripts": {
@@ -12,7 +12,7 @@
         "build:all": "electron-builder --mac --win",
         "dist": "electron-builder --publish=never",
         "release": "electron-builder --publish=always",
-        "postinstall": "electron-builder install-app-deps && npm run rebuild",
+        "postinstall": "electron-builder install-app-deps && npm run rebuild:electron",
         "rebuild": "npm rebuild sqlite3 --build-from-source",
         "rebuild:electron": "electron-rebuild -f -w sqlite3"
     },
