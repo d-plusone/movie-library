@@ -35,6 +35,9 @@
                     <input type="text" id="searchInput" class="search-input" placeholder="動画を検索...">
                     <span class="search-icon">🔍</span>
                 </div>
+                <button id="themeToggleBtn" class="btn btn-icon" title="テーマ切り替え">
+                    <span class="icon">🌙</span>
+                </button>
                 <button id="settingsBtn" class="btn btn-icon">
                     <span class="icon">⚙️</span>
                 </button>
@@ -205,7 +208,7 @@
                         <div class="info-group">
                             <label>タグ</label>
                             <div class="tags-input-container">
-                                <input type="text" id="tagInput" class="tag-input" placeholder="タグを追加...">
+                                <input type="text" id="tagInput" class="tag-input" placeholder="タグを追加してEnterキーを押してください...">
                                 <div id="detailsTagsList" class="details-tags">
                                     <!-- Tags will be populated here -->
                                 </div>
@@ -338,6 +341,55 @@
             </div>
         </div>
 
+        <!-- Video Tooltip -->
+        <div id="videoTooltip" class="video-tooltip" style="display: none;">
+            <div class="tooltip-title"></div>
+            <div class="tooltip-info"></div>
+            <div class="tooltip-tags"></div>
+        </div>
+
+        <!-- Error Dialog -->
+        <div id="errorDialog" class="modal" style="display: none;">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>エラー</h2>
+                    <button id="closeErrorBtn" class="btn btn-icon">
+                        <span class="icon">✕</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div id="errorMessage" class="error-message"></div>
+                    <div id="errorDetails" class="error-details" style="display: none;"></div>
+                </div>
+                <div class="modal-actions">
+                    <button id="showErrorDetailsBtn" class="btn btn-secondary">詳細を表示</button>
+                    <button id="errorOkBtn" class="btn btn-primary">OK</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tag Edit Dialog -->
+        <div id="tagEditDialog" class="modal" style="display: none;">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>タグを編集</h2>
+                    <button id="closeTagEditBtn" class="btn btn-icon">
+                        <span class="icon">✕</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="input-group">
+                        <label for="tagNameInput">タグ名</label>
+                        <input type="text" id="tagNameInput" class="modal-input">
+                    </div>
+                </div>
+                <div class="modal-actions">
+                    <button id="cancelTagEditBtn" class="btn btn-secondary">キャンセル</button>
+                    <button id="saveTagEditBtn" class="btn btn-primary">保存</button>
+                </div>
+            </div>
+        </div>
+
         <!-- Notification Container -->
         <div id="notificationContainer" class="notification-container">
             <!-- Notifications will be populated here -->
@@ -382,50 +434,10 @@
             </div>
         </div>
 
-        <!-- Error Dialog -->
-        <div id="errorDialog" class="error-dialog" style="display: none;">
-            <div class="error-dialog-content">
-                <div class="error-dialog-header">
-                    <h3>エラー</h3>
-                    <button id="closeErrorBtn" class="btn btn-icon">
-                        <span class="icon">✕</span>
-                    </button>
-                </div>
-                <div class="error-dialog-body">
-                    <div id="errorMessage" class="error-message"></div>
-                    <div id="errorDetails" class="error-details" style="display: none;"></div>
-                </div>
-                <div class="error-dialog-actions">
-                    <button id="showErrorDetailsBtn" class="btn btn-secondary">詳細を表示</button>
-                    <button id="errorOkBtn" class="btn btn-primary">OK</button>
-                </div>
-            </div>
-        </div>
 
-        <!-- Tag Edit Dialog -->
-        <div id="tagEditDialog" class="modal" style="display: none;">
-            <div class="modal-content" style="max-width: 400px;">
-                <div class="modal-header">
-                    <h2>タグ名を編集</h2>
-                    <button id="closeTagEditBtn" class="btn btn-icon">
-                        <span class="icon">✕</span>
-                    </button>
-                </div>
-                <div class="modal-body">
-                    <div class="setting-item">
-                        <label for="tagNameInput">タグ名</label>
-                        <input type="text" id="tagNameInput" class="setting-select" placeholder="タグ名を入力">
-                    </div>
-                </div>
-                <div class="modal-actions">
-                    <button id="cancelTagEditBtn" class="btn btn-secondary">キャンセル</button>
-                    <button id="saveTagEditBtn" class="btn btn-primary">保存</button>
-                </div>
-            </div>
-        </div>
     </div>
 
-    <script src="app.js"></script>
+    <script type="module" src="app-refactored.js"></script>
 </body>
 
 </html>
