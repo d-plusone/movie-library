@@ -7,17 +7,21 @@ class MovieLibraryApp {
     this.currentVideo = null;
     this.currentView = "grid";
     this.currentSort = { field: "filename", order: "ASC" };
-    this.currentFilter = { rating: 0, tags: [] };
+    this.currentFilter = { rating: 0, tags: [], directories: [] };
+    this.selectedDirectories = []; // フォルダフィルター用の選択状態
     this.selectedVideoIndex = -1;
     this.currentThumbnails = [];
     this.currentThumbnailIndex = 0;
     this.tooltipTimeout = null;
     this.tooltipInterval = null;
     this.currentEditingTag = null;
+    this.toastQueue = [];
+    this.maxToasts = 3;
 
     this.initializeEventListeners();
     this.loadInitialData();
     this.initializeTheme();
+    this.loadDirectoryFilterState(); // フォルダフィルター状態を復元
   }
 
   async loadInitialData() {
@@ -97,6 +101,14 @@ class MovieLibraryApp {
         this.applyFiltersAndSort();
       });
     });
+
+    // Folder selection controls
+    document
+      .getElementById("selectAllFoldersBtn")
+      .addEventListener("click", () => this.selectAllDirectories());
+    document
+      .getElementById("deselectAllFoldersBtn")
+      .addEventListener("click", () => this.deselectAllDirectories());
 
     // Details panel
     document
@@ -244,6 +256,17 @@ class MovieLibraryApp {
     window.electronAPI.onVideoRemoved((filePath) =>
       this.handleVideoRemoved(filePath)
     );
+
+    // Window resize event for tag overflow recalculation
+    let resizeTimeout;
+    window.addEventListener('resize', () => {
+      clearTimeout(resizeTimeout);
+      resizeTimeout = setTimeout(() => {
+        if (this.currentView === 'grid') {
+          this.handleTagOverflow();
+        }
+      }, 250); // Debounce resize events
+    });
   }
 
   // Error dialog methods
@@ -397,6 +420,20 @@ class MovieLibraryApp {
 
   async loadDirectories() {
     this.directories = await window.electronAPI.getDirectories();
+
+    // 初回読み込み時または新しいフォルダが追加された場合の処理
+    if (this.selectedDirectories.length === 0 ||
+        this.directories.some(dir => !this.selectedDirectories.includes(dir.path))) {
+      // デフォルトで全てのフォルダを選択状態にする
+      this.selectedDirectories = this.directories.map(dir => dir.path);
+      this.saveDirectoryFilterState();
+    }
+
+    // 削除されたフォルダを選択状態から除外
+    this.selectedDirectories = this.selectedDirectories.filter(
+      dirPath => this.directories.some(dir => dir.path === dirPath)
+    );
+    this.saveDirectoryFilterState();
   }
 
   async addDirectory() {
@@ -428,6 +465,51 @@ class MovieLibraryApp {
     } catch (error) {
       console.error("Error removing directory:", error);
       this.showErrorDialog("フォルダの削除に失敗しました", error);
+    }
+  }
+
+  // フォルダ選択の切り替え
+  toggleDirectorySelection(directoryPath) {
+    const index = this.selectedDirectories.indexOf(directoryPath);
+    if (index === -1) {
+      // 選択されていない場合は追加
+      this.selectedDirectories.push(directoryPath);
+    } else {
+      // 選択されている場合は削除
+      this.selectedDirectories.splice(index, 1);
+    }
+    
+    this.saveDirectoryFilterState();
+    this.renderSidebar();
+    this.applyFiltersAndSort();
+  }
+
+  // 全フォルダを選択
+  selectAllDirectories() {
+    this.selectedDirectories = this.directories.map(dir => dir.path);
+    this.saveDirectoryFilterState();
+    this.renderSidebar();
+    this.applyFiltersAndSort();
+  }
+
+  // 全フォルダの選択を解除（1つだけ残す）
+  deselectAllDirectories() {
+    this.selectedDirectories = [];
+    this.saveDirectoryFilterState();
+    this.renderSidebar();
+    this.applyFiltersAndSort();
+  }
+
+  // フォルダフィルターの状態をlocalStorageに保存
+  saveDirectoryFilterState() {
+    localStorage.setItem("selectedDirectories", JSON.stringify(this.selectedDirectories));
+  }
+
+  // フォルダフィルターの状態をlocalStorageから読み込み
+  loadDirectoryFilterState() {
+    const saved = localStorage.getItem("selectedDirectories");
+    if (saved) {
+      this.selectedDirectories = JSON.parse(saved);
     }
   }
 
@@ -495,6 +577,21 @@ class MovieLibraryApp {
       );
     }
 
+    // Apply directory filter
+    if (this.selectedDirectories.length === 0) {
+      // フォルダが一つも選択されていない場合は、すべての動画を非表示にする
+      filtered = [];
+    } else if (this.selectedDirectories.length < this.directories.length) {
+      // 一部のフォルダが選択されている場合は、そのフォルダの動画のみ表示
+      filtered = filtered.filter((video) => {
+        // ビデオのパスが選択されたディレクトリのいずれかに含まれているかチェック
+        return this.selectedDirectories.some(dirPath =>
+          video.path.startsWith(dirPath)
+        );
+      });
+    }
+    // すべてのフォルダが選択されている場合は何もしない（すべての動画を表示）
+
     // Apply sorting
     filtered.sort((a, b) => {
       let aValue = a[this.currentSort.field];
@@ -527,7 +624,7 @@ class MovieLibraryApp {
     const videoList = document.getElementById("videoList");
     videoList.className = `video-list ${view}-view`;
     this.renderVideoList();
-    
+
     // Maintain selected video highlighting after view change
     if (this.selectedVideoIndex >= 0) {
       setTimeout(() => {
@@ -551,6 +648,59 @@ class MovieLibraryApp {
       this.selectedVideoIndex < this.filteredVideos.length
     ) {
       this.highlightSelectedVideo();
+    }
+
+    // Handle tag overflow for grid view
+    if (this.currentView === 'grid') {
+      this.handleTagOverflow();
+    }
+  }
+
+  // Handle tag overflow for grid view
+  handleTagOverflow() {
+    const videoItems = document.querySelectorAll('.grid-view .video-item');
+    videoItems.forEach(item => {
+      const tagsContainer = item.querySelector('.video-tags');
+      if (tagsContainer) {
+        this.checkTagOverflow(tagsContainer);
+      }
+    });
+  }
+
+  // Check if tags overflow and add appropriate class
+  checkTagOverflow(tagsContainer) {
+    // Reset overflow state
+    tagsContainer.classList.remove('has-overflow');
+
+    // Get all tag elements
+    const tags = tagsContainer.querySelectorAll('.video-tag');
+    if (tags.length <= 1) return; // No overflow if 1 or fewer tags
+
+    // Temporarily set container to single line
+    const originalMaxHeight = tagsContainer.style.maxHeight;
+    const originalOverflow = tagsContainer.style.overflow;
+
+    tagsContainer.style.maxHeight = '14px'; // Single row height including padding
+    tagsContainer.style.overflow = 'hidden';
+
+    // Check if any tags are hidden by measuring positions
+    let isOverflowing = false;
+    const containerRect = tagsContainer.getBoundingClientRect();
+
+    for (let i = 1; i < tags.length; i++) {
+      const tagRect = tags[i].getBoundingClientRect();
+      if (tagRect.bottom > containerRect.bottom + 1) { // +1 for sub-pixel precision
+        isOverflowing = true;
+        break;
+      }
+    }
+
+    // Restore original styles
+    tagsContainer.style.maxHeight = originalMaxHeight;
+    tagsContainer.style.overflow = originalOverflow;
+
+    if (isOverflowing) {
+      tagsContainer.classList.add('has-overflow');
     }
   }
 
@@ -783,10 +933,35 @@ class MovieLibraryApp {
     this.directories.forEach((directory) => {
       const directoryElement = document.createElement("div");
       directoryElement.className = "directory-item";
-      directoryElement.innerHTML = `
-                <span>${directory.name}</span>
-                <button class="remove-btn" onclick="movieApp.removeDirectory('${directory.path}')">×</button>
-            `;
+
+      // Check if this directory is currently selected
+      const isSelected = this.selectedDirectories.includes(directory.path);
+      if (isSelected) {
+        directoryElement.classList.add("active");
+      }
+
+      // Create directory name span
+      const directoryNameSpan = document.createElement("span");
+      directoryNameSpan.className = "directory-name";
+      directoryNameSpan.textContent = directory.name;
+      directoryNameSpan.title = "クリックで選択/選択解除";
+      directoryNameSpan.onclick = () => this.toggleDirectorySelection(directory.path);
+
+      // Create actions container
+      const actionsDiv = document.createElement("div");
+      actionsDiv.className = "directory-actions";
+
+      // Remove button
+      const removeBtn = document.createElement("button");
+      removeBtn.className = "directory-action-btn remove-btn";
+      removeBtn.textContent = "×";
+      removeBtn.title = "フォルダを削除";
+      removeBtn.onclick = () => this.removeDirectory(directory.path);
+
+      actionsDiv.appendChild(removeBtn);
+
+      directoryElement.appendChild(directoryNameSpan);
+      directoryElement.appendChild(actionsDiv);
       directoriesList.appendChild(directoryElement);
     });
 
@@ -960,12 +1135,12 @@ class MovieLibraryApp {
     const container = document.getElementById("notificationContainer");
     const notification = document.createElement("div");
     notification.className = `notification ${type}`;
-    
+
     // Create message element
     const messageElement = document.createElement("div");
     messageElement.className = "notification-message";
     messageElement.textContent = message;
-    
+
     // Create close button
     const closeButton = document.createElement("button");
     closeButton.className = "notification-close";
@@ -974,7 +1149,7 @@ class MovieLibraryApp {
     closeButton.addEventListener("click", () => {
       notification.remove();
     });
-    
+
     notification.appendChild(messageElement);
     notification.appendChild(closeButton);
     container.appendChild(notification);
@@ -985,7 +1160,7 @@ class MovieLibraryApp {
         notification.remove();
       }
     }, 5000);
-    
+
     // Clear timeout if manually closed
     closeButton.addEventListener("click", () => {
       clearTimeout(autoRemoveTimeout);
@@ -1724,7 +1899,7 @@ class MovieLibraryApp {
         this.refreshVideoInList(updatedVideo, cacheBreaker);
 
         // Update thumbnail modal if it's open and showing this video
-        if (document.getElementById("thumbnailModal").style.display === "flex" && 
+        if (document.getElementById("thumbnailModal").style.display === "flex" &&
             this.currentThumbnails.length > 0 && this.currentThumbnails[0].isMain) {
           this.currentThumbnails[0].path = updatedVideo.thumbnail_path;
           if (this.currentThumbnailIndex === 0) {
@@ -1764,28 +1939,28 @@ class MovieLibraryApp {
 
   getGridColumns() {
     if (this.currentView !== 'grid') return 1;
-    
+
     const videoList = document.getElementById('videoList');
     if (!videoList) return 1;
-    
+
     const videoItems = videoList.querySelectorAll('.video-item');
     if (videoItems.length === 0) return 1;
-    
+
     // Get the computed style to find the actual grid columns
     const computedStyle = window.getComputedStyle(videoList);
     const gridTemplateColumns = computedStyle.getPropertyValue('grid-template-columns');
-    
+
     if (gridTemplateColumns && gridTemplateColumns !== 'none') {
       // Count the number of columns from grid-template-columns
       const columns = gridTemplateColumns.split(' ').length;
       return columns;
     }
-    
+
     // Fallback: calculate based on item positions
     const firstItem = videoItems[0];
     const firstItemRect = firstItem.getBoundingClientRect();
     let columns = 1;
-    
+
     for (let i = 1; i < videoItems.length; i++) {
       const itemRect = videoItems[i].getBoundingClientRect();
       if (Math.abs(itemRect.top - firstItemRect.top) < 10) {
@@ -1794,7 +1969,7 @@ class MovieLibraryApp {
         break;
       }
     }
-    
+
     return columns;
   }
 
@@ -1858,9 +2033,47 @@ class MovieLibraryApp {
     this.highlightSelectedVideo();
     this.scrollToSelectedVideo();
   }
+
+  // フォルダフィルターの状態をlocalStorageに保存
+  saveDirectoryFilterState() {
+    localStorage.setItem("selectedDirectories", JSON.stringify(this.selectedDirectories));
+  }
+
+  // フォルダフィルターの状態をlocalStorageから読み込み
+  loadDirectoryFilterState() {
+    const saved = localStorage.getItem("selectedDirectories");
+    if (saved) {
+      this.selectedDirectories = JSON.parse(saved);
+    }
+  }
+
+  async scanDirectories() {
+    try {
+      this.showProgress("ディレクトリをスキャン中...", 0);
+      await window.electronAPI.scanDirectories();
+    } catch (error) {
+      console.error("Error scanning directories:", error);
+      this.showErrorDialog("スキャンに失敗しました", error);
+      this.hideProgress();
+    }
+  }
+
+  async generateThumbnails() {
+    try {
+      this.showProgress("サムネイルを生成中...", 0);
+      await window.electronAPI.generateThumbnails();
+    } catch (error) {
+      console.error("Error generating thumbnails:", error);
+      this.showErrorDialog("サムネイル生成に失敗しました", error);
+      this.hideProgress();
+    }
+  }
+
+  handleSearch(query) {
+    // Don't modify filteredVideos directly here, let applyFiltersAndSort handle it
+    this.applyFiltersAndSort();
+  }
 }
 
-// Initialize the app when DOM is loaded
-document.addEventListener("DOMContentLoaded", () => {
-  window.movieApp = new MovieLibraryApp();
-});
+// Initialize the app
+const movieApp = new MovieLibraryApp();

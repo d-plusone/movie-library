@@ -246,52 +246,35 @@ body {
     color: var(--text-primary);
 }
 
-.filter-group {
-    margin-bottom: 16px;
-}
-
-.filter-group label {
-    display: block;
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--text-secondary);
-    margin-bottom: 6px;
-    text-transform: uppercase;
-}
-
-.rating-filter {
+/* Folder selection controls */
+.folder-controls {
     display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
+    gap: 8px;
+    margin-bottom: 12px;
 }
 
-.rating-btn {
-    padding: 4px 8px;
+.folder-controls .btn {
+    flex: 1;
+    font-size: 12px;
+    padding: 6px 12px;
+    border-radius: 6px;
+}
+
+.folder-controls .btn-small {
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
     border: 1px solid var(--border-color);
-    border-radius: 16px;
-    background: var(--bg-secondary);
-    color: var(--text-primary);
-    font-size: 11px;
-    cursor: pointer;
     transition: all 0.2s ease;
+    box-shadow: none;
+    backdrop-filter: none;
 }
 
-.rating-btn:hover,
-.rating-btn.active {
+.folder-controls .btn-small:hover {
     background: var(--accent-color);
     color: white;
     border-color: var(--accent-color);
-}
-
-.sort-select {
-    width: 100%;
-    padding: 8px 12px;
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-    background: var(--bg-secondary);
-    color: var(--text-primary);
-    font-size: 14px;
-    margin-bottom: 8px;
+    transform: none;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .tags-list,
@@ -375,16 +358,61 @@ body {
 }
 
 .directory-item:hover {
-    background: #e5e5e7;
+    background: var(--bg-tertiary);
 }
 
-.remove-btn {
+.directory-item.active {
+    background: var(--accent-color);
+    color: white;
+}
+
+.directory-item.active .directory-action-btn {
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.directory-item.active .directory-action-btn:hover {
+    color: white;
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.directory-name {
+    cursor: pointer;
+    flex: 1;
+    padding: 2px 0;
+    border-radius: 4px;
+    transition: background-color 0.2s ease;
+}
+
+.directory-name:hover {
+    background: rgba(0, 0, 0, 0.1);
+}
+
+.directory-actions {
+    display: flex;
+    gap: 4px;
+}
+
+.directory-action-btn {
     background: none;
     border: none;
-    color: #ff3b30;
     cursor: pointer;
-    font-size: 14px;
-    padding: 2px;
+    font-size: 12px;
+    padding: 2px 4px;
+    border-radius: 3px;
+    transition: all 0.2s ease;
+    color: var(--text-secondary);
+}
+
+.directory-action-btn:hover {
+    background: rgba(0, 0, 0, 0.1);
+}
+
+.directory-action-btn.toggle-btn {
+    color: var(--accent-color);
+}
+
+.directory-action-btn.remove-btn {
+    color: var(--error-color);
 }
 
 /* Video List */
@@ -585,15 +613,71 @@ body {
     flex-wrap: wrap;
     gap: 4px;
     margin-top: 6px;
+    overflow: hidden;
+    position: relative;
 }
 
-.video-tag {
-    padding: 2px 6px;
-    background: var(--accent-color);
-    color: white;
-    border-radius: 8px;
-    font-size: 10px;
-    font-weight: 500;
+/* List view: allow more tags to display */
+.list-view .video-tags {
+    max-height: none;
+    flex-wrap: wrap;
+}
+
+/* Grid view: dynamic tag display with overflow handling */
+.grid-view .video-tags {
+    max-height: 24px;
+    /* Approximately 2 rows of tags */
+    transition: max-height 0.3s ease;
+}
+
+.grid-view .video-tags.expanded {
+    max-height: none;
+}
+
+.grid-view .video-tags:hover {
+    max-height: none;
+    z-index: 20;
+}
+
+/* Tag overflow indicator for grid view */
+.grid-view .video-tags::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    width: 20px;
+    height: 12px;
+    background: linear-gradient(to right, transparent, var(--bg-secondary));
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    pointer-events: none;
+}
+
+.grid-view .video-tags.has-overflow::after {
+    content: '...';
+    opacity: 1;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    font-size: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    font-weight: bold;
+}
+
+.grid-view .video-tags:hover::after {
+    opacity: 0;
+}
+
+/* Dark theme support for tag overflow */
+[data-theme="dark"] .grid-view .video-tags::after {
+    background: linear-gradient(to right, transparent, var(--bg-secondary));
+}
+
+[data-theme="dark"] .grid-view .video-tags.has-overflow::after {
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
 }
 
 /* Details Panel */
@@ -1509,3 +1593,16 @@ body {
     margin-top: auto;
     /* Push metadata to bottom */
 }
+
+.video-tag {
+    padding: 2px 6px;
+    background: #007AFF;
+    color: white;
+    border-radius: 8px;
+    font-size: 10px;
+    font-weight: 500;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+/* Dark theme support for tag overflow */
