@@ -12,9 +12,9 @@
         "build:all": "electron-builder --mac --win",
         "dist": "electron-builder --publish=never",
         "release": "electron-builder --publish=always",
-        "postinstall": "electron-builder install-app-deps && npm run rebuild:electron",
+        "postinstall": "electron-builder install-app-deps && npx electron-rebuild -f -w sqlite3",
         "rebuild": "npm rebuild sqlite3 --build-from-source",
-        "rebuild:electron": "electron-rebuild -f -w sqlite3"
+        "rebuild:electron": "npx electron-rebuild -f -w sqlite3"
     },
     "keywords": [
         "electron",
@@ -26,7 +26,8 @@
     "license": "MIT",
     "devDependencies": {
         "electron": "^27.0.0",
-        "electron-builder": "^24.6.4"
+        "electron-builder": "^24.6.4",
+        "@electron/rebuild": "^3.6.0"
     },
     "dependencies": {
         "chokidar": "^3.5.3",
