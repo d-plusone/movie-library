@@ -1041,6 +1041,28 @@ body {
     font-size: 14px;
 }
 
+.setting-checkbox {
+    margin-right: 8px;
+    transform: scale(1.2);
+}
+
+.setting-item label:has(.setting-checkbox) {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    text-transform: none;
+    font-weight: 500;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+}
+
+.setting-description {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-top: 4px;
+    line-height: 1.4;
+}
+
 /* Notifications */
 .notification-container {
     position: fixed;

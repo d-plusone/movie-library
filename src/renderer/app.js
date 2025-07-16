@@ -17,10 +17,11 @@ class MovieLibraryApp {
     this.currentEditingTag = null;
     this.toastQueue = [];
     this.maxToasts = 3;
+    this.saveFilterStateEnabled = true; // フィルター状態保存を有効にする
 
     this.initializeEventListeners();
     this.initializeTheme();
-    this.loadDirectoryFilterState(); // フォルダフィルター状態を復元
+    this.loadSettings(); // 設定を読み込み
     
     this.loadInitialData().catch(error => {
       console.error("Failed to load initial data:", error);
@@ -38,11 +39,38 @@ class MovieLibraryApp {
       await this.loadTags();
       await this.loadDirectories();
       
+      // フィルター状態を復元してからUIを更新（loadDirectories後に実行）
+      this.loadFilterState();
+      
+      // まずサイドバーとビデオリストを描画してDOM要素を作成
       this.renderVideoList();
       this.renderSidebar();
 
-      // Set initial rating filter to "all" and update star display
-      this.setRatingFilter(0);
+      // DOM要素が作成された後に少し待ってからUIの状態を更新
+      setTimeout(() => {
+        console.log("Updating UI with loaded filter state (after DOM creation):");
+        console.log("- Rating:", this.currentFilter.rating);
+        console.log("- Tags:", this.currentFilter.tags);
+        console.log("- Directories:", this.selectedDirectories);
+        
+        this.updateStarDisplay(this.currentFilter.rating, false);
+        const allBtn = document.querySelector('.rating-btn.all-btn[data-rating="0"]');
+        if (allBtn) {
+          if (this.currentFilter.rating === 0) {
+            allBtn.classList.add('active');
+            console.log("- All button set to active (delayed)");
+          } else {
+            allBtn.classList.remove('active');
+            console.log("- All button set to inactive (delayed)");
+          }
+        } else {
+          console.log("- All button not found (delayed)");
+        }
+        
+        // タグとディレクトリフィルタを適用
+        this.applyFiltersAndSort();
+      }, 100); // 100ms後に実行
+      
     } catch (error) {
       console.error("Error loading initial data:", error);
       this.showErrorDialog("データの読み込みに失敗しました", error);
@@ -195,6 +223,16 @@ class MovieLibraryApp {
     // Theme settings
     document.getElementById("themeSelect").addEventListener("change", (e) => {
       this.applyTheme(e.target.value);
+    });
+
+    // Filter settings
+    document.getElementById("saveFilterState").addEventListener("change", (e) => {
+      this.saveFilterStateEnabled = e.target.checked;
+      this.saveSettings();
+      if (!this.saveFilterStateEnabled) {
+        // フィルター状態保存が無効になった場合、保存されたフィルター状態を削除
+        localStorage.removeItem("filterState");
+      }
     });
 
     // Modal backdrop clicks
@@ -435,19 +473,26 @@ class MovieLibraryApp {
   async loadDirectories() {
     this.directories = await window.electronAPI.getDirectories();
 
-    // 初回読み込み時または新しいフォルダが追加された場合の処理
-    if (this.selectedDirectories.length === 0 ||
-        this.directories.some(dir => !this.selectedDirectories.includes(dir.path))) {
+    // フィルター状態がロードされていない場合のみデフォルト設定
+    if (this.selectedDirectories.length === 0) {
       // デフォルトで全てのフォルダを選択状態にする
       this.selectedDirectories = this.directories.map(dir => dir.path);
-      this.saveDirectoryFilterState();
     }
 
     // 削除されたフォルダを選択状態から除外
     this.selectedDirectories = this.selectedDirectories.filter(
       dirPath => this.directories.some(dir => dir.path === dirPath)
     );
+    
+    // 新しいフォルダが追加された場合、それもデフォルトで選択状態にする
+    this.directories.forEach(dir => {
+      if (!this.selectedDirectories.includes(dir.path)) {
+        this.selectedDirectories.push(dir.path);
+      }
+    });
+    
     this.saveDirectoryFilterState();
+    // saveFilterState()は削除 - loadInitialData()でloadFilterState()が後から呼ばれるため
   }
 
   async addDirectory() {
@@ -494,6 +539,7 @@ class MovieLibraryApp {
     }
 
     this.saveDirectoryFilterState();
+    this.saveFilterState(); // フィルター状態を保存
     this.renderSidebar();
     this.applyFiltersAndSort();
   }
@@ -502,6 +548,7 @@ class MovieLibraryApp {
   selectAllDirectories() {
     this.selectedDirectories = this.directories.map(dir => dir.path);
     this.saveDirectoryFilterState();
+    this.saveFilterState(); // フィルター状態を保存
     this.renderSidebar();
     this.applyFiltersAndSort();
   }
@@ -510,6 +557,7 @@ class MovieLibraryApp {
   deselectAllDirectories() {
     this.selectedDirectories = [];
     this.saveDirectoryFilterState();
+    this.saveFilterState(); // フィルター状態を保存
     this.renderSidebar();
     this.applyFiltersAndSort();
   }
@@ -524,6 +572,79 @@ class MovieLibraryApp {
     const saved = localStorage.getItem("selectedDirectories");
     if (saved) {
       this.selectedDirectories = JSON.parse(saved);
+    }
+  }
+
+  // 設定を読み込み
+  loadSettings() {
+    const saveFilterState = localStorage.getItem("saveFilterState");
+    console.log("loadSettings - raw saveFilterState from localStorage:", saveFilterState);
+    
+    // 初回起動時はデフォルトでtrueにする
+    if (saveFilterState === null) {
+      this.saveFilterStateEnabled = true;
+      this.saveSettings(); // デフォルト値を保存
+      console.log("loadSettings - first time, set to true");
+    } else {
+      this.saveFilterStateEnabled = saveFilterState === "true";
+      console.log("loadSettings - loaded from storage:", this.saveFilterStateEnabled);
+    }
+    
+    // 設定ダイアログのチェックボックスを更新
+    const checkbox = document.getElementById("saveFilterState");
+    if (checkbox) {
+      checkbox.checked = this.saveFilterStateEnabled;
+      console.log("loadSettings - checkbox updated:", checkbox.checked);
+    } else {
+      console.log("loadSettings - checkbox element not found yet");
+    }
+  }
+
+  // 設定を保存
+  saveSettings() {
+    localStorage.setItem("saveFilterState", this.saveFilterStateEnabled.toString());
+  }
+
+  // フィルター状態を保存
+  saveFilterState() {
+    if (!this.saveFilterStateEnabled) return;
+    
+    const filterState = {
+      rating: this.currentFilter.rating,
+      tags: this.currentFilter.tags,
+      directories: this.selectedDirectories
+    };
+    localStorage.setItem("filterState", JSON.stringify(filterState));
+    console.log("Filter state saved:", filterState);
+  }
+
+  // フィルター状態を読み込み
+  loadFilterState() {
+    console.log("loadFilterState called, saveFilterStateEnabled:", this.saveFilterStateEnabled);
+    if (!this.saveFilterStateEnabled) {
+      console.log("loadFilterState - disabled, skipping");
+      return;
+    }
+    
+    const saved = localStorage.getItem("filterState");
+    console.log("loadFilterState - raw data from localStorage:", saved);
+    if (saved) {
+      try {
+        const filterState = JSON.parse(saved);
+        this.currentFilter.rating = filterState.rating || 0;
+        this.currentFilter.tags = filterState.tags || [];
+        this.selectedDirectories = filterState.directories || [];
+        console.log("Filter state loaded:", filterState);
+        console.log("Applied to:", {
+          rating: this.currentFilter.rating,
+          tags: this.currentFilter.tags,
+          directories: this.selectedDirectories
+        });
+      } catch (error) {
+        console.error("Failed to load filter state:", error);
+      }
+    } else {
+      console.log("loadFilterState - no saved data found");
     }
   }
 
@@ -939,12 +1060,16 @@ class MovieLibraryApp {
     } else {
       this.currentFilter.tags.push(tagName);
     }
+    this.saveFilterState(); // フィルター状態を保存
     this.renderSidebar(); // Re-render to update active states
     this.applyFiltersAndSort();
   }
 
   renderSidebar() {
     try {
+      console.log("renderSidebar called");
+      console.log("Current filter tags:", this.currentFilter.tags);
+      console.log("Current selected directories:", this.selectedDirectories);
       this.renderTags();
       this.renderDirectories();
     } catch (error) {
@@ -1023,6 +1148,16 @@ class MovieLibraryApp {
   showSettings() {
     this.renderSettingsDirectories();
     this.loadThumbnailSettings();
+    
+    // フィルター設定の状態を復元
+    const saveFilterStateCheckbox = document.getElementById("saveFilterState");
+    if (saveFilterStateCheckbox) {
+      saveFilterStateCheckbox.checked = this.saveFilterStateEnabled;
+      console.log("showSettings - checkbox updated to:", this.saveFilterStateEnabled);
+    } else {
+      console.log("showSettings - checkbox element not found");
+    }
+    
     const modal = document.getElementById("settingsModal");
     if (modal) {
       modal.style.display = "flex";
@@ -1361,6 +1496,9 @@ class MovieLibraryApp {
     const starElements = document.querySelectorAll('.rating-btn[data-rating]:not([data-rating="0"])');
     const allBtn = document.querySelector('.rating-btn.all-btn[data-rating="0"]');
     
+    console.log(`updateStarDisplay called with rating: ${rating}, isHover: ${isHover}`);
+    console.log(`Found ${starElements.length} star elements`);
+    
     starElements.forEach((star, index) => {
       const starRating = index + 1;
       // Remove any existing hover class
@@ -1380,13 +1518,18 @@ class MovieLibraryApp {
     if (allBtn) {
       if (rating === 0 && !isHover) {
         allBtn.classList.add('active');
+        console.log("updateStarDisplay - All button set to active");
       } else {
         allBtn.classList.remove('active');
+        console.log("updateStarDisplay - All button set to inactive");
       }
+    } else {
+      console.log("updateStarDisplay - All button not found");
     }
   }
   
   setRatingFilter(rating) {
+    console.log("setRatingFilter called with:", rating);
     this.currentFilter.rating = rating;
     
     // Update visual state
@@ -1402,6 +1545,8 @@ class MovieLibraryApp {
     // Update star display
     this.updateStarDisplay(rating, false);
     
+    console.log("setRatingFilter - calling saveFilterState, enabled:", this.saveFilterStateEnabled);
+    this.saveFilterState(); // フィルター状態を保存
     this.applyFiltersAndSort();
   }
 
@@ -2116,7 +2261,6 @@ class MovieLibraryApp {
         case 'right':
           if ((this.selectedVideoIndex + 1) % columns === 0 || this.selectedVideoIndex === this.filteredVideos.length - 1) {
             // Move to leftmost item of the same row
-           
             const row = Math.floor(this.selectedVideoIndex / columns);
             newIndex = row * columns;
           } else {
@@ -2137,49 +2281,10 @@ class MovieLibraryApp {
     this.scrollToSelectedVideo();
   }
 
-  // フォルダフィルターの状態をlocalStorageに保存
-  saveDirectoryFilterState() {
-    localStorage.setItem("selectedDirectories", JSON.stringify(this.selectedDirectories));
-  }
-
-  // フォルダフィルターの状態をlocalStorageから読み込み
-  loadDirectoryFilterState() {
-    const saved = localStorage.getItem("selectedDirectories");
-    if (saved) {
-      this.selectedDirectories = JSON.parse(saved);
-    }
-  }
-
-  async scanDirectories() {
-    try {
-      this.showProgress("ディレクトリをスキャン中...", 0);
-      await window.electronAPI.scanDirectories();
-    } catch (error) {
-      console.error("Error scanning directories:", error);
-      this.showErrorDialog("スキャンに失敗しました", error);
-      this.hideProgress();
-    }
-  }
-
-  async generateThumbnails() {
-    try {
-      this.showProgress("サムネイルを生成中...", 0);
-      await window.electronAPI.generateThumbnails();
-    } catch (error) {
-      console.error("Error generating thumbnails:", error);
-      this.showErrorDialog("サムネイル生成に失敗しました", error);
-      this.hideProgress();
-    }
-  }
-
-  handleSearch(query) {
-    // Don't modify filteredVideos directly here, let applyFiltersAndSort handle it
-    this.applyFiltersAndSort();
-  }
-
   // 全タグフィルターを解除
   clearAllTags() {
     this.currentFilter.tags = [];
+    this.saveFilterState(); // フィルター状態を保存
     this.renderSidebar();
     this.applyFiltersAndSort();
   }
