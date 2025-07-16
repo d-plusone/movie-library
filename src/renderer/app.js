@@ -19,26 +19,30 @@ class MovieLibraryApp {
     this.maxToasts = 3;
 
     this.initializeEventListeners();
-    this.loadInitialData();
     this.initializeTheme();
     this.loadDirectoryFilterState(); // フォルダフィルター状態を復元
+    
+    this.loadInitialData().catch(error => {
+      console.error("Failed to load initial data:", error);
+    });
   }
 
   async loadInitialData() {
     try {
+      // Check if electronAPI is available
+      if (!window.electronAPI) {
+        throw new Error("electronAPI is not available - preload script may not have loaded");
+      }
+      
       await this.loadVideos();
       await this.loadTags();
       await this.loadDirectories();
+      
       this.renderVideoList();
       this.renderSidebar();
 
-      // Set initial rating filter to "all"
-      const allRatingBtn = document.querySelector(
-        '.rating-btn[data-rating="0"]'
-      );
-      if (allRatingBtn) {
-        allRatingBtn.classList.add("active");
-      }
+      // Set initial rating filter to "all" and update star display
+      this.setRatingFilter(0);
     } catch (error) {
       console.error("Error loading initial data:", error);
       this.showErrorDialog("データの読み込みに失敗しました", error);
@@ -84,23 +88,39 @@ class MovieLibraryApp {
       this.applyFiltersAndSort();
     });
 
-    // Rating filter
-    document.querySelectorAll(".rating-btn").forEach((btn) => {
-      btn.addEventListener("click", (e) => {
-        // Remove active class from all buttons
-        document
-          .querySelectorAll(".rating-btn")
-          .forEach((b) => b.classList.remove("active"));
-        // Add active class to clicked button
-        e.target.classList.add("active");
-
-        // Set filter rating
-        this.currentFilter.rating = parseInt(e.target.dataset.rating);
-        console.log("Rating filter set to:", this.currentFilter.rating); // Debug log
-
-        this.applyFiltersAndSort();
+    // Rating filter - star hover system
+    const ratingFilterContainer = document.querySelector('.rating-filter');
+    if (ratingFilterContainer) {
+      // Add hover events for star visualization
+      ratingFilterContainer.addEventListener('mousemove', (e) => {
+        const target = e.target.closest('.rating-btn[data-rating]:not([data-rating="0"])');
+        if (target) {
+          const rating = parseInt(target.dataset.rating);
+          this.updateStarDisplay(rating, true);
+        }
       });
-    });
+      
+      ratingFilterContainer.addEventListener('mouseleave', () => {
+        // Reset to current filter rating
+        this.updateStarDisplay(this.currentFilter.rating, false);
+      });
+      
+      ratingFilterContainer.addEventListener('click', (e) => {
+        const starBtn = e.target.closest('.rating-btn[data-rating]:not([data-rating="0"])');
+        if (starBtn) {
+          const rating = parseInt(starBtn.dataset.rating);
+          this.setRatingFilter(rating);
+        }
+      });
+    }
+
+    // "All" button for rating filter
+    const allRatingBtn = document.querySelector('.rating-btn.all-btn[data-rating="0"]');
+    if (allRatingBtn) {
+      allRatingBtn.addEventListener('click', () => {
+        this.setRatingFilter(0);
+      });
+    }
 
     // Folder selection controls
     document
@@ -400,13 +420,6 @@ class MovieLibraryApp {
   async loadVideos() {
     this.videos = await window.electronAPI.getVideos();
     this.filteredVideos = [...this.videos];
-    
-    // Debug: Log first few videos with their tags
-    console.log("Loaded videos:", this.videos.length);
-    this.videos.slice(0, 3).forEach((video, index) => {
-      console.log(`Video ${index + 1}: ${video.title}, Tags:`, video.tags);
-    });
-    
     this.updateVideoCount();
   }
 
@@ -474,7 +487,7 @@ class MovieLibraryApp {
       // 選択されている場合は削除
       this.selectedDirectories.splice(index, 1);
     }
-    
+
     this.saveDirectoryFilterState();
     this.renderSidebar();
     this.applyFiltersAndSort();
@@ -611,7 +624,6 @@ class MovieLibraryApp {
   }
 
   setView(view) {
-    console.log(`Switching to ${view} view`);
     this.currentView = view;
     document
       .querySelectorAll(".view-btn")
@@ -620,7 +632,6 @@ class MovieLibraryApp {
 
     const videoList = document.getElementById("videoList");
     videoList.className = `video-list ${view}-view`;
-    console.log(`Video list className: ${videoList.className}`);
     this.renderVideoList();
 
     // Maintain selected video highlighting after view change
@@ -633,7 +644,21 @@ class MovieLibraryApp {
 
   renderVideoList() {
     const videoList = document.getElementById("videoList");
+    
+    if (!videoList) {
+      console.error("Video list element not found!");
+      return;
+    }
+    
     videoList.innerHTML = "";
+
+    if (this.filteredVideos.length === 0) {
+      const noVideosMsg = document.createElement("div");
+      noVideosMsg.className = "no-videos-message";
+      noVideosMsg.textContent = "表示する動画がありません";
+      videoList.appendChild(noVideosMsg);
+      return;
+    }
 
     this.filteredVideos.forEach((video, index) => {
       const videoElement = this.createVideoElement(video, index);
@@ -689,7 +714,7 @@ class MovieLibraryApp {
 
     const metaDiv = document.createElement("div");
     metaDiv.className = "video-meta";
-    
+
     // Create meta info separately for flexible layout
     const metaInfoDiv = document.createElement("div");
     metaInfoDiv.className = "meta-info";
@@ -704,8 +729,6 @@ class MovieLibraryApp {
     ratingDiv.textContent = rating;
 
     // Debug: Log video tags and current view
-    console.log(`Video: ${video.title}, Tags:`, video.tags, `View: ${this.currentView}`);
-
     if (video.tags && video.tags.length > 0) {
       if (this.currentView === 'grid') {
         // Grid view: show up to 3 tags plus overflow indicator
@@ -713,15 +736,12 @@ class MovieLibraryApp {
         const visibleTags = video.tags.slice(0, maxVisibleTags);
         const hiddenTags = video.tags.slice(maxVisibleTags);
 
-        console.log(`Grid view - Visible tags:`, visibleTags, `Hidden tags:`, hiddenTags);
-
         // Add visible tags
         visibleTags.forEach((tag) => {
           const tagSpan = document.createElement("span");
           tagSpan.className = "video-tag";
           tagSpan.textContent = tag;
           tagsContainer.appendChild(tagSpan);
-          console.log(`Added tag to grid:`, tag);
         });
 
         // Add overflow indicator if there are hidden tags
@@ -731,21 +751,16 @@ class MovieLibraryApp {
           overflowIndicator.textContent = `+${hiddenTags.length}`;
           overflowIndicator.title = `他のタグ: ${hiddenTags.join(", ")}`;
           tagsContainer.appendChild(overflowIndicator);
-          console.log(`Added overflow indicator: +${hiddenTags.length}`);
         }
       } else {
         // List view: show all tags
-        console.log(`List view - All tags:`, video.tags);
         video.tags.forEach((tag) => {
           const tagSpan = document.createElement("span");
           tagSpan.className = "video-tag";
           tagSpan.textContent = tag;
           tagsContainer.appendChild(tagSpan);
-          console.log(`Added tag to list:`, tag);
         });
       }
-    } else {
-      console.log(`No tags found for video: ${video.title}`);
     }
 
     // Assemble meta div with info and tags
@@ -760,16 +775,16 @@ class MovieLibraryApp {
     // Create thumbnail div
     const thumbnailDiv = document.createElement("div");
     thumbnailDiv.className = "video-thumbnail";
-    
+
     const thumbnailImg = document.createElement("img");
     thumbnailImg.src = thumbnailSrc;
     thumbnailImg.alt = video.title;
     thumbnailImg.loading = "lazy";
-    
+
     const durationDiv = document.createElement("div");
     durationDiv.className = "video-duration";
     durationDiv.textContent = duration;
-    
+
     thumbnailDiv.appendChild(thumbnailImg);
     thumbnailDiv.appendChild(durationDiv);
 
@@ -782,6 +797,12 @@ class MovieLibraryApp {
 
   renderTags() {
     const tagsList = document.getElementById("tagsList");
+    
+    if (!tagsList) {
+      console.error("tagsList element not found!");
+      return;
+    }
+    
     tagsList.innerHTML = "";
 
     this.tags.forEach((tag) => {
@@ -918,12 +939,22 @@ class MovieLibraryApp {
   }
 
   renderSidebar() {
-    this.renderTags();
-    this.renderDirectories();
+    try {
+      this.renderTags();
+      this.renderDirectories();
+    } catch (error) {
+      console.error("Error rendering sidebar:", error);
+    }
   }
 
   renderDirectories() {
     const directoriesList = document.getElementById("directoriesList");
+    
+    if (!directoriesList) {
+      console.error("directoriesList element not found!");
+      return;
+    }
+    
     directoriesList.innerHTML = "";
 
     this.directories.forEach((directory) => {
@@ -985,15 +1016,13 @@ class MovieLibraryApp {
   }
 
   showSettings() {
-    console.log("Settings button clicked - opening settings modal"); // Debug log
     this.renderSettingsDirectories();
     this.loadThumbnailSettings();
     const modal = document.getElementById("settingsModal");
     if (modal) {
       modal.style.display = "flex";
-      console.log("Settings modal display set to flex"); // Debug log
     } else {
-      console.error("Settings modal element not found"); // Debug log
+      console.error("Settings modal element not found");
     }
   }
 
@@ -1122,14 +1151,16 @@ class MovieLibraryApp {
   }
 
   updateVideoCount() {
-    document.getElementById(
-      "videoCount"
-    ).textContent = `${this.filteredVideos.length} 動画`;
+    const videoCountElement = document.getElementById("videoCount");
+    if (videoCountElement) {
+      const count = this.filteredVideos.length;
+      videoCountElement.textContent = `${count} 動画`;
+    }
   }
 
   showNotification(message, type = "info") {
     const container = document.getElementById("notificationContainer");
-    
+
     // 通知の制限: 最大3個まで表示
     const existingNotifications = container.querySelectorAll('.notification');
     if (existingNotifications.length >= this.maxToasts) {
@@ -1318,6 +1349,55 @@ class MovieLibraryApp {
       tooltip.style.visibility = "hidden";
       tooltip.style.opacity = "0";
     }
+  }
+
+  // Rating filter methods
+  updateStarDisplay(rating, isHover = false) {
+    const starElements = document.querySelectorAll('.rating-btn[data-rating]:not([data-rating="0"])');
+    const allBtn = document.querySelector('.rating-btn.all-btn[data-rating="0"]');
+    
+    starElements.forEach((star, index) => {
+      const starRating = index + 1;
+      // Remove any existing hover class
+      star.classList.remove('hover');
+      
+      if (starRating <= rating) {
+        star.textContent = '⭐️';
+        if (isHover) {
+          star.classList.add('hover');
+        }
+      } else {
+        star.textContent = '★';
+      }
+    });
+    
+    // Update all button state
+    if (allBtn) {
+      if (rating === 0 && !isHover) {
+        allBtn.classList.add('active');
+      } else {
+        allBtn.classList.remove('active');
+      }
+    }
+  }
+  
+  setRatingFilter(rating) {
+    this.currentFilter.rating = rating;
+    
+    // Update visual state
+    const allBtn = document.querySelector('.rating-btn.all-btn[data-rating="0"]');
+    if (allBtn) {
+      if (rating === 0) {
+        allBtn.classList.add('active');
+      } else {
+        allBtn.classList.remove('active');
+      }
+    }
+    
+    // Update star display
+    this.updateStarDisplay(rating, false);
+    
+    this.applyFiltersAndSort();
   }
 
   // Placeholder methods for features not yet fully implemented
@@ -1813,14 +1893,20 @@ class MovieLibraryApp {
   }
 
   initializeTheme() {
+    console.log("Initializing theme...");
     // Get saved theme or use system preference
     const savedTheme = localStorage.getItem("theme") || "system";
+    console.log("Saved theme:", savedTheme);
+    
     this.applyTheme(savedTheme);
 
     // Set the select value in settings
     const themeSelect = document.getElementById("themeSelect");
     if (themeSelect) {
       themeSelect.value = savedTheme;
+      console.log("Theme select set to:", savedTheme);
+    } else {
+      console.warn("Theme select element not found");
     }
 
     // Listen for system theme changes
@@ -1831,18 +1917,22 @@ class MovieLibraryApp {
           this.applyTheme("system");
         }
       });
+      console.log("System theme listener added");
     }
   }
 
   applyTheme(theme) {
+    console.log("Applying theme:", theme);
     const body = document.body;
 
     switch (theme) {
       case "dark":
         body.setAttribute("data-theme", "dark");
+        console.log("Dark theme applied");
         break;
       case "light":
         body.removeAttribute("data-theme");
+        console.log("Light theme applied");
         break;
       case "system":
       default:
@@ -1851,13 +1941,16 @@ class MovieLibraryApp {
           window.matchMedia("(prefers-color-scheme: dark)").matches
         ) {
           body.setAttribute("data-theme", "dark");
+          console.log("System dark theme applied");
         } else {
           body.removeAttribute("data-theme");
+          console.log("System light theme applied");
         }
         break;
     }
 
     localStorage.setItem("theme", theme);
+    console.log("Theme saved to localStorage:", theme);
   }
 
   async refreshMainThumbnail() {
@@ -2018,6 +2111,7 @@ class MovieLibraryApp {
         case 'right':
           if ((this.selectedVideoIndex + 1) % columns === 0 || this.selectedVideoIndex === this.filteredVideos.length - 1) {
             // Move to leftmost item of the same row
+           
             const row = Math.floor(this.selectedVideoIndex / columns);
             newIndex = row * columns;
           } else {
@@ -2079,5 +2173,23 @@ class MovieLibraryApp {
   }
 }
 
-// Initialize the app
-const movieApp = new MovieLibraryApp();
+// Global error handlers for debugging
+window.addEventListener('error', function(e) {
+  console.error('Global error:', e.error, e);
+});
+
+window.addEventListener('unhandledrejection', function(e) {
+  console.error('Unhandled promise rejection:', e.reason, e);
+});
+
+// Initialize the app when DOM is ready
+document.addEventListener('DOMContentLoaded', function() {
+  const movieApp = new MovieLibraryApp();
+  window.movieApp = movieApp; // For debugging
+});
+
+// Also check if DOM is already ready (in case script loads after DOMContentLoaded)
+if (document.readyState !== 'loading') {
+  const movieApp = new MovieLibraryApp();
+  window.movieApp = movieApp; // For debugging
+}

@@ -1694,35 +1694,66 @@ body {
 
 .rating-filter {
     display: flex;
-    flex-direction: column;
-    gap: 6px;
+    align-items: center;
+    gap: 4px;
+    position: relative;
+    user-select: none;
+    margin-bottom: 8px;
 }
 
 .rating-btn {
-    padding: 8px 12px;
+    padding: 4px;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 20px;
+    transition: all 0.2s ease;
+    line-height: 1;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+}
+
+.rating-btn.all-btn {
+    font-size: 12px;
+    font-weight: 500;
+    padding: 6px 8px;
     border: 1px solid var(--border-color);
     border-radius: 6px;
     background: var(--bg-secondary);
     color: var(--text-primary);
-    cursor: pointer;
-    font-size: 12px;
-    font-weight: 500;
-    transition: all 0.2s ease;
-    width: 100%;
-    text-align: center;
+    min-width: 50px;
+    width: auto;
+    height: auto;
+    margin-top: 8px;
+    display: block;
 }
 
-.rating-btn:hover {
+.rating-btn.all-btn:hover {
     background: var(--bg-tertiary);
     border-color: var(--accent-color);
     transform: translateY(-1px);
 }
 
-.rating-btn.active {
+.rating-btn.all-btn.active {
     background: var(--accent-color);
     color: white;
     border-color: var(--accent-color);
     box-shadow: 0 2px 8px rgba(0, 122, 255, 0.3);
+}
+
+/* Star hover effects */
+.rating-btn[data-rating]:not([data-rating="0"]):hover {
+    color: #FFD700;
+    transform: scale(1.1);
+}
+
+.rating-btn[data-rating]:not([data-rating="0"]).hover {
+    color: #FFD700;
 }
 
 /* Sort Select Styles */
@@ -1751,18 +1782,18 @@ body {
 }
 
 /* Dark theme support for rating filter and sort */
-[data-theme="dark"] .rating-btn {
+[data-theme="dark"] .rating-btn.all-btn {
     background: var(--bg-secondary);
     color: var(--text-primary);
     border-color: var(--border-color);
 }
 
-[data-theme="dark"] .rating-btn:hover {
+[data-theme="dark"] .rating-btn.all-btn:hover {
     background: var(--bg-tertiary);
     border-color: var(--accent-color);
 }
 
-[data-theme="dark"] .rating-btn.active {
+[data-theme="dark"] .rating-btn.all-btn.active {
     background: var(--accent-color);
     color: white;
     border-color: var(--accent-color);
