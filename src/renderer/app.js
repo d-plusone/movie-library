@@ -256,17 +256,6 @@ class MovieLibraryApp {
     window.electronAPI.onVideoRemoved((filePath) =>
       this.handleVideoRemoved(filePath)
     );
-
-    // Window resize event for tag overflow recalculation
-    let resizeTimeout;
-    window.addEventListener('resize', () => {
-      clearTimeout(resizeTimeout);
-      resizeTimeout = setTimeout(() => {
-        if (this.currentView === 'grid') {
-          this.handleTagOverflow();
-        }
-      }, 250); // Debounce resize events
-    });
   }
 
   // Error dialog methods
@@ -411,6 +400,13 @@ class MovieLibraryApp {
   async loadVideos() {
     this.videos = await window.electronAPI.getVideos();
     this.filteredVideos = [...this.videos];
+    
+    // Debug: Log first few videos with their tags
+    console.log("Loaded videos:", this.videos.length);
+    this.videos.slice(0, 3).forEach((video, index) => {
+      console.log(`Video ${index + 1}: ${video.title}, Tags:`, video.tags);
+    });
+    
     this.updateVideoCount();
   }
 
@@ -568,12 +564,12 @@ class MovieLibraryApp {
       );
     }
 
-    // Apply tag filter
+    // Apply tag filter (OR search - any matching tag)
     if (this.currentFilter.tags.length > 0) {
       filtered = filtered.filter(
         (video) =>
           video.tags &&
-          this.currentFilter.tags.every((tag) => video.tags.includes(tag))
+          this.currentFilter.tags.some((tag) => video.tags.includes(tag))
       );
     }
 
@@ -615,6 +611,7 @@ class MovieLibraryApp {
   }
 
   setView(view) {
+    console.log(`Switching to ${view} view`);
     this.currentView = view;
     document
       .querySelectorAll(".view-btn")
@@ -623,6 +620,7 @@ class MovieLibraryApp {
 
     const videoList = document.getElementById("videoList");
     videoList.className = `video-list ${view}-view`;
+    console.log(`Video list className: ${videoList.className}`);
     this.renderVideoList();
 
     // Maintain selected video highlighting after view change
@@ -648,59 +646,6 @@ class MovieLibraryApp {
       this.selectedVideoIndex < this.filteredVideos.length
     ) {
       this.highlightSelectedVideo();
-    }
-
-    // Handle tag overflow for grid view
-    if (this.currentView === 'grid') {
-      this.handleTagOverflow();
-    }
-  }
-
-  // Handle tag overflow for grid view
-  handleTagOverflow() {
-    const videoItems = document.querySelectorAll('.grid-view .video-item');
-    videoItems.forEach(item => {
-      const tagsContainer = item.querySelector('.video-tags');
-      if (tagsContainer) {
-        this.checkTagOverflow(tagsContainer);
-      }
-    });
-  }
-
-  // Check if tags overflow and add appropriate class
-  checkTagOverflow(tagsContainer) {
-    // Reset overflow state
-    tagsContainer.classList.remove('has-overflow');
-
-    // Get all tag elements
-    const tags = tagsContainer.querySelectorAll('.video-tag');
-    if (tags.length <= 1) return; // No overflow if 1 or fewer tags
-
-    // Temporarily set container to single line
-    const originalMaxHeight = tagsContainer.style.maxHeight;
-    const originalOverflow = tagsContainer.style.overflow;
-
-    tagsContainer.style.maxHeight = '14px'; // Single row height including padding
-    tagsContainer.style.overflow = 'hidden';
-
-    // Check if any tags are hidden by measuring positions
-    let isOverflowing = false;
-    const containerRect = tagsContainer.getBoundingClientRect();
-
-    for (let i = 1; i < tags.length; i++) {
-      const tagRect = tags[i].getBoundingClientRect();
-      if (tagRect.bottom > containerRect.bottom + 1) { // +1 for sub-pixel precision
-        isOverflowing = true;
-        break;
-      }
-    }
-
-    // Restore original styles
-    tagsContainer.style.maxHeight = originalMaxHeight;
-    tagsContainer.style.overflow = originalOverflow;
-
-    if (isOverflowing) {
-      tagsContainer.classList.add('has-overflow');
     }
   }
 
@@ -733,52 +678,103 @@ class MovieLibraryApp {
     const videoInfoDiv = document.createElement("div");
     videoInfoDiv.className = "video-info";
 
-    // Create tags container safely
+    // Create and populate video info elements
+    const titleDiv = document.createElement("div");
+    titleDiv.className = "video-title";
+    titleDiv.innerHTML = `${video.title}<span class="video-extension">${extension}</span>`;
+
+    // Create tags container first (for grid view positioning)
     const tagsContainer = document.createElement("div");
     tagsContainer.className = "video-tags";
 
-    if (video.tags) {
-      video.tags.forEach((tag) => {
-        const tagSpan = document.createElement("span");
-        tagSpan.className = "video-tag";
-        tagSpan.textContent = tag;
-        tagsContainer.appendChild(tagSpan);
-      });
+    const metaDiv = document.createElement("div");
+    metaDiv.className = "video-meta";
+    
+    // Create meta info separately for flexible layout
+    const metaInfoDiv = document.createElement("div");
+    metaInfoDiv.className = "meta-info";
+    metaInfoDiv.innerHTML = `
+        <div>サイズ: ${fileSize}</div>
+        <div>解像度: ${video.width}x${video.height}</div>
+        <div>追加日: ${new Date(video.added_at).toLocaleDateString("ja-JP")}</div>
+    `;
+
+    const ratingDiv = document.createElement("div");
+    ratingDiv.className = "video-rating";
+    ratingDiv.textContent = rating;
+
+    // Debug: Log video tags and current view
+    console.log(`Video: ${video.title}, Tags:`, video.tags, `View: ${this.currentView}`);
+
+    if (video.tags && video.tags.length > 0) {
+      if (this.currentView === 'grid') {
+        // Grid view: show up to 3 tags plus overflow indicator
+        const maxVisibleTags = 3;
+        const visibleTags = video.tags.slice(0, maxVisibleTags);
+        const hiddenTags = video.tags.slice(maxVisibleTags);
+
+        console.log(`Grid view - Visible tags:`, visibleTags, `Hidden tags:`, hiddenTags);
+
+        // Add visible tags
+        visibleTags.forEach((tag) => {
+          const tagSpan = document.createElement("span");
+          tagSpan.className = "video-tag";
+          tagSpan.textContent = tag;
+          tagsContainer.appendChild(tagSpan);
+          console.log(`Added tag to grid:`, tag);
+        });
+
+        // Add overflow indicator if there are hidden tags
+        if (hiddenTags.length > 0) {
+          const overflowIndicator = document.createElement("span");
+          overflowIndicator.className = "video-tag-overflow";
+          overflowIndicator.textContent = `+${hiddenTags.length}`;
+          overflowIndicator.title = `他のタグ: ${hiddenTags.join(", ")}`;
+          tagsContainer.appendChild(overflowIndicator);
+          console.log(`Added overflow indicator: +${hiddenTags.length}`);
+        }
+      } else {
+        // List view: show all tags
+        console.log(`List view - All tags:`, video.tags);
+        video.tags.forEach((tag) => {
+          const tagSpan = document.createElement("span");
+          tagSpan.className = "video-tag";
+          tagSpan.textContent = tag;
+          tagsContainer.appendChild(tagSpan);
+          console.log(`Added tag to list:`, tag);
+        });
+      }
+    } else {
+      console.log(`No tags found for video: ${video.title}`);
     }
 
-    videoInfoDiv.innerHTML = `
-            <div class="video-title">
-                ${video.title}
-                <span class="video-extension">${extension}</span>
-            </div>
-            <div class="video-meta">
-                <div>サイズ: ${fileSize}</div>
-                <div>解像度: ${video.width}x${video.height}</div>
-                <div>追加日: ${new Date(video.added_at).toLocaleDateString(
-                  "ja-JP"
-                )}</div>
-            </div>
-            <div class="video-rating">${rating}</div>
-        `;
+    // Assemble meta div with info and tags
+    metaDiv.appendChild(metaInfoDiv);
+    metaDiv.appendChild(tagsContainer);
 
-    videoInfoDiv.appendChild(tagsContainer);
+    // Assemble video info
+    videoInfoDiv.appendChild(titleDiv);
+    videoInfoDiv.appendChild(metaDiv);
+    videoInfoDiv.appendChild(ratingDiv);
 
-    div.innerHTML = `
-            <div class="video-thumbnail">
-                <img src="${thumbnailSrc}" alt="${video.title}" loading="lazy">
-                <div class="video-duration">${duration}</div>
-            </div>
-        `;
+    // Create thumbnail div
+    const thumbnailDiv = document.createElement("div");
+    thumbnailDiv.className = "video-thumbnail";
+    
+    const thumbnailImg = document.createElement("img");
+    thumbnailImg.src = thumbnailSrc;
+    thumbnailImg.alt = video.title;
+    thumbnailImg.loading = "lazy";
+    
+    const durationDiv = document.createElement("div");
+    durationDiv.className = "video-duration";
+    durationDiv.textContent = duration;
+    
+    thumbnailDiv.appendChild(thumbnailImg);
+    thumbnailDiv.appendChild(durationDiv);
 
-    // Add click event to thumbnail for modal
-    const thumbnailImg = div.querySelector(".video-thumbnail img");
-    thumbnailImg.addEventListener("click", (e) => {
-      e.stopPropagation(); // Prevent video selection
-      if (video.chapterThumbnails && video.chapterThumbnails.length > 0) {
-        this.showThumbnailModal(video, 0);
-      }
-    });
-
+    // Assemble the complete video element
+    div.appendChild(thumbnailDiv);
     div.appendChild(videoInfoDiv);
 
     return div;
@@ -1133,6 +1129,14 @@ class MovieLibraryApp {
 
   showNotification(message, type = "info") {
     const container = document.getElementById("notificationContainer");
+    
+    // 通知の制限: 最大3個まで表示
+    const existingNotifications = container.querySelectorAll('.notification');
+    if (existingNotifications.length >= this.maxToasts) {
+      // 最も古い通知を削除
+      existingNotifications[0].remove();
+    }
+
     const notification = document.createElement("div");
     notification.className = `notification ${type}`;
 
