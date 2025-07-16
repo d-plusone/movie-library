@@ -130,6 +130,11 @@ class MovieLibraryApp {
       .getElementById("deselectAllFoldersBtn")
       .addEventListener("click", () => this.deselectAllDirectories());
 
+    // Tag controls
+    document
+      .getElementById("clearAllTagsBtn")
+      .addEventListener("click", () => this.clearAllTags());
+
     // Details panel
     document
       .getElementById("closeDetailsBtn")
@@ -2169,6 +2174,13 @@ class MovieLibraryApp {
 
   handleSearch(query) {
     // Don't modify filteredVideos directly here, let applyFiltersAndSort handle it
+    this.applyFiltersAndSort();
+  }
+
+  // 全タグフィルターを解除
+  clearAllTags() {
+    this.currentFilter.tags = [];
+    this.renderSidebar();
     this.applyFiltersAndSort();
   }
 }

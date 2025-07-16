@@ -277,6 +277,37 @@ body {
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
+/* Tag controls */
+.tag-controls {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.tag-controls .btn {
+    flex: 1;
+    font-size: 12px;
+    padding: 6px 12px;
+    border-radius: 6px;
+}
+
+.tag-controls .btn-small {
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+    transition: all 0.2s ease;
+    box-shadow: none;
+    backdrop-filter: none;
+}
+
+.tag-controls .btn-small:hover {
+    background: var(--accent-color);
+    color: white;
+    border-color: var(--accent-color);
+    transform: none;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
 .tags-list,
 .directories-list {
     display: flex;
