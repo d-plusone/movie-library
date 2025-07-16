@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Movie Library</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+    <div id="app">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="header-left">
+            </div>
+            <div class="header-center">
+                <div class="header-actions">
+                    <button id="addDirectoryBtn" class="btn btn-primary">
+                        <span class="icon">📁</span>
+                        フォルダを追加
+                    </button>
+                    <button id="scanDirectoriesBtn" class="btn btn-secondary">
+                        <span class="icon">🔄</span>
+                        再スキャン
+                    </button>
+                    <button id="generateThumbnailsBtn" class="btn btn-secondary">
+                        <span class="icon">🖼️</span>
+                        サムネイル再生成
+                    </button>
+                </div>
+            </div>
+            <div class="header-right">
+                <div class="search-container">
+                    <input type="text" id="searchInput" class="search-input" placeholder="動画を検索...">
+                    <span class="search-icon">🔍</span>
+                </div>
+                <button id="settingsBtn" class="btn btn-icon">
+                    <span class="icon">⚙️</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Progress Bar -->
+        <div id="progressContainer" class="progress-container" style="display: none;">
+            <div class="progress-info">
+                <span id="progressText">処理中...</span>
+                <span id="progressPercent">0%</span>
+            </div>
+            <div class="progress-bar">
+                <div id="progressFill" class="progress-fill"></div>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Sidebar -->
+            <aside class="sidebar">
+                <div class="sidebar-section">
+                    <h3>フィルター</h3>
+                    <div class="filter-group">
+                        <label>評価</label>
+                        <div class="rating-filter">
+                            <button class="rating-btn" data-rating="0">すべて</button>
+                            <button class="rating-btn" data-rating="1">⭐</button>
+                            <button class="rating-btn" data-rating="2">⭐⭐</button>
+                            <button class="rating-btn" data-rating="3">⭐⭐⭐</button>
+                            <button class="rating-btn" data-rating="4">⭐⭐⭐⭐</button>
+                            <button class="rating-btn" data-rating="5">⭐⭐⭐⭐⭐</button>
+                        </div>
+                    </div>
+                    <div class="filter-group">
+                        <label>ソート</label>
+                        <select id="sortSelect" class="sort-select">
+                            <option value="filename">ファイル名</option>
+                            <option value="title">タイトル</option>
+                            <option value="duration">再生時間</option>
+                            <option value="size">ファイルサイズ</option>
+                            <option value="created_at">作成日</option>
+                            <option value="rating">評価</option>
+                            <option value="added_at">追加日</option>
+                        </select>
+                        <select id="orderSelect" class="sort-select">
+                            <option value="ASC">昇順</option>
+                            <option value="DESC">降順</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="sidebar-section">
+                    <h3>タグ</h3>
+                    <div id="tagsList" class="tags-list">
+                        <!-- Tags will be populated here -->
+                    </div>
+                </div>
+
+                <div class="sidebar-section">
+                    <h3>フォルダ</h3>
+                    <div id="directoriesList" class="directories-list">
+                        <!-- Directories will be populated here -->
+                    </div>
+                </div>
+
+                <div class="sidebar-section">
+                    <h3>キーボードナビゲーション</h3>
+                    <div class="keyboard-help">
+                        <div class="help-group">
+                            <div class="help-title">グリッドビュー</div>
+                            <div class="help-item">
+                                <span class="help-key">↑↓←→</span>
+                                <span class="help-desc">2次元選択</span>
+                            </div>
+                        </div>
+                        <div class="help-group">
+                            <div class="help-title">リストビュー</div>
+                            <div class="help-item">
+                                <span class="help-key">↑↓←→</span>
+                                <span class="help-desc">上下選択</span>
+                            </div>
+                        </div>
+                        <div class="help-item">
+                            <span class="help-key">Enter</span>
+                            <span class="help-desc">再生</span>
+                        </div>
+                        <div class="help-item">
+                            <span class="help-key">Esc</span>
+                            <span class="help-desc">詳細を閉じる</span>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Video List -->
+            <section class="video-list-container">
+                <div class="video-list-header">
+                    <div class="view-controls">
+                        <button id="gridViewBtn" class="view-btn active" data-view="grid">
+                            <span class="icon">⊞</span>
+                        </button>
+                        <button id="listViewBtn" class="view-btn" data-view="list">
+                            <span class="icon">☰</span>
+                        </button>
+                    </div>
+                    <div class="video-count">
+                        <span id="videoCount">0 動画</span>
+                    </div>
+                </div>
+                <div id="videoList" class="video-list grid-view">
+                    <!-- Video items will be populated here -->
+                </div>
+            </section>
+
+            <!-- Video Details Panel -->
+            <aside id="detailsPanel" class="details-panel" style="display: none;">
+                <div class="details-header">
+                    <h3 id="detailsTitle">動画詳細</h3>
+                    <button id="closeDetailsBtn" class="btn btn-icon">
+                        <span class="icon">✕</span>
+                    </button>
+                </div>
+                <div class="details-content">
+                    <div class="details-thumbnails">
+                        <div class="main-thumbnail">
+                            <img id="detailsMainThumbnail" src="" alt="メインサムネイル">
+                            <button id="refreshMainThumbnailBtn" class="refresh-thumbnail-btn" title="メインサムネイルを更新">
+                                <span class="icon">🔄</span>
+                            </button>
+                        </div>
+                        <div class="chapter-thumbnails">
+                            <div id="detailsChapterThumbnails" class="chapter-grid">
+                                <!-- Chapter thumbnails will be populated here -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="details-info">
+                        <div class="info-group">
+                            <label>タイトル</label>
+                            <input type="text" id="detailsTitleInput" class="details-input">
+                        </div>
+
+                        <div class="info-group">
+                            <label>評価</label>
+                            <div class="rating-input">
+                                <span class="star" data-rating="1">⭐</span>
+                                <span class="star" data-rating="2">⭐</span>
+                                <span class="star" data-rating="3">⭐</span>
+                                <span class="star" data-rating="4">⭐</span>
+                                <span class="star" data-rating="5">⭐</span>
+                            </div>
+                        </div>
+
+                        <div class="info-group">
+                            <label>説明</label>
+                            <textarea id="detailsDescriptionInput" class="details-textarea" rows="4"></textarea>
+                        </div>
+
+                        <div class="info-group">
+                            <label>タグ</label>
+                            <div class="tags-input-container">
+                                <input type="text" id="tagInput" class="tag-input" placeholder="タグを追加...">
+                                <div id="detailsTagsList" class="details-tags">
+                                    <!-- Tags will be populated here -->
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="info-group">
+                            <label>ファイル情報</label>
+                            <div class="file-info">
+                                <div class="info-row">
+                                    <span class="info-label">ファイルパス:</span>
+                                    <span id="detailsFilePath" class="info-value"></span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label">ファイルサイズ:</span>
+                                    <span id="detailsFileSize" class="info-value"></span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label">再生時間:</span>
+                                    <span id="detailsDuration" class="info-value"></span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label">解像度:</span>
+                                    <span id="detailsResolution" class="info-value"></span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label">フレームレート:</span>
+                                    <span id="detailsFps" class="info-value"></span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label">コーデック:</span>
+                                    <span id="detailsCodec" class="info-value"></span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="details-actions">
+                            <button id="saveDetailsBtn" class="btn btn-primary">保存</button>
+                            <button id="playVideoBtn" class="btn btn-secondary">再生</button>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+        </main>
+
+        <!-- Settings Modal -->
+        <div id="settingsModal" class="modal" style="display: none;">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>設定</h2>
+                    <button id="closeSettingsBtn" class="btn btn-icon">
+                        <span class="icon">✕</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="settings-section">
+                        <h3>監視フォルダ</h3>
+                        <div id="settingsDirectoriesList" class="settings-directories">
+                            <!-- Directories will be populated here -->
+                        </div>
+                        <button id="addDirectorySettingsBtn" class="btn btn-secondary">
+                            <span class="icon">📁</span>
+                            フォルダを追加
+                        </button>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3>外観</h3>
+                        <div class="setting-item">
+                            <label for="themeSelect">テーマ</label>
+                            <select id="themeSelect" class="setting-select">
+                                <option value="system">システム設定に従う</option>
+                                <option value="light">ライトモード</option>
+                                <option value="dark">ダークモード</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3>サムネイル設定</h3>
+                        <div class="setting-item">
+                            <label for="thumbnailQuality">サムネイル品質</label>
+                            <select id="thumbnailQuality" class="setting-select">
+                                <option value="1">最高品質</option>
+                                <option value="2">高品質</option>
+                                <option value="3">標準品質</option>
+                                <option value="5">低品質</option>
+                            </select>
+                        </div>
+                        <div class="setting-item">
+                            <label for="thumbnailSize">サムネイルサイズ</label>
+                            <select id="thumbnailSize" class="setting-select">
+                                <option value="1280x720">HD (1280x720)</option>
+                                <option value="854x480">SD (854x480)</option>
+                                <option value="640x360">小 (640x360)</option>
+                                <option value="320x180">極小 (320x180)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3>データベース</h3>
+                        <button id="rescanAllBtn" class="btn btn-secondary">
+                            <span class="icon">🔄</span>
+                            全ての動画を再スキャン
+                        </button>
+                        <button id="regenerateThumbnailsBtn" class="btn btn-secondary">
+                            <span class="icon">🖼️</span>
+                            全てのサムネイルを再生成
+                        </button>
+                        <button id="cleanupThumbnailsBtn" class="btn btn-secondary">
+                            <span class="icon">🗑️</span>
+                            不要なサムネイルを削除
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Notification Container -->
+        <div id="notificationContainer" class="notification-container">
+            <!-- Notifications will be populated here -->
+        </div>
+
+        <!-- Thumbnail Modal -->
+        <div id="thumbnailModal" class="thumbnail-modal" style="display: none;">
+            <div class="thumbnail-modal-content">
+                <div class="thumbnail-modal-header">
+                    <h3 id="thumbnailModalTitle">サムネイル表示</h3>
+                    <button id="closeThumbnailBtn" class="btn btn-icon">
+                        <span class="icon">✕</span>
+                    </button>
+                </div>
+                <div class="thumbnail-modal-body">
+                    <div class="thumbnail-modal-nav">
+                        <button id="prevThumbnailBtn" class="nav-btn">
+                            <span class="icon">◀</span>
+                        </button>
+                        <div class="thumbnail-display">
+                            <img id="modalThumbnailImage" src="" alt="サムネイル">
+                            <div id="thumbnailInfo" class="thumbnail-info">
+                                <span id="thumbnailTimestamp"></span>
+                                <span id="thumbnailIndex"></span>
+                            </div>
+                        </div>
+                        <button id="nextThumbnailBtn" class="nav-btn">
+                            <span class="icon">▶</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tooltip -->
+        <div id="tooltip" class="tooltip" style="display: none;">
+            <div class="tooltip-content">
+                <div id="tooltipTitle" class="tooltip-title"></div>
+                <div id="tooltipChapters" class="tooltip-chapters">
+                    <!-- Chapter thumbnails will be populated here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Error Dialog -->
+        <div id="errorDialog" class="error-dialog" style="display: none;">
+            <div class="error-dialog-content">
+                <div class="error-dialog-header">
+                    <h3>エラー</h3>
+                    <button id="closeErrorBtn" class="btn btn-icon">
+                        <span class="icon">✕</span>
+                    </button>
+                </div>
+                <div class="error-dialog-body">
+                    <div id="errorMessage" class="error-message"></div>
+                    <div id="errorDetails" class="error-details" style="display: none;"></div>
+                </div>
+                <div class="error-dialog-actions">
+                    <button id="showErrorDetailsBtn" class="btn btn-secondary">詳細を表示</button>
+                    <button id="errorOkBtn" class="btn btn-primary">OK</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tag Edit Dialog -->
+        <div id="tagEditDialog" class="modal" style="display: none;">
+            <div class="modal-content" style="max-width: 400px;">
+                <div class="modal-header">
+                    <h2>タグ名を編集</h2>
+                    <button id="closeTagEditBtn" class="btn btn-icon">
+                        <span class="icon">✕</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="setting-item">
+                        <label for="tagNameInput">タグ名</label>
+                        <input type="text" id="tagNameInput" class="setting-select" placeholder="タグ名を入力">
+                    </div>
+                </div>
+                <div class="modal-actions">
+                    <button id="cancelTagEditBtn" class="btn btn-secondary">キャンセル</button>
+                    <button id="saveTagEditBtn" class="btn btn-primary">保存</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+
+</html>

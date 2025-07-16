@@ -1,0 +1,56 @@
+{
+    "name": "movie-library",
+    "version": "1.0.0",
+    "description": "A video file management application for Mac",
+    "main": "main.js",
+    "scripts": {
+        "start": "electron .",
+        "dev": "electron . --enable-logging",
+        "build": "electron-builder",
+        "dist": "electron-builder --publish=never"
+    },
+    "keywords": [
+        "electron",
+        "video",
+        "management",
+        "media"
+    ],
+    "author": "Your Name",
+    "license": "MIT",
+    "devDependencies": {
+        "electron": "^27.0.0",
+        "electron-builder": "^24.6.4"
+    },
+    "dependencies": {
+        "ffmpeg-static": "^5.2.0",
+        "ffprobe-static": "^3.1.0",
+        "fluent-ffmpeg": "^2.1.2",
+        "sqlite3": "^5.1.6",
+        "chokidar": "^3.5.3"
+    },
+    "build": {
+        "appId": "com.yourcompany.movielibrary",
+        "productName": "Movie Library",
+        "directories": {
+            "output": "dist"
+        },
+        "files": [
+            "**/*",
+            "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}",
+            "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}",
+            "!**/node_modules/*.d.ts",
+            "!**/node_modules/.bin",
+            "!**/*.{iml,o,hprof,orig,pyc,pyo,rbc,swp,csproj,sln,xproj}",
+            "!.editorconfig",
+            "!**/._*",
+            "!**/{.DS_Store,.git,.hg,.svn,CVS,RCS,SCCS,.gitignore,.gitattributes}",
+            "!**/{__pycache__,thumbs.db,.flowconfig,.idea,.vs,.nyc_output}",
+            "!**/{appveyor.yml,.travis.yml,circle.yml}",
+            "!**/{npm-debug.log,yarn.lock,.yarn-integrity,.yarn-metadata.json}"
+        ],
+        "mac": {
+            "icon": "assets/icon.icns",
+            "category": "public.app-category.video"
+        }
+    }
+}
