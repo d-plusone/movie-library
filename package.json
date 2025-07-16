@@ -7,7 +7,13 @@
         "start": "electron .",
         "dev": "electron . --enable-logging",
         "build": "electron-builder",
-        "dist": "electron-builder --publish=never"
+        "build:mac": "electron-builder --mac",
+        "build:win": "electron-builder --win",
+        "build:all": "electron-builder --mac --win",
+        "dist": "electron-builder --publish=never",
+        "release": "electron-builder --publish=always",
+        "postinstall": "electron-builder install-app-deps",
+        "rebuild": "npm rebuild sqlite3 --build-from-source"
     },
     "keywords": [
         "electron",
@@ -22,11 +28,11 @@
         "electron-builder": "^24.6.4"
     },
     "dependencies": {
+        "chokidar": "^3.5.3",
         "ffmpeg-static": "^5.2.0",
         "ffprobe-static": "^3.1.0",
         "fluent-ffmpeg": "^2.1.2",
-        "sqlite3": "^5.1.6",
-        "chokidar": "^3.5.3"
+        "sqlite3": "^5.1.7"
     },
     "build": {
         "appId": "com.yourcompany.movielibrary",
@@ -34,6 +40,8 @@
         "directories": {
             "output": "dist"
         },
+        "npmRebuild": true,
+        "buildDependenciesFromSource": true,
         "files": [
             "**/*",
             "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}",
@@ -49,8 +57,45 @@
             "!**/{npm-debug.log,yarn.lock,.yarn-integrity,.yarn-metadata.json}"
         ],
         "mac": {
-            "icon": "assets/icon.icns",
-            "category": "public.app-category.video"
+            "category": "public.app-category.video",
+            "target": [
+                {
+                    "target": "dmg",
+                    "arch": [
+                        "arm64",
+                        "x64"
+                    ]
+                },
+                {
+                    "target": "zip",
+                    "arch": [
+                        "arm64",
+                        "x64"
+                    ]
+                }
+            ]
+        },
+        "win": {
+            "target": [
+                {
+                    "target": "nsis",
+                    "arch": [
+                        "x64"
+                    ]
+                },
+                {
+                    "target": "zip",
+                    "arch": [
+                        "x64"
+                    ]
+                }
+            ]
+        },
+        "nsis": {
+            "oneClick": false,
+            "allowToChangeInstallationDirectory": true,
+            "createDesktopShortcut": true,
+            "createStartMenuShortcut": true
         }
     }
 }

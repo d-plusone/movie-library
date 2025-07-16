@@ -1,0 +1,129 @@
+name: Build Test
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  test-build:
+    runs-on: ${{ matrix.os }}
+    
+    strategy:
+      matrix:
+        os: [macos-latest, windows-latest]
+    
+    steps:
+      - name: Check out Git repository
+        uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Install Python and dependencies
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install Python setuptools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install setuptools wheel
+
+      - name: Setup build environment (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          npm install -g node-gyp
+          rm -rf node_modules/.cache
+          
+      - name: Setup build environment (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          npm install -g node-gyp
+          npm config set msvs_version 2022 --global
+          npm config set python python --global
+          # Verify Visual Studio Build Tools
+          if (Get-Command "cl.exe" -ErrorAction SilentlyContinue) {
+            Write-Host "Visual Studio Build Tools found"
+          } else {
+            Write-Host "Visual Studio Build Tools not found, but continuing..."
+          }
+          python -m pip install setuptools wheel || echo "setuptools installation failed"
+
+      - name: Clear node_modules cache (Unix)
+        if: matrix.os == 'macos-latest'
+        run: |
+          rm -rf node_modules package-lock.json || true
+
+      - name: Clear node_modules cache (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          if (Test-Path "node_modules") { Remove-Item -Recurse -Force "node_modules" }
+          if (Test-Path "package-lock.json") { Remove-Item -Force "package-lock.json" }
+          
+      - name: Install dependencies
+        run: npm install
+
+      - name: Install electron-rebuild
+        run: npm install -g electron-rebuild
+
+      - name: Set up environment for native modules (Unix)
+        if: matrix.os == 'macos-latest'
+        run: |
+          export PYTHON=$(which python)
+          export NODE_GYP_FORCE_PYTHON=$(which python)
+
+      - name: Set up environment for native modules (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          $env:PYTHON = (Get-Command python).Source
+          $env:NODE_GYP_FORCE_PYTHON = (Get-Command python).Source
+
+      - name: Rebuild native modules with electron-rebuild (Unix)
+        if: matrix.os == 'macos-latest'
+        run: electron-rebuild
+
+      - name: Rebuild native modules with electron-rebuild (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          $env:npm_config_target_arch = "x64"
+          $env:npm_config_target_platform = "win32"
+          electron-rebuild
+
+      - name: Fallback manual sqlite3 rebuild
+        run: npm run rebuild
+        continue-on-error: true
+
+      - name: Test build (macOS)
+        if: matrix.os == 'macos-latest'
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+        run: npm run build:mac -- --publish=never
+
+      - name: Test build (Windows)
+        if: matrix.os == 'windows-latest'
+        run: npm run build:win -- --publish=never
+
+      - name: Upload build artifacts (macOS)
+        if: matrix.os == 'macos-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-build-macos
+          path: |
+            dist/*.dmg
+            dist/*.zip
+
+      - name: Upload build artifacts (Windows)
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-build-windows
+          path: |
+            dist/*.exe
+            dist/*.zip
