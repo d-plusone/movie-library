@@ -1,6 +1,6 @@
 {
     "name": "movie-library",
-    "version": "0.0.4",
+    "version": "0.0.5",
     "description": "A video file management application for Mac",
     "main": "main.js",
     "scripts": {
