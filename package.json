@@ -12,8 +12,9 @@
         "build:all": "electron-builder --mac --win",
         "dist": "electron-builder --publish=never",
         "release": "electron-builder --publish=always",
-        "postinstall": "electron-builder install-app-deps",
-        "rebuild": "npm rebuild sqlite3 --build-from-source"
+        "postinstall": "electron-builder install-app-deps && npm run rebuild",
+        "rebuild": "npm rebuild sqlite3 --build-from-source",
+        "rebuild:electron": "electron-rebuild -f -w sqlite3"
     },
     "keywords": [
         "electron",
@@ -40,8 +41,13 @@
         "directories": {
             "output": "dist"
         },
+        "icon": "assets/icon",
         "npmRebuild": true,
         "buildDependenciesFromSource": true,
+        "asarUnpack": [
+            "node_modules/ffmpeg-static/**/*",
+            "node_modules/ffprobe-static/**/*"
+        ],
         "files": [
             "**/*",
             "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}",
@@ -57,6 +63,7 @@
             "!**/{npm-debug.log,yarn.lock,.yarn-integrity,.yarn-metadata.json}"
         ],
         "mac": {
+            "icon": "assets/icon.icns",
             "category": "public.app-category.video",
             "target": [
                 {
@@ -76,6 +83,7 @@
             ]
         },
         "win": {
+            "icon": "assets/icon.ico",
             "target": [
                 {
                     "target": "nsis",

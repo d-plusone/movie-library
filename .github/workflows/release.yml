@@ -113,7 +113,10 @@ jobs:
         if: matrix.os == 'windows-latest'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run release -- --win --publish=always
+        run: |
+          # Ensure native modules are rebuilt for Windows
+          npm run rebuild
+          npm run release -- --win --publish=always
 
       - name: Upload artifacts (macOS)
         if: matrix.os == 'macos-latest'

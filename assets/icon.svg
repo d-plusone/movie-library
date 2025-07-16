@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="filmGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1f2937;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#111827;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#030712;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="playGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#f59e0b;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#d97706;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="accentGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#ef4444;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#dc2626;stop-opacity:1" />
+    </linearGradient>
+    <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feDropShadow dx="2" dy="2" stdDeviation="6" flood-color="rgba(0,0,0,0.6)"/>
+    </filter>
+    <filter id="innerShadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="rgba(0,0,0,0.8)"/>
+    </filter>
+  </defs>
+  
+  <!-- Outer background circle with border -->
+  <circle cx="256" cy="256" r="240" fill="url(#filmGradient)" stroke="#374151" stroke-width="6" filter="url(#shadow)"/>
+  
+  <!-- Film reel design -->
+  <circle cx="256" cy="256" r="190" fill="none" stroke="#6b7280" stroke-width="4" opacity="0.8"/>
+  <circle cx="256" cy="256" r="165" fill="none" stroke="#9ca3af" stroke-width="2" opacity="0.6"/>
+  
+  <!-- Film holes around the reel -->
+  <circle cx="256" cy="146" r="8" fill="#d1d5db"/>
+  <circle cx="346" cy="186" r="8" fill="#d1d5db"/>
+  <circle cx="366" cy="256" r="8" fill="#d1d5db"/>
+  <circle cx="346" cy="326" r="8" fill="#d1d5db"/>
+  <circle cx="256" cy="366" r="8" fill="#d1d5db"/>
+  <circle cx="166" cy="326" r="8" fill="#d1d5db"/>
+  <circle cx="146" cy="256" r="8" fill="#d1d5db"/>
+  <circle cx="166" cy="186" r="8" fill="#d1d5db"/>
+  
+  <!-- Additional decorative holes -->
+  <circle cx="280" cy="170" r="6" fill="#9ca3af" opacity="0.7"/>
+  <circle cx="342" cy="230" r="6" fill="#9ca3af" opacity="0.7"/>
+  <circle cx="342" cy="282" r="6" fill="#9ca3af" opacity="0.7"/>
+  <circle cx="280" cy="342" r="6" fill="#9ca3af" opacity="0.7"/>
+  <circle cx="232" cy="342" r="6" fill="#9ca3af" opacity="0.7"/>
+  <circle cx="170" cy="282" r="6" fill="#9ca3af" opacity="0.7"/>
+  <circle cx="170" cy="230" r="6" fill="#9ca3af" opacity="0.7"/>
+  <circle cx="232" cy="170" r="6" fill="#9ca3af" opacity="0.7"/>
+  
+  <!-- Center hub -->
+  <circle cx="256" cy="256" r="75" fill="#1f2937" stroke="#4b5563" stroke-width="3"/>
+  <circle cx="256" cy="256" r="60" fill="#111827" filter="url(#innerShadow)"/>
+  
+  <!-- Play button triangle with glow -->
+  <path d="M 230 220 L 230 292 L 290 256 Z" fill="url(#playGradient)" stroke="#fbbf24" stroke-width="2" filter="url(#shadow)"/>
+  
+  <!-- Film strip across -->
+  <rect x="80" y="230" width="352" height="52" fill="#374151" opacity="0.9" rx="6"/>
+  <rect x="90" y="238" width="24" height="16" fill="#6b7280"/>
+  <rect x="124" y="238" width="24" height="16" fill="#6b7280"/>
+  <rect x="158" y="238" width="24" height="16" fill="#6b7280"/>
+  <rect x="330" y="238" width="24" height="16" fill="#6b7280"/>
+  <rect x="364" y="238" width="24" height="16" fill="#6b7280"/>
+  <rect x="398" y="238" width="24" height="16" fill="#6b7280"/>
+  
+  <!-- Bottom strip -->
+  <rect x="90" y="258" width="24" height="16" fill="#6b7280"/>
+  <rect x="124" y="258" width="24" height="16" fill="#6b7280"/>
+  <rect x="158" y="258" width="24" height="16" fill="#6b7280"/>
+  <rect x="330" y="258" width="24" height="16" fill="#6b7280"/>
+  <rect x="364" y="258" width="24" height="16" fill="#6b7280"/>
+  <rect x="398" y="258" width="24" height="16" fill="#6b7280"/>
+  
+  <!-- Accent highlight -->
+  <circle cx="256" cy="256" r="240" fill="none" stroke="url(#accentGradient)" stroke-width="3" opacity="0.6"/>
+  
+  <!-- Center logo text area (optional) -->
+  <circle cx="256" cy="256" r="45" fill="none" stroke="url(#playGradient)" stroke-width="2" opacity="0.8"/>
+</svg>

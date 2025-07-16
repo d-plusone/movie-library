@@ -127,6 +127,57 @@ function getFfprobePath() {
         return null;
       }
     }
+function getFfprobePath() {
+  try {
+    const isDevMode = isDevelopment();
+    console.log("Getting ffprobe path, development mode:", isDevMode);
+    
+    if (isDevMode) {
+      // Development mode - use require directly
+      const ffprobeStatic = require("ffprobe-static");
+      console.log("Development ffprobe path:", ffprobeStatic.path);
+      return ffprobeStatic.path;
+    } else {
+      // Production mode - look for ffprobe in the app.asar.unpacked directory
+      const appPath = app.getAppPath();
+      const unpackedPath = appPath.replace('app.asar', 'app.asar.unpacked');
+      
+      // Try multiple possible paths for ffprobe
+      const platform = process.platform;
+      const arch = process.arch;
+      const possiblePaths = [
+        path.join(unpackedPath, 'node_modules', 'ffprobe-static', 'bin', platform, arch, 'ffprobe'),
+        path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', 'ffprobe-static', 'bin', platform, arch, 'ffprobe'),
+        path.join(process.resourcesPath, 'ffprobe-static', 'bin', platform, arch, 'ffprobe'),
+      ];
+      
+      // Add platform-specific extensions
+      if (process.platform === 'win32') {
+        possiblePaths.forEach((p, i) => {
+          possiblePaths[i] = p + '.exe';
+        });
+      }
+      
+      for (const ffprobePath of possiblePaths) {
+        try {
+          require('fs').accessSync(ffprobePath, require('fs').constants.F_OK);
+          console.log("Found ffprobe at:", ffprobePath);
+          return ffprobePath;
+        } catch (error) {
+          console.log("ffprobe not found at:", ffprobePath);
+        }
+      }
+      
+      // Fallback to require() which should work with asarUnpack
+      try {
+        const ffprobeStatic = require("ffprobe-static");
+        console.log("Fallback ffprobe path:", ffprobeStatic.path);
+        return ffprobeStatic.path;
+      } catch (error) {
+        console.error("Could not find ffprobe binary");
+        return null;
+      }
+    }
   } catch (error) {
     console.error("Error loading ffprobe-static:", error);
     return null;
