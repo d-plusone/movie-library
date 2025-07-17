@@ -196,6 +196,32 @@ body {
     font-size: 16px;
 }
 
+/* Play Video Button - Green styling */
+#playVideoBtn {
+    background: var(--success-color) !important;
+    color: white !important;
+    border: 1px solid var(--success-color) !important;
+}
+
+#playVideoBtn:hover {
+    background: #2ba653 !important; /* より濃い緑色 */
+    border-color: #2ba653 !important;
+    box-shadow: 0 4px 12px rgba(52, 199, 89, 0.3) !important;
+}
+
+/* Dark theme support for play button */
+[data-theme="dark"] #playVideoBtn {
+    background: var(--success-color) !important;
+    color: white !important;
+    border-color: var(--success-color) !important;
+}
+
+[data-theme="dark"] #playVideoBtn:hover {
+    background: #2ba653 !important;
+    border-color: #2ba653 !important;
+    box-shadow: 0 4px 12px rgba(48, 209, 88, 0.4) !important;
+}
+
 /* Progress Bar */
 .progress-container {
     padding: 8px 20px;
