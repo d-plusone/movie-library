@@ -77,13 +77,17 @@ export class UIRenderer {
       noVideosMsg.className = "no-videos-message";
       noVideosMsg.textContent = "表示する動画がありません";
       videoList.appendChild(noVideosMsg);
-      return;
+      this.updateVideoCount(0);
+      return 0;
     }
 
     filteredVideos.forEach((video, index) => {
       const videoElement = this.createVideoElement(video, index);
       videoList.appendChild(videoElement);
     });
+
+    // Update video count
+    this.updateVideoCount(filteredVideos.length);
 
     // Update selected video if needed
     if (
@@ -990,5 +994,13 @@ export class UIRenderer {
     // マウス移動時の位置更新
     tooltip._updatePosition = updatePosition;
     document.addEventListener("mousemove", updatePosition);
+  }
+
+  // 動画カウントを更新
+  updateVideoCount(count) {
+    const videoCountElement = document.getElementById("videoCount");
+    if (videoCountElement) {
+      videoCountElement.textContent = `${count} 動画`;
+    }
   }
 }

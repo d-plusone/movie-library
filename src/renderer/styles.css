@@ -327,36 +327,44 @@ body {
     justify-content: space-between;
     align-items: center;
     padding: 8px 12px;
-    background: var(--bg-tertiary);
+    background: var(--bg-tertiary) !important;
+    color: var(--text-primary) !important;
     border-radius: 8px;
     font-size: 12px;
     transition: all 0.2s ease;
+    cursor: pointer;
 }
 
-.tag-item.active {
-    background: var(--accent-color);
-    color: white;
+.tag-item.active,
+.directory-item.active {
+    background: var(--accent-color) !important;
+    color: white !important;
 }
 
-.tag-item.active .tag-action-btn {
-    color: rgba(255, 255, 255, 0.8);
-}
 
-.tag-item.active .tag-action-btn:hover {
-    color: white;
-    background: rgba(255, 255, 255, 0.2);
-}
-
-.tag-name {
+.tag-name,
+.directory-name {
     cursor: pointer;
     flex: 1;
     padding: 2px 0;
     border-radius: 4px;
     transition: background-color 0.2s ease;
+    color: inherit !important;
 }
 
-.tag-name:hover {
+.tag-name:hover,
+.directory-name:hover {
     background: rgba(0, 0, 0, 0.1);
+}
+
+.tag-item.active .tag-name,
+.directory-item.active .directory-name {
+    color: white !important;
+}
+
+.tag-item.active .tag-name:hover,
+.directory-item.active .directory-name:hover {
+    background: rgba(255, 255, 255, 0.1) !important;
 }
 
 .tag-actions {
@@ -394,35 +402,29 @@ body {
     cursor: pointer;
 }
 
+.tag-item:hover,
 .directory-item:hover {
-    background: var(--bg-tertiary);
+    background: var(--bg-tertiary) !important;
+    opacity: 0.8;
 }
 
-.directory-item.active {
-    background: var(--accent-color);
-    color: white;
+.tag-item.active:hover,
+.directory-item.active:hover {
+    background: var(--accent-hover) !important;
 }
 
+.tag-item.active .tag-action-btn,
 .directory-item.active .directory-action-btn {
-    color: rgba(255, 255, 255, 0.8);
+    color: rgba(255, 255, 255, 0.8) !important;
 }
 
+.tag-item.active .tag-action-btn:hover,
 .directory-item.active .directory-action-btn:hover {
-    color: white;
-    background: rgba(255, 255, 255, 0.2);
+    color: white !important;
+    background: rgba(255, 255, 255, 0.2) !important;
 }
 
-.directory-name {
-    cursor: pointer;
-    flex: 1;
-    padding: 2px 0;
-    border-radius: 4px;
-    transition: background-color 0.2s ease;
-}
 
-.directory-name:hover {
-    background: rgba(0, 0, 0, 0.1);
-}
 
 .directory-actions {
     display: flex;

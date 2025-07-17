@@ -450,12 +450,14 @@ class MovieLibraryApp {
         const tagItem = e.target.closest('.tag-item');
         if (tagItem) {
           const tagName = tagItem.dataset.tagName;
-          if (e.target.classList.contains('tag-name') || e.target.classList.contains('search-btn')) {
-            this.filterByTag(tagName);
-          } else if (e.target.classList.contains('edit-btn')) {
+          // Check if clicked on action buttons
+          if (e.target.classList.contains('edit-btn')) {
             this.editTag(tagName);
           } else if (e.target.classList.contains('delete-btn')) {
             this.deleteTag(tagName);
+          } else {
+            // Click anywhere else on the tag item should filter
+            this.filterByTag(tagName);
           }
           return;
         }
@@ -464,10 +466,12 @@ class MovieLibraryApp {
         const directoryItem = e.target.closest('.directory-item');
         if (directoryItem) {
           const directoryPath = directoryItem.dataset.directoryPath;
-          if (e.target.classList.contains('directory-name')) {
-            this.toggleDirectorySelection(directoryPath);
-          } else if (e.target.classList.contains('remove-btn')) {
+          // Check if clicked on action buttons
+          if (e.target.classList.contains('remove-btn')) {
             this.removeDirectory(directoryPath);
+          } else {
+            // Click anywhere else on the directory item should toggle selection
+            this.toggleDirectorySelection(directoryPath);
           }
         }
       });
@@ -515,7 +519,6 @@ class MovieLibraryApp {
     );
     
     this.renderVideoList();
-    this.uiRenderer.updateVideoCount(this.filteredVideos.length);
   }
 
   // Lightweight filter application without full sort and render
@@ -529,9 +532,8 @@ class MovieLibraryApp {
       this.currentSort
     );
     
-    // Only update video list count and content, no event delegation setup
+    // Only update video list content, count is automatically updated in renderVideoList
     this.uiRenderer.renderVideoList(this.filteredVideos);
-    this.uiRenderer.updateVideoCount(this.filteredVideos.length);
   }
 
   setView(view) {
@@ -591,7 +593,6 @@ class MovieLibraryApp {
   }
 
   filterByTag(tagName) {
-    // console.log("filterByTag called with:", tagName);
     this.filterManager.toggleTagFilter(tagName);
     
     // Apply filters to update video list
@@ -609,7 +610,6 @@ class MovieLibraryApp {
   }
 
   toggleDirectorySelection(directoryPath) {
-    // console.log("toggleDirectorySelection called with:", directoryPath);
     this.filterManager.toggleDirectorySelection(directoryPath);
     
     // Apply filters to update video list
