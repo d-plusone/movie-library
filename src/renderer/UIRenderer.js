@@ -389,12 +389,6 @@ export class UIRenderer {
       editBtn.textContent = "✏️";
       editBtn.title = "タグ名を編集";
 
-      // Search button
-      const searchBtn = document.createElement("button");
-      searchBtn.className = "tag-action-btn search-btn";
-      searchBtn.textContent = "🔍";
-      searchBtn.title = "このタグでフィルター";
-
       // Delete button
       const deleteBtn = document.createElement("button");
       deleteBtn.className = "tag-action-btn delete-btn";
@@ -402,7 +396,6 @@ export class UIRenderer {
       deleteBtn.title = "タグを削除";
 
       actionsDiv.appendChild(editBtn);
-      actionsDiv.appendChild(searchBtn);
       actionsDiv.appendChild(deleteBtn);
 
       tagElement.appendChild(tagNameSpan);

@@ -371,10 +371,6 @@ body {
     transition: all 0.2s ease;
 }
 
-.tag-action-btn.search-btn {
-    color: var(--accent-color);
-}
-
 .tag-action-btn.edit-btn {
     color: var(--warning-color);
 }

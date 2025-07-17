@@ -959,13 +959,6 @@ class MovieLibraryApp {
       editBtn.title = "タグ名を編集";
       editBtn.onclick = () => this.editTag(tag.name);
 
-      // Search button
-      const searchBtn = document.createElement("button");
-      searchBtn.className = "tag-action-btn search-btn";
-      searchBtn.textContent = "🔍";
-      searchBtn.title = "このタグでフィルター";
-      searchBtn.onclick = () => this.filterByTag(tag.name);
-
       // Delete button
       const deleteBtn = document.createElement("button");
       deleteBtn.className = "tag-action-btn delete-btn";
@@ -974,7 +967,6 @@ class MovieLibraryApp {
       deleteBtn.onclick = () => this.deleteTag(tag.name);
 
       actionsDiv.appendChild(editBtn);
-      actionsDiv.appendChild(searchBtn);
       actionsDiv.appendChild(deleteBtn);
 
       tagElement.appendChild(tagNameSpan);
