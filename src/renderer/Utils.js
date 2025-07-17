@@ -17,7 +17,7 @@ export class NotificationManager {
     }
 
     // 通知の制限: 最大3個まで表示
-    const existingNotifications = container.querySelectorAll('.notification');
+    const existingNotifications = container.querySelectorAll(".notification");
     if (existingNotifications.length >= this.maxToasts) {
       // 最も古い通知を削除
       existingNotifications[0].remove();
@@ -66,7 +66,12 @@ export class ProgressManager {
     const progressPercent = document.getElementById("progressPercent");
     const progressFill = document.getElementById("progressFill");
 
-    if (!progressContainer || !progressText || !progressPercent || !progressFill) {
+    if (
+      !progressContainer ||
+      !progressText ||
+      !progressPercent ||
+      !progressFill
+    ) {
       console.error("ProgressManager - progress elements not found");
       return;
     }
@@ -188,7 +193,7 @@ export class DOMUtils {
 
   static removeAllEventListeners(element) {
     if (!element) return;
-    
+
     const newElement = element.cloneNode(true);
     element.parentNode.replaceChild(newElement, element);
     return newElement;
@@ -206,7 +211,13 @@ export class DOMUtils {
     const element = document.getElementById(id);
     if (!element) {
       // Only warn for critical elements, not tooltips and optional elements
-      const optionalElements = ['videoTooltip', 'errorDialog', 'tagEditDialog', 'thumbnailModal', 'tooltip'];
+      const optionalElements = [
+        "videoTooltip",
+        "errorDialog",
+        "tagEditDialog",
+        "thumbnailModal",
+        "tooltip",
+      ];
       if (!optionalElements.includes(id)) {
         console.warn(`DOMUtils - Element not found: #${id}`);
       }
@@ -231,11 +242,11 @@ export class ThemeManager {
 
   initializeTheme() {
     console.log("Initializing theme...");
-    
+
     // Load saved theme
     const savedTheme = localStorage.getItem("theme");
     console.log("Saved theme:", savedTheme);
-    
+
     if (savedTheme) {
       this.currentTheme = savedTheme;
       this.applyTheme(savedTheme);
@@ -243,17 +254,17 @@ export class ThemeManager {
       // Default to dark theme
       this.applyTheme("dark");
     }
-    
+
     // Update theme select
     const themeSelect = document.getElementById("themeSelect");
     if (themeSelect) {
       themeSelect.value = this.currentTheme;
       console.log("Theme select set to:", this.currentTheme);
     }
-    
+
     // Add system theme change listener
     if (window.matchMedia) {
-      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+      const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
       mediaQuery.addListener(() => {
         if (this.currentTheme === "system") {
           this.applySystemTheme();
@@ -266,19 +277,19 @@ export class ThemeManager {
   applyTheme(theme) {
     console.log("Applying theme:", theme);
     this.currentTheme = theme;
-    
+
     const body = document.body;
-    
+
     // Remove existing theme data attribute
-    body.removeAttribute('data-theme');
-    
+    body.removeAttribute("data-theme");
+
     switch (theme) {
       case "light":
-        body.setAttribute('data-theme', 'light');
+        body.setAttribute("data-theme", "light");
         console.log("Light theme applied");
         break;
       case "dark":
-        body.setAttribute('data-theme', 'dark');
+        body.setAttribute("data-theme", "dark");
         console.log("Dark theme applied");
         break;
       case "system":
@@ -286,61 +297,80 @@ export class ThemeManager {
         console.log("System theme applied");
         break;
       default:
-        body.setAttribute('data-theme', 'dark');
+        body.setAttribute("data-theme", "dark");
         this.currentTheme = "dark";
         console.log("Default dark theme applied");
     }
-    
+
     // Save theme preference
     localStorage.setItem("theme", this.currentTheme);
     console.log("Theme saved to localStorage:", this.currentTheme);
-    
+
     // プレースホルダー色の直接設定（CSSが効かない場合の対策）
     this.updatePlaceholderColors();
   }
 
   updatePlaceholderColors() {
-    const tagInput = document.getElementById('tagInput');
+    const tagInput = document.getElementById("tagInput");
     if (tagInput) {
-      const isDark = document.body.getAttribute('data-theme') === 'dark';
+      const isDark = document.body.getAttribute("data-theme") === "dark";
       if (isDark) {
         // ダークモード時のプレースホルダー色を直接設定
-        tagInput.style.setProperty('--placeholder-color', 'rgba(136, 136, 136, 0.6)', 'important');
+        tagInput.style.setProperty(
+          "--placeholder-color",
+          "rgba(136, 136, 136, 0.6)",
+          "important"
+        );
         // インラインスタイルでも設定（確実性を高める）
-        tagInput.style.setProperty('color', 'var(--text-primary)', 'important');
+        tagInput.style.setProperty("color", "var(--text-primary)", "important");
         console.log("Tag input placeholder color set for dark mode");
       } else {
         // ライトモード時のプレースホルダー色
-        tagInput.style.setProperty('--placeholder-color', 'var(--text-tertiary)', 'important');
-        tagInput.style.setProperty('color', 'var(--text-primary)', 'important');
+        tagInput.style.setProperty(
+          "--placeholder-color",
+          "var(--text-tertiary)",
+          "important"
+        );
+        tagInput.style.setProperty("color", "var(--text-primary)", "important");
         console.log("Tag input placeholder color set for light mode");
       }
     }
-    
+
     // 全ての入力要素にも適用
     const allInputs = document.querySelectorAll('input[type="text"], textarea');
-    allInputs.forEach(input => {
-      const isDark = document.body.getAttribute('data-theme') === 'dark';
+    allInputs.forEach((input) => {
+      const isDark = document.body.getAttribute("data-theme") === "dark";
       if (isDark) {
-        input.style.setProperty('--placeholder-color', 'rgba(136, 136, 136, 0.6)', 'important');
+        input.style.setProperty(
+          "--placeholder-color",
+          "rgba(136, 136, 136, 0.6)",
+          "important"
+        );
       } else {
-        input.style.setProperty('--placeholder-color', 'var(--text-tertiary)', 'important');
+        input.style.setProperty(
+          "--placeholder-color",
+          "var(--text-tertiary)",
+          "important"
+        );
       }
     });
   }
 
   applySystemTheme() {
     const body = document.body;
-    body.removeAttribute('data-theme');
-    
-    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-      body.setAttribute('data-theme', 'dark');
+    body.removeAttribute("data-theme");
+
+    if (
+      window.matchMedia &&
+      window.matchMedia("(prefers-color-scheme: dark)").matches
+    ) {
+      body.setAttribute("data-theme", "dark");
       console.log("System dark theme applied");
     } else {
-      body.setAttribute('data-theme', 'light');
+      body.setAttribute("data-theme", "light");
       console.log("System light theme applied");
     }
-    
+
     // プレースホルダー色の更新
     this.updatePlaceholderColors();
   }
@@ -376,7 +406,9 @@ export class KeyboardManager {
   }
 
   initializeKeyboardEvents() {
-    document.addEventListener("keydown", (e) => this.handleKeyboardNavigation(e));
+    document.addEventListener("keydown", (e) =>
+      this.handleKeyboardNavigation(e)
+    );
   }
 
   handleKeyboardNavigation(e) {
@@ -450,17 +482,17 @@ export const Utils = {
   // スロットル関数
   throttle(func, limit) {
     let inThrottle;
-    return function(...args) {
+    return function (...args) {
       if (!inThrottle) {
         func.apply(this, args);
         inThrottle = true;
-        setTimeout(() => inThrottle = false, limit);
+        setTimeout(() => (inThrottle = false), limit);
       }
     };
   },
 
   // 遅延実行
   delay(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-  }
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  },
 };

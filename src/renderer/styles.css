@@ -715,9 +715,11 @@ body {
 .details-content {
     flex: 1;
     padding: 20px;
-    padding-bottom: 60px; /* ボタンが埋もれないように下部に十分なマージンを追加 */
+    padding-bottom: 60px;
+    /* ボタンが埋もれないように下部に十分なマージンを追加 */
     overflow-y: auto;
-    max-height: calc(100vh - 120px); /* Ensure scrollbar appears when needed */
+    max-height: calc(100vh - 120px);
+    /* Ensure scrollbar appears when needed */
 }
 
 .main-thumbnail {
@@ -2072,13 +2074,17 @@ body {
 }
 
 /* Global input styling for consistent dark mode support */
-input, textarea, select {
+input,
+textarea,
+select {
     background-color: var(--bg-secondary) !important;
     color: var(--text-primary) !important;
     border: 1px solid var(--border-color);
 }
 
-input:focus, textarea:focus, select:focus {
+input:focus,
+textarea:focus,
+select:focus {
     outline: none;
     border-color: var(--accent-color);
     box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.1);
@@ -2138,6 +2144,7 @@ textarea::placeholder {
     from {
         transform: rotate(0deg);
     }
+
     to {
         transform: rotate(360deg);
     }

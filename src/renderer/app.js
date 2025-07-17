@@ -1,15 +1,15 @@
-import { FilterManager } from './FilterManager.js';
-import { VideoManager } from './VideoManager.js';
-import { UIRenderer } from './UIRenderer.js';
-import { 
-  NotificationManager, 
-  ProgressManager, 
-  ThemeManager, 
+import { FilterManager } from "./FilterManager.js";
+import { VideoManager } from "./VideoManager.js";
+import { UIRenderer } from "./UIRenderer.js";
+import {
+  NotificationManager,
+  ProgressManager,
+  ThemeManager,
   KeyboardManager,
   FormatUtils,
   DOMUtils,
-  Utils
-} from './Utils.js';
+  Utils,
+} from "./Utils.js";
 
 /**
  * メインアプリケーションクラス
@@ -21,13 +21,13 @@ class MovieLibraryApp {
     this.filteredVideos = [];
     this.currentVideo = null;
     this.currentSort = { field: "filename", order: "ASC" };
-    
+
     // Thumbnail and tooltip state
     this.currentThumbnails = [];
     this.currentThumbnailIndex = 0;
     this.tooltipTimeout = null;
     this.tooltipInterval = null;
-    
+
     // Tag editing state
     this.currentEditingTag = null;
 
@@ -41,20 +41,20 @@ class MovieLibraryApp {
     this.notificationManager = new NotificationManager();
     this.progressManager = new ProgressManager();
     this.themeManager = new ThemeManager();
-    
+
     // Initialize keyboard navigation
     this.keyboardManager = new KeyboardManager({
       onEscape: (e) => this.handleEscapeKey(e),
       onArrow: (e) => this.handleArrowKeys(e),
       onEnter: (e) => this.handleEnterKey(e),
-      onSpace: (e) => this.handleSpaceKey(e)
+      onSpace: (e) => this.handleSpaceKey(e),
     });
 
     this.initializeEventListeners();
     this.loadSettings(); // 設定を読み込み
     this.initializeThemeButton(); // テーマボタンの初期化
-    
-    this.loadInitialData().catch(error => {
+
+    this.loadInitialData().catch((error) => {
       console.error("Failed to load initial data:", error);
     });
   }
@@ -67,7 +67,9 @@ class MovieLibraryApp {
       console.log(`Event listener added for ${elementId} - ${event}`);
       return true;
     } else {
-      console.warn(`Failed to add event listener for ${elementId} - element found: ${!!element}, handler: ${!!handler}`);
+      console.warn(
+        `Failed to add event listener for ${elementId} - element found: ${!!element}, handler: ${!!handler}`
+      );
     }
     return false;
   }
@@ -87,57 +89,64 @@ class MovieLibraryApp {
     try {
       // Check if electronAPI is available
       if (!window.electronAPI) {
-        throw new Error("electronAPI is not available - preload script may not have loaded");
+        throw new Error(
+          "electronAPI is not available - preload script may not have loaded"
+        );
       }
-      
+
       await this.videoManager.loadVideos();
       await this.videoManager.loadTags();
       await this.videoManager.loadDirectories();
-      
+
       // Initialize directories in filter manager
-      this.filterManager.initializeDirectories(this.videoManager.getDirectories());
-      
+      this.filterManager.initializeDirectories(
+        this.videoManager.getDirectories()
+      );
+
       // フィルター状態を復元してからUIを更新（loadDirectories後に実行）
       this.filterManager.loadFilterState();
-      
+
       // タグオートコンプリート候補を設定
       const allTags = this.videoManager.getTags();
       this.uiRenderer.updateTagSuggestions(allTags);
-      
+
       // まずサイドバーとビデオリストを描画してDOM要素を作成
       this.renderVideoList();
       this.renderSidebar();
 
       // DOM要素が作成された後に少し待ってからUIの状態を更新
       setTimeout(() => {
-        console.log("Updating UI with loaded filter state (after DOM creation):");
+        console.log(
+          "Updating UI with loaded filter state (after DOM creation):"
+        );
         const currentFilter = this.filterManager.getCurrentFilter();
         const selectedDirectories = this.filterManager.getSelectedDirectories();
         console.log("- Rating:", currentFilter.rating);
         console.log("- Tags:", currentFilter.tags);
         console.log("- Directories:", selectedDirectories);
-        
+
         this.uiRenderer.updateStarDisplay(currentFilter.rating, false);
-        const allBtn = document.querySelector('.rating-btn.all-btn[data-rating="0"]');
+        const allBtn = document.querySelector(
+          '.rating-btn.all-btn[data-rating="0"]'
+        );
         if (allBtn) {
           if (currentFilter.rating === 0) {
-            allBtn.classList.add('active');
+            allBtn.classList.add("active");
             console.log("- All button set to active (delayed)");
           } else {
-            allBtn.classList.remove('active');
+            allBtn.classList.remove("active");
             console.log("- All button set to inactive (delayed)");
           }
         } else {
           console.log("- All button not found (delayed)");
         }
-        
+
         // Initialize theme button
         this.initializeThemeButton();
-        
+
         // タグとディレクトリフィルタを適用
         this.applyFiltersAndSort();
       }, 100); // 100ms後に実行
-      
     } catch (error) {
       console.error("Error loading initial data:", error);
       this.showErrorDialog("データの読み込みに失敗しました", error);
@@ -146,12 +155,22 @@ class MovieLibraryApp {
 
   initializeEventListeners() {
     // Header actions - safe event listener addition
-    this.safeAddEventListener("addDirectoryBtn", "click", () => this.addDirectory());
-    this.safeAddEventListener("scanDirectoriesBtn", "click", () => this.scanDirectories());
-    this.safeAddEventListener("generateThumbnailsBtn", "click", () => this.regenerateThumbnails());
-    this.safeAddEventListener("themeToggleBtn", "click", () => this.toggleTheme());
-    this.safeAddEventListener("settingsBtn", "click", () => this.showSettings());
-    
+    this.safeAddEventListener("addDirectoryBtn", "click", () =>
+      this.addDirectory()
+    );
+    this.safeAddEventListener("scanDirectoriesBtn", "click", () =>
+      this.scanDirectories()
+    );
+    this.safeAddEventListener("generateThumbnailsBtn", "click", () =>
+      this.regenerateThumbnails()
+    );
+    this.safeAddEventListener("themeToggleBtn", "click", () =>
+      this.toggleTheme()
+    );
+    this.safeAddEventListener("settingsBtn", "click", () =>
+      this.showSettings()
+    );
+
     // 設定ボタンを強制的に再設定（デバッグ用）
     const settingsBtn = document.getElementById("settingsBtn");
     if (settingsBtn) {
@@ -166,18 +185,24 @@ class MovieLibraryApp {
     }
 
     // Search
-    this.safeAddEventListener("searchInput", "input", (e) => this.handleSearch(e.target.value));
+    this.safeAddEventListener("searchInput", "input", (e) =>
+      this.handleSearch(e.target.value)
+    );
 
     // View controls
-    this.safeAddEventListener("gridViewBtn", "click", () => this.setView("grid"));
-    this.safeAddEventListener("listViewBtn", "click", () => this.setView("list"));
+    this.safeAddEventListener("gridViewBtn", "click", () =>
+      this.setView("grid")
+    );
+    this.safeAddEventListener("listViewBtn", "click", () =>
+      this.setView("list")
+    );
 
     // Sort controls
     this.safeAddEventListener("sortSelect", "change", (e) => {
       this.currentSort.field = e.target.value;
       this.applyFiltersAndSort();
     });
-    
+
     this.safeAddEventListener("orderSelect", "change", (e) => {
       this.currentSort.order = e.target.value;
       this.applyFiltersAndSort();
@@ -187,11 +212,17 @@ class MovieLibraryApp {
     this.initializeRatingFilter();
 
     // Folder selection controls
-    this.safeAddEventListener("selectAllFoldersBtn", "click", () => this.selectAllDirectories());
-    this.safeAddEventListener("deselectAllFoldersBtn", "click", () => this.deselectAllDirectories());
+    this.safeAddEventListener("selectAllFoldersBtn", "click", () =>
+      this.selectAllDirectories()
+    );
+    this.safeAddEventListener("deselectAllFoldersBtn", "click", () =>
+      this.deselectAllDirectories()
+    );
 
     // Tag controls
-    this.safeAddEventListener("clearAllTagsBtn", "click", () => this.clearAllTags());
+    this.safeAddEventListener("clearAllTagsBtn", "click", () =>
+      this.clearAllTags()
+    );
 
     // Settings and dialogs
     this.initializeDialogEventListeners();
@@ -204,33 +235,45 @@ class MovieLibraryApp {
 
     // Progress events
     if (window.electronAPI) {
-      window.electronAPI.onScanProgress((data) => this.handleScanProgress(data));
-      window.electronAPI.onThumbnailProgress((data) => this.handleThumbnailProgress(data));
-      window.electronAPI.onVideoAdded((filePath) => this.handleVideoAdded(filePath));
-      window.electronAPI.onVideoRemoved((filePath) => this.handleVideoRemoved(filePath));
+      window.electronAPI.onScanProgress((data) =>
+        this.handleScanProgress(data)
+      );
+      window.electronAPI.onThumbnailProgress((data) =>
+        this.handleThumbnailProgress(data)
+      );
+      window.electronAPI.onVideoAdded((filePath) =>
+        this.handleVideoAdded(filePath)
+      );
+      window.electronAPI.onVideoRemoved((filePath) =>
+        this.handleVideoRemoved(filePath)
+      );
     }
   }
 
   initializeRatingFilter() {
-    const ratingFilterContainer = document.querySelector('.rating-filter');
+    const ratingFilterContainer = document.querySelector(".rating-filter");
     if (ratingFilterContainer) {
       // Add hover events for star visualization
-      ratingFilterContainer.addEventListener('mousemove', (e) => {
-        const target = e.target.closest('.rating-btn[data-rating]:not([data-rating="0"])');
+      ratingFilterContainer.addEventListener("mousemove", (e) => {
+        const target = e.target.closest(
+          '.rating-btn[data-rating]:not([data-rating="0"])'
+        );
         if (target) {
           const rating = parseInt(target.dataset.rating);
           this.uiRenderer.updateStarDisplay(rating, true);
         }
       });
-      
-      ratingFilterContainer.addEventListener('mouseleave', () => {
+
+      ratingFilterContainer.addEventListener("mouseleave", () => {
         // Reset to current filter rating
         const currentFilter = this.filterManager.getCurrentFilter();
         this.uiRenderer.updateStarDisplay(currentFilter.rating, false);
       });
-      
-      ratingFilterContainer.addEventListener('click', (e) => {
-        const starBtn = e.target.closest('.rating-btn[data-rating]:not([data-rating="0"])');
+
+      ratingFilterContainer.addEventListener("click", (e) => {
+        const starBtn = e.target.closest(
+          '.rating-btn[data-rating]:not([data-rating="0"])'
+        );
         if (starBtn) {
           const rating = parseInt(starBtn.dataset.rating);
           this.setRatingFilter(rating);
@@ -239,9 +282,11 @@ class MovieLibraryApp {
     }
 
     // "All" button for rating filter
-    const allRatingBtn = document.querySelector('.rating-btn.all-btn[data-rating="0"]');
+    const allRatingBtn = document.querySelector(
+      '.rating-btn.all-btn[data-rating="0"]'
+    );
     if (allRatingBtn) {
-      allRatingBtn.addEventListener('click', () => {
+      allRatingBtn.addEventListener("click", () => {
         this.setRatingFilter(0);
       });
     }
@@ -249,13 +294,25 @@ class MovieLibraryApp {
 
   initializeDialogEventListeners() {
     // Settings modal
-    this.safeAddEventListener("closeSettingsBtn", "click", () => this.hideSettings());
-    this.safeAddEventListener("saveSettingsBtn", "click", () => this.saveSettings());
-    this.safeAddEventListener("cancelSettingsBtn", "click", () => this.hideSettings());
-    this.safeAddEventListener("addDirectorySettingsBtn", "click", () => this.addDirectory());
+    this.safeAddEventListener("closeSettingsBtn", "click", () =>
+      this.hideSettings()
+    );
+    this.safeAddEventListener("saveSettingsBtn", "click", () =>
+      this.saveSettings()
+    );
+    this.safeAddEventListener("cancelSettingsBtn", "click", () =>
+      this.hideSettings()
+    );
+    this.safeAddEventListener("addDirectorySettingsBtn", "click", () =>
+      this.addDirectory()
+    );
     this.safeAddEventListener("rescanAllBtn", "click", () => this.rescanAll());
-    this.safeAddEventListener("regenerateThumbnailsBtn", "click", () => this.regenerateThumbnails());
-    this.safeAddEventListener("cleanupThumbnailsBtn", "click", () => this.cleanupThumbnails());
+    this.safeAddEventListener("regenerateThumbnailsBtn", "click", () =>
+      this.regenerateThumbnails()
+    );
+    this.safeAddEventListener("cleanupThumbnailsBtn", "click", () =>
+      this.cleanupThumbnails()
+    );
 
     // Theme settings (removed auto-save)
     // this.safeAddEventListener("themeSelect", "change", (e) => {
@@ -295,10 +352,18 @@ class MovieLibraryApp {
   }
 
   initializeDetailsEventListeners() {
-    this.safeAddEventListener("closeDetailsBtn", "click", () => this.hideDetails());
-    this.safeAddEventListener("saveDetailsBtn", "click", () => this.saveVideoDetails());
-    this.safeAddEventListener("playVideoBtn", "click", () => this.playCurrentVideo());
-    this.safeAddEventListener("refreshMainThumbnailBtn", "click", () => this.refreshMainThumbnail());
+    this.safeAddEventListener("closeDetailsBtn", "click", () =>
+      this.hideDetails()
+    );
+    this.safeAddEventListener("saveDetailsBtn", "click", () =>
+      this.saveVideoDetails()
+    );
+    this.safeAddEventListener("playVideoBtn", "click", () =>
+      this.playCurrentVideo()
+    );
+    this.safeAddEventListener("refreshMainThumbnailBtn", "click", () =>
+      this.refreshMainThumbnail()
+    );
 
     // Main thumbnail click to show modal
     this.safeAddEventListener("detailsMainThumbnail", "click", () => {
@@ -311,9 +376,15 @@ class MovieLibraryApp {
   }
 
   initializeErrorDialogEventListeners() {
-    this.safeAddEventListener("closeErrorBtn", "click", () => this.hideErrorDialog());
-    this.safeAddEventListener("errorOkBtn", "click", () => this.hideErrorDialog());
-    this.safeAddEventListener("showErrorDetailsBtn", "click", () => this.toggleErrorDetails());
+    this.safeAddEventListener("closeErrorBtn", "click", () =>
+      this.hideErrorDialog()
+    );
+    this.safeAddEventListener("errorOkBtn", "click", () =>
+      this.hideErrorDialog()
+    );
+    this.safeAddEventListener("showErrorDetailsBtn", "click", () =>
+      this.toggleErrorDetails()
+    );
 
     const errorDialog = document.getElementById("errorDialog");
     if (errorDialog) {
@@ -326,9 +397,15 @@ class MovieLibraryApp {
   }
 
   initializeTagEditDialogEventListeners() {
-    this.safeAddEventListener("closeTagEditBtn", "click", () => this.hideTagEditDialog());
-    this.safeAddEventListener("cancelTagEditBtn", "click", () => this.hideTagEditDialog());
-    this.safeAddEventListener("saveTagEditBtn", "click", () => this.saveTagEdit());
+    this.safeAddEventListener("closeTagEditBtn", "click", () =>
+      this.hideTagEditDialog()
+    );
+    this.safeAddEventListener("cancelTagEditBtn", "click", () =>
+      this.hideTagEditDialog()
+    );
+    this.safeAddEventListener("saveTagEditBtn", "click", () =>
+      this.saveTagEdit()
+    );
 
     const tagEditDialog = document.getElementById("tagEditDialog");
     if (tagEditDialog) {
@@ -354,19 +431,25 @@ class MovieLibraryApp {
       this.initializeThemeButton(); // Update theme toggle button
     });
 
-    // Save filter state checkbox
+    // Save filter state checkbox - immediate save without closing dialog
     this.safeAddEventListener("saveFilterState", "change", (e) => {
       this.filterManager.setSaveFilterStateEnabled(e.target.checked);
-      this.saveSettings();
+      this.saveFilterStateOnly(); // Save only filter state setting
     });
 
     // Other settings event listeners can be added here
   }
 
   initializeThumbnailModalEventListeners() {
-    this.safeAddEventListener("closeThumbnailBtn", "click", () => this.hideThumbnailModal());
-    this.safeAddEventListener("prevThumbnailBtn", "click", () => this.showPreviousThumbnail());
-    this.safeAddEventListener("nextThumbnailBtn", "click", () => this.showNextThumbnail());
+    this.safeAddEventListener("closeThumbnailBtn", "click", () =>
+      this.hideThumbnailModal()
+    );
+    this.safeAddEventListener("prevThumbnailBtn", "click", () =>
+      this.showPreviousThumbnail()
+    );
+    this.safeAddEventListener("nextThumbnailBtn", "click", () =>
+      this.showNextThumbnail()
+    );
 
     const thumbnailModal = document.getElementById("thumbnailModal");
     if (thumbnailModal) {
@@ -392,7 +475,7 @@ class MovieLibraryApp {
     const videoList = document.getElementById("videoList");
     if (videoList) {
       videoList.addEventListener("click", (e) => {
-        const videoItem = e.target.closest('.video-item');
+        const videoItem = e.target.closest(".video-item");
         if (videoItem) {
           const index = parseInt(videoItem.dataset.index);
           const video = this.filteredVideos[index];
@@ -406,7 +489,7 @@ class MovieLibraryApp {
       });
 
       videoList.addEventListener("dblclick", (e) => {
-        const videoItem = e.target.closest('.video-item');
+        const videoItem = e.target.closest(".video-item");
         if (videoItem) {
           const index = parseInt(videoItem.dataset.index);
           const video = this.filteredVideos[index];
@@ -417,43 +500,51 @@ class MovieLibraryApp {
       });
 
       // Tooltip events
-      videoList.addEventListener("mouseenter", (e) => {
-        const videoItem = e.target.closest('.video-item');
-        if (videoItem) {
-          const index = parseInt(videoItem.dataset.index);
-          const video = this.filteredVideos[index];
-          if (video) {
-            // Only show tooltip in list view
-            if (this.uiRenderer.getCurrentView() === 'list') {
-              this.uiRenderer.showVideoTooltip(e, video);
+      videoList.addEventListener(
+        "mouseenter",
+        (e) => {
+          const videoItem = e.target.closest(".video-item");
+          if (videoItem) {
+            const index = parseInt(videoItem.dataset.index);
+            const video = this.filteredVideos[index];
+            if (video) {
+              // Only show tooltip in list view
+              if (this.uiRenderer.getCurrentView() === "list") {
+                this.uiRenderer.showVideoTooltip(e, video);
+              }
             }
           }
-        }
-      }, true);
+        },
+        true
+      );
 
-      videoList.addEventListener("mouseleave", (e) => {
-        const videoItem = e.target.closest('.video-item');
-        if (videoItem) {
-          // Only hide tooltip in list view
-          if (this.uiRenderer.getCurrentView() === 'list') {
-            this.uiRenderer.hideTooltip();
+      videoList.addEventListener(
+        "mouseleave",
+        (e) => {
+          const videoItem = e.target.closest(".video-item");
+          if (videoItem) {
+            // Only hide tooltip in list view
+            if (this.uiRenderer.getCurrentView() === "list") {
+              this.uiRenderer.hideTooltip();
+            }
           }
-        }
-      }, true);
+        },
+        true
+      );
     }
 
     // Sidebar event delegation - use .sidebar class instead of #sidebar
-    const sidebar = document.querySelector('.sidebar');
+    const sidebar = document.querySelector(".sidebar");
     if (sidebar) {
       sidebar.addEventListener("click", (e) => {
         // Tag filter clicks
-        const tagItem = e.target.closest('.tag-item');
+        const tagItem = e.target.closest(".tag-item");
         if (tagItem) {
           const tagName = tagItem.dataset.tagName;
           // Check if clicked on action buttons
-          if (e.target.classList.contains('edit-btn')) {
+          if (e.target.classList.contains("edit-btn")) {
             this.editTag(tagName);
-          } else if (e.target.classList.contains('delete-btn')) {
+          } else if (e.target.classList.contains("delete-btn")) {
             this.deleteTag(tagName);
           } else {
             // Click anywhere else on the tag item should filter
@@ -463,11 +554,11 @@ class MovieLibraryApp {
         }
 
         // Directory selection clicks
-        const directoryItem = e.target.closest('.directory-item');
+        const directoryItem = e.target.closest(".directory-item");
         if (directoryItem) {
           const directoryPath = directoryItem.dataset.directoryPath;
           // Check if clicked on action buttons
-          if (e.target.classList.contains('remove-btn')) {
+          if (e.target.classList.contains("remove-btn")) {
             this.removeDirectory(directoryPath);
           } else {
             // Click anywhere else on the directory item should toggle selection
@@ -483,7 +574,10 @@ class MovieLibraryApp {
     const settingsModal = document.getElementById("settingsModal");
     if (settingsModal) {
       settingsModal.addEventListener("click", (e) => {
-        if (e.target.classList.contains('remove-btn') && e.target.dataset.directoryPath) {
+        if (
+          e.target.classList.contains("remove-btn") &&
+          e.target.dataset.directoryPath
+        ) {
           this.removeDirectory(e.target.dataset.directoryPath);
         }
       });
@@ -493,7 +587,7 @@ class MovieLibraryApp {
     const detailsPanel = document.getElementById("detailsPanel");
     if (detailsPanel) {
       detailsPanel.addEventListener("click", (e) => {
-        if (e.target.classList.contains('remove-tag-btn')) {
+        if (e.target.classList.contains("remove-tag-btn")) {
           const tagName = e.target.dataset.tag;
           if (tagName) {
             this.removeTagFromCurrentVideo(tagName);
@@ -509,29 +603,31 @@ class MovieLibraryApp {
   }
 
   applyFiltersAndSort() {
-    const searchQuery = DOMUtils.getElementById("searchInput")?.value.trim() || "";
+    const searchQuery =
+      DOMUtils.getElementById("searchInput")?.value.trim() || "";
     const videos = this.videoManager.getVideos();
-    
+
     this.filteredVideos = this.filterManager.applyFiltersAndSort(
-      videos, 
-      searchQuery, 
+      videos,
+      searchQuery,
       this.currentSort
     );
-    
+
     this.renderVideoList();
   }
 
   // Lightweight filter application without full sort and render
   applyFilters() {
-    const searchQuery = DOMUtils.getElementById("searchInput")?.value.trim() || "";
+    const searchQuery =
+      DOMUtils.getElementById("searchInput")?.value.trim() || "";
     const videos = this.videoManager.getVideos();
-    
+
     this.filteredVideos = this.filterManager.applyFiltersAndSort(
-      videos, 
-      searchQuery, 
+      videos,
+      searchQuery,
       this.currentSort
     );
-    
+
     // Only update video list content, count is automatically updated in renderVideoList
     this.uiRenderer.renderVideoList(this.filteredVideos);
   }
@@ -551,13 +647,16 @@ class MovieLibraryApp {
 
   renderVideoList() {
     const count = this.uiRenderer.renderVideoList(this.filteredVideos);
-    
+
     // Initialize selected video index if not set and there are videos
-    if (this.uiRenderer.getSelectedVideoIndex() === -1 && this.filteredVideos.length > 0) {
+    if (
+      this.uiRenderer.getSelectedVideoIndex() === -1 &&
+      this.filteredVideos.length > 0
+    ) {
       this.uiRenderer.setSelectedVideoIndex(0);
       this.uiRenderer.highlightSelectedVideo();
     }
-    
+
     // Don't setup event delegation repeatedly - it's already set up in initializeEventListeners
     return count;
   }
@@ -567,34 +666,41 @@ class MovieLibraryApp {
     const directories = this.videoManager.getDirectories();
     const currentFilter = this.filterManager.getCurrentFilter();
     const selectedDirectories = this.filterManager.getSelectedDirectories();
-    
-    this.uiRenderer.renderSidebar(tags, directories, currentFilter, selectedDirectories);
+
+    this.uiRenderer.renderSidebar(
+      tags,
+      directories,
+      currentFilter,
+      selectedDirectories
+    );
   }
 
   // Filter methods
   setRatingFilter(rating) {
     console.log("setRatingFilter called with:", rating);
     this.filterManager.setRatingFilter(rating);
-    
+
     // Update visual state
-    const allBtn = document.querySelector('.rating-btn.all-btn[data-rating="0"]');
+    const allBtn = document.querySelector(
+      '.rating-btn.all-btn[data-rating="0"]'
+    );
     if (allBtn) {
       if (rating === 0) {
-        allBtn.classList.add('active');
+        allBtn.classList.add("active");
       } else {
-        allBtn.classList.remove('active');
+        allBtn.classList.remove("active");
       }
     }
-    
+
     // Update star display
     this.uiRenderer.updateStarDisplay(rating, false);
-    
+
     this.applyFiltersAndSort();
   }
 
   filterByTag(tagName) {
     this.filterManager.toggleTagFilter(tagName);
-    
+
     // Apply filters to update video list
     this.applyFilters();
     this.updateSidebarStates();
@@ -603,7 +709,7 @@ class MovieLibraryApp {
   clearAllTags() {
     // console.log("clearAllTags called");
     this.filterManager.clearAllTagFilters();
-    
+
     // Apply filters to update video list
     this.applyFilters();
     this.updateSidebarStates();
@@ -611,7 +717,7 @@ class MovieLibraryApp {
 
   toggleDirectorySelection(directoryPath) {
     this.filterManager.toggleDirectorySelection(directoryPath);
-    
+
     // Apply filters to update video list
     this.applyFilters();
     this.updateSidebarStates();
@@ -623,22 +729,22 @@ class MovieLibraryApp {
     const selectedDirectories = this.filterManager.getSelectedDirectories();
 
     // Update tag active states
-    document.querySelectorAll('.tag-item').forEach(tagElement => {
+    document.querySelectorAll(".tag-item").forEach((tagElement) => {
       const tagName = tagElement.dataset.tagName;
       if (currentFilter.tags.includes(tagName)) {
-        tagElement.classList.add('active');
+        tagElement.classList.add("active");
       } else {
-        tagElement.classList.remove('active');
+        tagElement.classList.remove("active");
       }
     });
 
     // Update directory active states
-    document.querySelectorAll('.directory-item').forEach(directoryElement => {
+    document.querySelectorAll(".directory-item").forEach((directoryElement) => {
       const directoryPath = directoryElement.dataset.directoryPath;
       if (selectedDirectories.includes(directoryPath)) {
-        directoryElement.classList.add('active');
+        directoryElement.classList.add("active");
       } else {
-        directoryElement.classList.remove('active');
+        directoryElement.classList.remove("active");
       }
     });
   }
@@ -660,12 +766,17 @@ class MovieLibraryApp {
   async addDirectory() {
     try {
       const addedDirectories = await this.videoManager.addDirectory();
-      addedDirectories.forEach(directory => {
-        this.notificationManager.show(`フォルダを追加しました: ${directory}`, "success");
+      addedDirectories.forEach((directory) => {
+        this.notificationManager.show(
+          `フォルダを追加しました: ${directory}`,
+          "success"
+        );
       });
-      
+
       // Update filter manager with new directories
-      this.filterManager.initializeDirectories(this.videoManager.getDirectories());
+      this.filterManager.initializeDirectories(
+        this.videoManager.getDirectories()
+      );
       this.renderSidebar();
     } catch (error) {
       console.error("Error adding directory:", error);
@@ -676,9 +787,11 @@ class MovieLibraryApp {
   async removeDirectory(path) {
     try {
       await this.videoManager.removeDirectory(path);
-      
+
       // Update filter manager with updated directories
-      this.filterManager.initializeDirectories(this.videoManager.getDirectories());
+      this.filterManager.initializeDirectories(
+        this.videoManager.getDirectories()
+      );
       this.renderSidebar();
       this.notificationManager.show("フォルダを削除しました", "success");
     } catch (error) {
@@ -700,7 +813,9 @@ class MovieLibraryApp {
   }
 
   async regenerateThumbnails() {
-    if (confirm("全てのサムネイルを再生成しますか？時間がかかる場合があります。")) {
+    if (
+      confirm("全てのサムネイルを再生成しますか？時間がかかる場合があります。")
+    ) {
       try {
         await this.videoManager.regenerateAllThumbnails();
       } catch (error) {
@@ -711,7 +826,9 @@ class MovieLibraryApp {
   }
 
   async updateThumbnailSettings() {
-    const quality = parseInt(DOMUtils.getElementById("thumbnailQuality")?.value || "1");
+    const quality = parseInt(
+      DOMUtils.getElementById("thumbnailQuality")?.value || "1"
+    );
     const size = DOMUtils.getElementById("thumbnailSize")?.value || "1280x720";
     const [width, height] = size.split("x").map(Number);
 
@@ -719,6 +836,11 @@ class MovieLibraryApp {
 
     try {
       await this.videoManager.updateThumbnailSettings(settings);
+      
+      // Save thumbnail settings to localStorage
+      localStorage.setItem("thumbnailQuality", quality.toString());
+      localStorage.setItem("thumbnailSize", size);
+      
       this.notificationManager.show("サムネイル設定を更新しました", "success");
     } catch (error) {
       console.error("Error updating thumbnail settings:", error);
@@ -729,7 +851,10 @@ class MovieLibraryApp {
   async cleanupThumbnails() {
     if (confirm("不要なサムネイルファイルを削除しますか？")) {
       // This would need to be implemented in the main process
-      this.notificationManager.show("サムネイルのクリーンアップが完了しました", "success");
+      this.notificationManager.show(
+        "サムネイルのクリーンアップが完了しました",
+        "success"
+      );
     }
   }
 
@@ -738,7 +863,10 @@ class MovieLibraryApp {
     const result = this.progressManager.handleScanProgress(data);
     switch (data.type) {
       case "scan-complete":
-        this.notificationManager.show(`スキャン完了: ${data.count}個の動画を発見`, "success");
+        this.notificationManager.show(
+          `スキャン完了: ${data.count}個の動画を発見`,
+          "success"
+        );
         this.loadVideosAndRefresh();
         break;
       case "scan-error":
@@ -752,7 +880,10 @@ class MovieLibraryApp {
     const result = this.progressManager.handleThumbnailProgress(data);
     switch (data.type) {
       case "thumbnail-complete":
-        this.notificationManager.show(`サムネイル生成完了: ${data.completed}個`, "success");
+        this.notificationManager.show(
+          `サムネイル生成完了: ${data.completed}個`,
+          "success"
+        );
         this.loadVideosAndRefresh();
         break;
     }
@@ -761,7 +892,10 @@ class MovieLibraryApp {
 
   async handleVideoAdded(filePath) {
     await this.videoManager.handleVideoAdded(filePath);
-    this.notificationManager.show(`新しい動画が追加されました: ${filePath}`, "info");
+    this.notificationManager.show(
+      `新しい動画が追加されました: ${filePath}`,
+      "info"
+    );
     this.applyFiltersAndSort();
   }
 
@@ -781,47 +915,53 @@ class MovieLibraryApp {
     console.log("showSettings called");
     const directories = this.videoManager.getDirectories();
     this.uiRenderer.renderSettingsDirectories(directories);
-    
+
     // サムネイル設定を読み込み（フォールバック付き）
-    if (typeof this.uiRenderer.loadThumbnailSettings === 'function') {
+    if (typeof this.uiRenderer.loadThumbnailSettings === "function") {
       this.uiRenderer.loadThumbnailSettings();
     } else {
       console.warn("loadThumbnailSettings method not found, using fallback");
       // フォールバック: 直接ローカルストレージから設定を読み込み
       try {
-        const thumbnailQuality = localStorage.getItem('thumbnailQuality') || '3';
-        const qualitySelect = document.getElementById('thumbnailQuality');
+        const thumbnailQuality =
+          localStorage.getItem("thumbnailQuality") || "3";
+        const qualitySelect = document.getElementById("thumbnailQuality");
         if (qualitySelect) {
           qualitySelect.value = thumbnailQuality;
         }
 
-        const thumbnailSize = localStorage.getItem('thumbnailSize') || '1280x720';
-        const sizeSelect = document.getElementById('thumbnailSize');
+        const thumbnailSize =
+          localStorage.getItem("thumbnailSize") || "1280x720";
+        const sizeSelect = document.getElementById("thumbnailSize");
         if (sizeSelect) {
           sizeSelect.value = thumbnailSize;
         }
-        console.log('Fallback: Thumbnail settings loaded directly');
+        console.log("Fallback: Thumbnail settings loaded directly");
       } catch (error) {
-        console.error('Error loading thumbnail settings:', error);
+        console.error("Error loading thumbnail settings:", error);
       }
     }
-    
+
     // フィルター設定の状態を復元
     const saveFilterStateCheckbox = DOMUtils.getElementById("saveFilterState");
     if (saveFilterStateCheckbox) {
-      saveFilterStateCheckbox.checked = this.filterManager.isSaveFilterStateEnabled();
-      console.log("showSettings - checkbox updated to:", this.filterManager.isSaveFilterStateEnabled());
+      saveFilterStateCheckbox.checked =
+        this.filterManager.isSaveFilterStateEnabled();
+      console.log(
+        "showSettings - checkbox updated to:",
+        this.filterManager.isSaveFilterStateEnabled()
+      );
     } else {
       console.log("showSettings - checkbox element not found");
     }
-    
+
     // テーマ設定の状態を復元
     const themeSelect = DOMUtils.getElementById("themeSelect");
     if (themeSelect) {
-      themeSelect.value = this.themeManager.getCurrentTheme() || 'system';
+      themeSelect.value = this.themeManager.getCurrentTheme() || "system";
       console.log("showSettings - theme select updated to:", themeSelect.value);
     }
-    
+
     const modal = DOMUtils.getElementById("settingsModal");
     console.log("Settings modal element found:", !!modal);
     if (modal) {
@@ -841,7 +981,7 @@ class MovieLibraryApp {
 
   toggleTheme() {
     this.themeManager.toggleTheme();
-    
+
     // Update theme toggle button icon
     const themeBtn = DOMUtils.getElementById("themeToggleBtn");
     if (themeBtn) {
@@ -854,18 +994,22 @@ class MovieLibraryApp {
   }
 
   async rescanAll() {
-    if (confirm("全ての動画を再スキャンしますか？時間がかかる場合があります。")) {
+    if (
+      confirm("全ての動画を再スキャンしますか？時間がかかる場合があります。")
+    ) {
       await this.scanDirectories();
     }
   }
 
   loadSettings() {
     try {
-      const settingsStr = localStorage.getItem('movieLibrarySettings');
+      const settingsStr = localStorage.getItem("movieLibrarySettings");
       if (settingsStr) {
         const settings = JSON.parse(settingsStr);
-        this.filterManager.setSaveFilterStateEnabled(settings.saveFilterState !== false);
-        
+        this.filterManager.setSaveFilterStateEnabled(
+          settings.saveFilterState !== false
+        );
+
         // テーマ設定の復元
         if (settings.theme) {
           this.themeManager.applyTheme(settings.theme);
@@ -876,7 +1020,7 @@ class MovieLibraryApp {
     }
   }
 
-  saveSettings() {
+  async saveSettings() {
     try {
       // フィルター設定の保存
       const saveFilterCheckbox = DOMUtils.getElementById("saveFilterState");
@@ -884,29 +1028,54 @@ class MovieLibraryApp {
         const enabled = saveFilterCheckbox.checked;
         this.filterManager.setSaveFilterStateEnabled(enabled);
       }
-      
+
       // テーマ設定の保存
       const themeSelect = DOMUtils.getElementById("themeSelect");
       if (themeSelect) {
         this.themeManager.applyTheme(themeSelect.value);
       }
-      
-      // サムネイル設定は自動保存されているが、確認のため一度実行
-      this.updateThumbnailSettings();
-      
+
+      // サムネイル設定を保存
+      await this.updateThumbnailSettings();
+
       // すべての設定をlocalStorageに保存
       const settings = {
         saveFilterState: saveFilterCheckbox?.checked !== false,
-        theme: themeSelect?.value || 'system'
+        theme: themeSelect?.value || "system",
       };
-      
-      localStorage.setItem('movieLibrarySettings', JSON.stringify(settings));
-      
+
+      localStorage.setItem("movieLibrarySettings", JSON.stringify(settings));
+
       this.notificationManager.show("設定を保存しました", "success");
       this.hideSettings();
     } catch (error) {
       console.error("Error saving settings:", error);
       this.showErrorDialog("設定の保存に失敗しました", error);
+    }
+  }
+
+  // Save only filter state setting without closing dialog
+  saveFilterStateOnly() {
+    try {
+      // Get current settings from localStorage
+      let settings = {};
+      const settingsStr = localStorage.getItem("movieLibrarySettings");
+      if (settingsStr) {
+        settings = JSON.parse(settingsStr);
+      }
+      
+      // Update only filter state setting
+      const saveFilterCheckbox = DOMUtils.getElementById("saveFilterState");
+      if (saveFilterCheckbox) {
+        settings.saveFilterState = saveFilterCheckbox.checked;
+      }
+      
+      // Save back to localStorage
+      localStorage.setItem("movieLibrarySettings", JSON.stringify(settings));
+      
+      console.log("Filter state setting saved:", settings.saveFilterState);
+    } catch (error) {
+      console.error("Error saving filter state setting:", error);
     }
   }
 
@@ -975,19 +1144,19 @@ class MovieLibraryApp {
     // Navigate through video grid
     const selectedIndex = this.uiRenderer.getSelectedVideoIndex();
     const totalVideos = this.filteredVideos.length;
-    
+
     if (totalVideos === 0) return;
 
     let newIndex = selectedIndex;
     const currentView = this.uiRenderer.getCurrentView();
-    
-    if (currentView === 'grid') {
+
+    if (currentView === "grid") {
       // Grid view navigation
       const videosPerRow = this.calculateVideosPerRow();
       const currentRow = Math.floor(selectedIndex / videosPerRow);
       const currentCol = selectedIndex % videosPerRow;
       const totalRows = Math.ceil(totalVideos / videosPerRow);
-      
+
       switch (e.key) {
         case "ArrowUp":
           if (currentRow > 0) {
@@ -996,7 +1165,10 @@ class MovieLibraryApp {
           } else {
             // Wrap to bottom row, same column
             const bottomRowStartIndex = (totalRows - 1) * videosPerRow;
-            newIndex = Math.min(bottomRowStartIndex + currentCol, totalVideos - 1);
+            newIndex = Math.min(
+              bottomRowStartIndex + currentCol,
+              totalVideos - 1
+            );
           }
           break;
         case "ArrowDown":
@@ -1051,7 +1223,7 @@ class MovieLibraryApp {
       this.uiRenderer.setSelectedVideoIndex(newIndex);
       this.uiRenderer.highlightSelectedVideo();
       this.scrollToSelectedVideo();
-      
+
       // 詳細パネルが開いている場合は、選択された動画の詳細を更新
       const detailsPanel = document.getElementById("detailsPanel");
       if (detailsPanel && detailsPanel.style.display !== "none") {
@@ -1060,7 +1232,7 @@ class MovieLibraryApp {
           this.showDetails(selectedVideo);
         }
       }
-      
+
       e.preventDefault();
     }
   }
@@ -1069,33 +1241,36 @@ class MovieLibraryApp {
   calculateVideosPerRow() {
     const videoList = document.getElementById("videoList");
     if (!videoList) return 4; // Default fallback
-    
-    const videoItems = videoList.querySelectorAll('.video-item');
+
+    const videoItems = videoList.querySelectorAll(".video-item");
     if (videoItems.length === 0) return 4;
-    
+
     const containerWidth = videoList.clientWidth;
     const itemWidth = videoItems[0].offsetWidth + 20; // Include margin
-    
+
     return Math.floor(containerWidth / itemWidth) || 1;
   }
 
   // Scroll to selected video if it's out of view
   scrollToSelectedVideo() {
     const selectedIndex = this.uiRenderer.getSelectedVideoIndex();
-    const videoItems = document.querySelectorAll('.video-item');
-    
+    const videoItems = document.querySelectorAll(".video-item");
+
     if (selectedIndex >= 0 && videoItems[selectedIndex]) {
       const selectedItem = videoItems[selectedIndex];
       const container = document.getElementById("videoList");
-      
+
       if (container) {
         const containerRect = container.getBoundingClientRect();
         const itemRect = selectedItem.getBoundingClientRect();
-        
-        if (itemRect.top < containerRect.top || itemRect.bottom > containerRect.bottom) {
+
+        if (
+          itemRect.top < containerRect.top ||
+          itemRect.bottom > containerRect.bottom
+        ) {
           selectedItem.scrollIntoView({
-            behavior: 'smooth',
-            block: 'center'
+            behavior: "smooth",
+            block: "center",
           });
         }
       }
@@ -1123,9 +1298,9 @@ class MovieLibraryApp {
 
   async deleteTag(tagName) {
     try {
-      const videosWithTag = this.videoManager.getVideos().filter(
-        (video) => video.tags && video.tags.includes(tagName)
-      );
+      const videosWithTag = this.videoManager
+        .getVideos()
+        .filter((video) => video.tags && video.tags.includes(tagName));
 
       let confirmMessage = `タグ「${tagName}」を削除しますか？`;
       if (videosWithTag.length > 0) {
@@ -1161,7 +1336,10 @@ class MovieLibraryApp {
         this.renderVideoList();
         this.applyFiltersAndSort();
 
-        this.notificationManager.show(`タグ「${tagName}」を削除しました`, "success");
+        this.notificationManager.show(
+          `タグ「${tagName}」を削除しました`,
+          "success"
+        );
       }
     } catch (error) {
       console.error("Error deleting tag:", error);
@@ -1174,7 +1352,7 @@ class MovieLibraryApp {
     this.currentEditingTag = tagName;
     const tagNameInput = DOMUtils.getElementById("tagNameInput");
     const tagEditDialog = DOMUtils.getElementById("tagEditDialog");
-    
+
     if (tagNameInput && tagEditDialog) {
       tagNameInput.value = tagName;
       tagEditDialog.style.display = "flex";
@@ -1269,8 +1447,12 @@ class MovieLibraryApp {
 
   // Video details panel methods
   showDetails(video) {
-    console.log("showDetails: Starting for video:", video?.id, video?.title || video?.filename);
-    
+    console.log(
+      "showDetails: Starting for video:",
+      video?.id,
+      video?.title || video?.filename
+    );
+
     // VideoManagerから最新のビデオデータを取得
     const latestVideo = this.videoManager.getVideoById(video.id);
     if (latestVideo) {
@@ -1280,14 +1462,18 @@ class MovieLibraryApp {
       this.currentVideo = video;
       console.log("showDetails: Using provided video data");
     }
-    
+
     this.uiRenderer.renderVideoDetails(this.currentVideo);
-    
+
     // タグオートコンプリート候補を更新
     const allTags = this.videoManager.getTags();
-    console.log("showDetails: Updating tag suggestions with", allTags.length, "tags");
+    console.log(
+      "showDetails: Updating tag suggestions with",
+      allTags.length,
+      "tags"
+    );
     this.uiRenderer.updateTagSuggestions(allTags);
-    
+
     // ビデオ詳細パネルを表示
     const detailsPanel = DOMUtils.getElementById("detailsPanel");
     if (detailsPanel) {
@@ -1296,17 +1482,17 @@ class MovieLibraryApp {
     } else {
       console.error("showDetails: Details panel not found");
     }
-    
+
     // 詳細パネルのイベントリスナーを設定
     console.log("showDetails: Setting up video details listeners");
     this.setupVideoDetailsListeners();
-    
+
     // 評価星の表示を初期化
     this.updateRatingDisplay(this.currentVideo.rating || 0, false);
-    
+
     // プレースホルダー色を確実に適用
     this.themeManager.updatePlaceholderColors();
-    
+
     console.log("showDetails: Complete");
   }
 
@@ -1321,26 +1507,38 @@ class MovieLibraryApp {
   setupVideoDetailsListeners() {
     if (!this.currentVideo) return;
 
-    console.log("Setting up video details listeners for video:", this.currentVideo.id);
+    console.log(
+      "Setting up video details listeners for video:",
+      this.currentVideo.id
+    );
 
     // レーティング星の設定
-    const stars = document.querySelectorAll('#detailsPanel .rating-input .star');
+    const stars = document.querySelectorAll(
+      "#detailsPanel .rating-input .star"
+    );
     console.log("Found rating stars:", stars.length);
-    
+
     stars.forEach((star, index) => {
       // 既存のイベントリスナーを削除（cloneNodeを使わない方法）
       star.replaceWith(star.cloneNode(true));
     });
-    
+
     // 再取得（cloneNodeで置き換わった要素を取得）
-    const newStars = document.querySelectorAll('#detailsPanel .rating-input .star');
-    
+    const newStars = document.querySelectorAll(
+      "#detailsPanel .rating-input .star"
+    );
+
     newStars.forEach((star, index) => {
       const rating = index + 1;
       console.log("Setting up star", rating);
-      
-      star.addEventListener('click', async () => {
-        console.log("Star clicked:", rating, "Current rating:", this.currentVideo.rating);
+
+      star.addEventListener("click", async () => {
+        console.log(
+          "Star clicked:",
+          rating,
+          "Current rating:",
+          this.currentVideo.rating
+        );
         // 同じ評価をクリックした場合は評価を解除（0にする）
         if (this.currentVideo.rating === rating) {
           console.log("Removing rating");
@@ -1350,32 +1548,38 @@ class MovieLibraryApp {
           await this.setRating(rating);
         }
       });
-      
-      star.addEventListener('mouseenter', () => {
+
+      star.addEventListener("mouseenter", () => {
         console.log("Star hovered:", rating);
         this.updateRatingDisplay(rating, true);
       });
-      
-      star.addEventListener('mouseleave', () => {
-        console.log("Star unhovered, restoring rating:", this.currentVideo.rating || 0);
+
+      star.addEventListener("mouseleave", () => {
+        console.log(
+          "Star unhovered, restoring rating:",
+          this.currentVideo.rating || 0
+        );
         this.updateRatingDisplay(this.currentVideo.rating || 0, false);
       });
     });
 
     // 評価解除エリアを追加（星の前に配置）
-    const ratingContainer = document.querySelector('#detailsPanel .rating-input');
+    const ratingContainer = document.querySelector(
+      "#detailsPanel .rating-input"
+    );
     if (ratingContainer) {
       // 既存の解除エリアがあれば削除
-      const existingClearArea = ratingContainer.querySelector('.rating-clear-area');
+      const existingClearArea =
+        ratingContainer.querySelector(".rating-clear-area");
       if (existingClearArea) {
         existingClearArea.remove();
       }
-      
+
       // 評価解除エリアを作成
-      const clearArea = document.createElement('span');
-      clearArea.className = 'rating-clear-area';
-      clearArea.textContent = '✕';
-      clearArea.title = '評価を解除';
+      const clearArea = document.createElement("span");
+      clearArea.className = "rating-clear-area";
+      clearArea.textContent = "✕";
+      clearArea.title = "評価を解除";
       clearArea.style.cssText = `
         font-size: 16px;
         cursor: pointer;
@@ -1386,27 +1590,27 @@ class MovieLibraryApp {
         transition: all 0.2s ease;
         user-select: none;
       `;
-      
+
       // 評価解除エリアのイベント
-      clearArea.addEventListener('click', async () => {
+      clearArea.addEventListener("click", async () => {
         console.log("Clear area clicked");
         await this.setRating(0);
       });
-      
-      clearArea.addEventListener('mouseenter', () => {
-        clearArea.style.opacity = '1';
-        clearArea.style.backgroundColor = 'rgba(255, 0, 0, 0.1)';
-        clearArea.style.color = '#ff4444';
+
+      clearArea.addEventListener("mouseenter", () => {
+        clearArea.style.opacity = "1";
+        clearArea.style.backgroundColor = "rgba(255, 0, 0, 0.1)";
+        clearArea.style.color = "#ff4444";
       });
-      
-      clearArea.addEventListener('mouseleave', () => {
-        clearArea.style.opacity = '0.5';
-        clearArea.style.backgroundColor = 'transparent';
-        clearArea.style.color = 'inherit';
+
+      clearArea.addEventListener("mouseleave", () => {
+        clearArea.style.opacity = "0.5";
+        clearArea.style.backgroundColor = "transparent";
+        clearArea.style.color = "inherit";
       });
-      
+
       // 最初の星の前に挿入
-      const firstStar = ratingContainer.querySelector('.star');
+      const firstStar = ratingContainer.querySelector(".star");
       if (firstStar) {
         ratingContainer.insertBefore(clearArea, firstStar);
       }
@@ -1416,85 +1620,112 @@ class MovieLibraryApp {
     const tagInput = document.getElementById("tagInput");
 
     if (tagInput) {
-      console.log("setupVideoDetailsListeners: Setting up tag input for video:", this.currentVideo.id);
-      
+      console.log(
+        "setupVideoDetailsListeners: Setting up tag input for video:",
+        this.currentVideo.id
+      );
+
       // 既存のイベントリスナーを削除してからクリーンアップ
       const newTagInput = tagInput.cloneNode(true);
       tagInput.parentNode.replaceChild(newTagInput, tagInput);
-      
+
       // IME変換状態を追跡する変数
       let isComposing = false;
-      let lastInputValue = '';
-      
+      let lastInputValue = "";
+
       // IME変換開始
-      newTagInput.addEventListener('compositionstart', (e) => {
+      newTagInput.addEventListener("compositionstart", (e) => {
         console.log("setupVideoDetailsListeners: compositionstart event");
         isComposing = true;
       });
-      
+
       // IME変換終了
-      newTagInput.addEventListener('compositionend', (e) => {
-        console.log("setupVideoDetailsListeners: compositionend event, value:", e.target.value);
+      newTagInput.addEventListener("compositionend", (e) => {
+        console.log(
+          "setupVideoDetailsListeners: compositionend event, value:",
+          e.target.value
+        );
         isComposing = false;
         lastInputValue = e.target.value;
-        
+
         // 変換確定のEnterの場合、少し待ってからkeydownイベントを無視するフラグをリセット
         setTimeout(() => {
           console.log("setupVideoDetailsListeners: composition settled");
         }, 10);
       });
-      
+
       // 入力値の変化を追跡
-      newTagInput.addEventListener('input', (e) => {
-        console.log("setupVideoDetailsListeners: input event triggered, value:", e.target.value, "isComposing:", isComposing);
+      newTagInput.addEventListener("input", (e) => {
+        console.log(
+          "setupVideoDetailsListeners: input event triggered, value:",
+          e.target.value,
+          "isComposing:",
+          isComposing
+        );
         if (!isComposing) {
           lastInputValue = e.target.value;
         }
       });
-      
+
       // キーダウンイベント（メインのEnter処理）
-      newTagInput.addEventListener('keydown', (e) => {
-        console.log("setupVideoDetailsListeners: keydown event triggered, key:", e.key, "isComposing:", isComposing);
-        
+      newTagInput.addEventListener("keydown", (e) => {
+        console.log(
+          "setupVideoDetailsListeners: keydown event triggered, key:",
+          e.key,
+          "isComposing:",
+          isComposing
+        );
+
         if (e.key === "Enter") {
           // IME変換中のEnterは無視
           if (isComposing) {
-            console.log("setupVideoDetailsListeners: Ignoring Enter during IME composition");
+            console.log(
+              "setupVideoDetailsListeners: Ignoring Enter during IME composition"
+            );
             return;
           }
-          
+
           // datalist候補選択時のEnterを検出
           // 候補選択の場合、inputイベントが発火された直後にkeydownが来る
           const currentValue = newTagInput.value.trim();
-          
+
           // 値が変わったばかり（候補選択など）の場合は一度無視
           if (currentValue !== lastInputValue.trim()) {
-            console.log("setupVideoDetailsListeners: Value changed from candidate selection, ignoring Enter");
+            console.log(
+              "setupVideoDetailsListeners: Value changed from candidate selection, ignoring Enter"
+            );
             lastInputValue = currentValue;
             return;
           }
-          
+
           e.preventDefault();
           e.stopPropagation();
-          
-          console.log("setupVideoDetailsListeners: Processing Enter for tag addition, value:", currentValue);
+
+          console.log(
+            "setupVideoDetailsListeners: Processing Enter for tag addition, value:",
+            currentValue
+          );
           if (currentValue) {
-            console.log("setupVideoDetailsListeners: Calling addTagToCurrentVideo");
+            console.log(
+              "setupVideoDetailsListeners: Calling addTagToCurrentVideo"
+            );
             this.addTagToCurrentVideo(currentValue);
             newTagInput.value = "";
             lastInputValue = "";
           }
         }
       });
-      
+
       // フォーカス時の初期化
-      newTagInput.addEventListener('focus', (e) => {
+      newTagInput.addEventListener("focus", (e) => {
         console.log("setupVideoDetailsListeners: focus event triggered");
         lastInputValue = e.target.value;
         isComposing = false;
       });
-      
-      console.log("setupVideoDetailsListeners: Tag input event listeners attached successfully");
+
+      console.log(
+        "setupVideoDetailsListeners: Tag input event listeners attached successfully"
+      );
     } else {
       console.warn("setupVideoDetailsListeners: tagInput element not found");
     }
@@ -1503,13 +1734,22 @@ class MovieLibraryApp {
   async setRating(rating) {
     console.log("setRating called with:", rating);
     if (this.currentVideo) {
-      console.log("Setting rating for video:", this.currentVideo.id, "from", this.currentVideo.rating, "to", rating);
+      console.log(
+        "Setting rating for video:",
+        this.currentVideo.id,
+        "from",
+        this.currentVideo.rating,
+        "to",
+        rating
+      );
       this.currentVideo.rating = rating;
       this.updateRatingDisplay(rating, false);
-      
+
       // データベースに評価を保存
       try {
-        await this.videoManager.updateVideo(this.currentVideo.id, { rating: rating });
+        await this.videoManager.updateVideo(this.currentVideo.id, {
+          rating: rating,
+        });
         console.log("Rating saved to database successfully");
       } catch (error) {
         console.error("Failed to save rating to database:", error);
@@ -1520,62 +1760,73 @@ class MovieLibraryApp {
   }
 
   updateRatingDisplay(rating, isHover = false) {
-    console.log("updateRatingDisplay called with rating:", rating, "isHover:", isHover);
-    const stars = document.querySelectorAll('#detailsPanel .rating-input .star');
-    const clearArea = document.querySelector('#detailsPanel .rating-clear-area');
-    
+    console.log(
+      "updateRatingDisplay called with rating:",
+      rating,
+      "isHover:",
+      isHover
+    );
+    const stars = document.querySelectorAll(
+      "#detailsPanel .rating-input .star"
+    );
+    const clearArea = document.querySelector(
+      "#detailsPanel .rating-clear-area"
+    );
+
     console.log("Found stars for update:", stars.length);
-    
+
     stars.forEach((star, index) => {
       const starRating = index + 1;
       // Remove existing classes
-      star.classList.remove('active', 'hover');
-      
+      star.classList.remove("active", "hover");
+
       if (starRating <= rating) {
-        star.textContent = '⭐';
+        star.textContent = "⭐";
         if (isHover) {
-          star.classList.add('hover');
+          star.classList.add("hover");
         } else {
-          star.classList.add('active');
+          star.classList.add("active");
         }
       } else {
-        star.textContent = '☆';
+        star.textContent = "☆";
       }
     });
-    
+
     // 評価解除エリアの状態更新
     if (clearArea) {
       if (rating === 0 && !isHover) {
-        clearArea.style.opacity = '1';
-        clearArea.style.backgroundColor = 'rgba(255, 0, 0, 0.1)';
-        clearArea.style.color = '#ff4444';
+        clearArea.style.opacity = "1";
+        clearArea.style.backgroundColor = "rgba(255, 0, 0, 0.1)";
+        clearArea.style.color = "#ff4444";
       } else if (rating > 0) {
-        clearArea.style.opacity = '0.5';
-        clearArea.style.backgroundColor = 'transparent';
-        clearArea.style.color = 'inherit';
+        clearArea.style.opacity = "0.5";
+        clearArea.style.backgroundColor = "transparent";
+        clearArea.style.color = "inherit";
       }
     }
-    
+
     console.log("Rating display updated");
   }
 
   updateTagsDisplay(tags) {
     if (!this.currentVideo) return;
-    
+
     const tagsContainer = DOMUtils.getElementById("videoTagsList");
     if (tagsContainer) {
       tagsContainer.innerHTML = "";
-      
-      tags.forEach(tag => {
+
+      tags.forEach((tag) => {
         const tagElement = document.createElement("span");
         tagElement.className = "tag-item";
         tagElement.innerHTML = `
           ${Utils.escapeHtml(tag)}
-          <button class="remove-tag" data-tag="${Utils.escapeHtml(tag)}">×</button>
+          <button class="remove-tag" data-tag="${Utils.escapeHtml(
+            tag
+          )}">×</button>
         `;
         tagsContainer.appendChild(tagElement);
       });
-      
+
       // 削除ボタンのイベントリスナーを再設定
       this.setupVideoDetailsListeners();
     }
@@ -1584,33 +1835,36 @@ class MovieLibraryApp {
   // 特定の動画のタグ表示を即座に更新する関数
   updateVideoTagsDisplay(videoId) {
     console.log("updateVideoTagsDisplay: Starting update for video:", videoId);
-    
+
     // 現在表示されている動画アイテムを検索
-    const videoItems = document.querySelectorAll('.video-item');
-    
+    const videoItems = document.querySelectorAll(".video-item");
+
     videoItems.forEach((item, index) => {
       const video = this.filteredVideos[index];
       if (video && video.id === videoId) {
         console.log("updateVideoTagsDisplay: Found video item at index", index);
-        
+
         // タグコンテナを取得
-        const tagsContainer = item.querySelector('.video-tags');
+        const tagsContainer = item.querySelector(".video-tags");
         if (tagsContainer) {
-          console.log("updateVideoTagsDisplay: Updating tags for video", video.title || video.filename);
-          
+          console.log(
+            "updateVideoTagsDisplay: Updating tags for video",
+            video.title || video.filename
+          );
+
           // タグコンテナをクリア
           tagsContainer.innerHTML = "";
-          
+
           // タグを再描画
           if (video.tags && video.tags.length > 0) {
             const currentView = this.uiRenderer.getCurrentView();
-            
-            if (currentView === 'grid') {
+
+            if (currentView === "grid") {
               // Grid view: show up to 3 tags plus overflow indicator
               const maxVisibleTags = 3;
               const visibleTags = video.tags.slice(0, maxVisibleTags);
               const hiddenTags = video.tags.slice(maxVisibleTags);
-              
+
               // Add visible tags
               visibleTags.forEach((tag) => {
                 const tagSpan = document.createElement("span");
@@ -1618,7 +1872,7 @@ class MovieLibraryApp {
                 tagSpan.textContent = tag;
                 tagsContainer.appendChild(tagSpan);
               });
-              
+
               // Add overflow indicator if there are hidden tags
               if (hiddenTags.length > 0) {
                 const overflowSpan = document.createElement("span");
@@ -1636,38 +1890,49 @@ class MovieLibraryApp {
                 tagsContainer.appendChild(tagSpan);
               });
             }
-            
+
             console.log("updateVideoTagsDisplay: Tags updated to:", video.tags);
           } else {
             console.log("updateVideoTagsDisplay: No tags to display");
           }
         } else {
-          console.warn("updateVideoTagsDisplay: Tags container not found for video item");
+          console.warn(
+            "updateVideoTagsDisplay: Tags container not found for video item"
+          );
         }
-        
+
         return; // 見つかったので終了
       }
     });
-    
+
     console.log("updateVideoTagsDisplay: Complete for video:", videoId);
   }
 
   async addTagToCurrentVideo(tagName) {
     if (!tagName || !this.currentVideo) {
-      console.log("addTagToCurrentVideo: invalid input", { tagName, currentVideo: !!this.currentVideo });
+      console.log("addTagToCurrentVideo: invalid input", {
+        tagName,
+        currentVideo: !!this.currentVideo,
+      });
       return;
     }
 
-    console.log("addTagToCurrentVideo: Starting tag addition", { tagName, videoId: this.currentVideo.id });
+    console.log("addTagToCurrentVideo: Starting tag addition", {
+      tagName,
+      videoId: this.currentVideo.id,
+    });
 
     // 先にローカルでの重複チェックを行う
     if (!this.currentVideo.tags) {
       this.currentVideo.tags = [];
       console.log("addTagToCurrentVideo: Initialized currentVideo.tags array");
     }
-    
+
     if (this.currentVideo.tags.includes(tagName)) {
-      console.log("addTagToCurrentVideo: Tag already exists locally, skipping:", tagName);
+      console.log(
+        "addTagToCurrentVideo: Tag already exists locally, skipping:",
+        tagName
+      );
       return;
     }
 
@@ -1676,45 +1941,58 @@ class MovieLibraryApp {
       console.log("addTagToCurrentVideo: Calling videoManager.addTagToVideo");
       await this.videoManager.addTagToVideo(this.currentVideo.id, tagName);
       console.log("addTagToCurrentVideo: Tag added to database successfully");
-      
+
       // ローカルデータの更新：currentVideoとfilteredVideosの両方を更新
       this.currentVideo.tags.push(tagName);
-      console.log("addTagToCurrentVideo: Tag added to currentVideo.tags", this.currentVideo.tags);
-      
+      console.log(
+        "addTagToCurrentVideo: Tag added to currentVideo.tags",
+        this.currentVideo.tags
+      );
+
       // filteredVideosの該当ビデオも更新
-      const filteredIndex = this.filteredVideos.findIndex(video => video.id === this.currentVideo.id);
+      const filteredIndex = this.filteredVideos.findIndex(
+        (video) => video.id === this.currentVideo.id
+      );
       if (filteredIndex !== -1) {
         if (!this.filteredVideos[filteredIndex].tags) {
           this.filteredVideos[filteredIndex].tags = [];
         }
         if (!this.filteredVideos[filteredIndex].tags.includes(tagName)) {
           this.filteredVideos[filteredIndex].tags.push(tagName);
-          console.log("addTagToCurrentVideo: Tag added to filteredVideos", this.filteredVideos[filteredIndex].tags);
+          console.log(
+            "addTagToCurrentVideo: Tag added to filteredVideos",
+            this.filteredVideos[filteredIndex].tags
+          );
         }
       }
-      
+
       // VideoManagerのローカルデータも更新
       console.log("addTagToCurrentVideo: Updating VideoManager local data");
       this.videoManager.updateLocalVideoData(this.currentVideo);
-      
+
       // UI更新
       this.uiRenderer.updateDetailsTagsDisplay(this.currentVideo.tags);
       this.updateVideoTagsDisplay(this.currentVideo.id);
-      
+
       // オートコンプリート候補を更新
       const allTags = this.videoManager.getTags();
       this.uiRenderer.updateTagSuggestions(allTags);
-      
+
       // サイドバーを更新
       this.renderSidebar();
-      
-      console.log("addTagToCurrentVideo: Tag added and UI updated successfully:", tagName);
+
+      console.log(
+        "addTagToCurrentVideo: Tag added and UI updated successfully:",
+        tagName
+      );
     } catch (error) {
       console.error("addTagToCurrentVideo: Error adding tag:", error);
-      
+
       // エラーが「すでに存在する」場合は、ローカルデータを同期
-      if (error.message && error.message.includes('already exists')) {
-        console.log("addTagToCurrentVideo: Tag already exists in database, syncing local data");
+      if (error.message && error.message.includes("already exists")) {
+        console.log(
+          "addTagToCurrentVideo: Tag already exists in database, syncing local data"
+        );
         if (!this.currentVideo.tags.includes(tagName)) {
           this.currentVideo.tags.push(tagName);
           this.uiRenderer.updateDetailsTagsDisplay(this.currentVideo.tags);
@@ -1732,40 +2010,60 @@ class MovieLibraryApp {
       return;
     }
 
-    console.log("removeTagFromCurrentVideo: Starting tag removal", { tagName, videoId: this.currentVideo.id });
+    console.log("removeTagFromCurrentVideo: Starting tag removal", {
+      tagName,
+      videoId: this.currentVideo.id,
+    });
 
     try {
       // データベースから削除
       await this.videoManager.removeTagFromVideo(this.currentVideo.id, tagName);
-      console.log("removeTagFromCurrentVideo: Tag removed from database successfully");
-      
+      console.log(
+        "removeTagFromCurrentVideo: Tag removed from database successfully"
+      );
+
       // ローカルデータを更新
       if (this.currentVideo.tags) {
-        this.currentVideo.tags = this.currentVideo.tags.filter(tag => tag !== tagName);
-        console.log("removeTagFromCurrentVideo: Tag removed from currentVideo", this.currentVideo.tags);
-        
+        this.currentVideo.tags = this.currentVideo.tags.filter(
+          (tag) => tag !== tagName
+        );
+        console.log(
+          "removeTagFromCurrentVideo: Tag removed from currentVideo",
+          this.currentVideo.tags
+        );
+
         // filteredVideosも更新
-        const filteredIndex = this.filteredVideos.findIndex(video => video.id === this.currentVideo.id);
+        const filteredIndex = this.filteredVideos.findIndex(
+          (video) => video.id === this.currentVideo.id
+        );
         if (filteredIndex !== -1 && this.filteredVideos[filteredIndex].tags) {
-          this.filteredVideos[filteredIndex].tags = this.filteredVideos[filteredIndex].tags.filter(tag => tag !== tagName);
-          console.log("removeTagFromCurrentVideo: Tag removed from filteredVideos", this.filteredVideos[filteredIndex].tags);
+          this.filteredVideos[filteredIndex].tags = this.filteredVideos[
+            filteredIndex
+          ].tags.filter((tag) => tag !== tagName);
+          console.log(
+            "removeTagFromCurrentVideo: Tag removed from filteredVideos",
+            this.filteredVideos[filteredIndex].tags
+          );
         }
-        
+
         // VideoManagerのローカルデータも更新
         this.videoManager.updateLocalVideoData(this.currentVideo);
-        
+
         // UI更新
         this.uiRenderer.updateDetailsTagsDisplay(this.currentVideo.tags);
         this.updateVideoTagsDisplay(this.currentVideo.id);
-        
+
         // オートコンプリート候補を更新
         const allTags = this.videoManager.getTags();
         this.uiRenderer.updateTagSuggestions(allTags);
-        
+
         // サイドバーを更新
         this.renderSidebar();
-        
-        console.log("removeTagFromCurrentVideo: Tag removed and UI updated successfully:", tagName);
+
+        console.log(
+          "removeTagFromCurrentVideo: Tag removed and UI updated successfully:",
+          tagName
+        );
       }
     } catch (error) {
       console.error("removeTagFromCurrentVideo: Error removing tag:", error);
@@ -1778,8 +2076,10 @@ class MovieLibraryApp {
 
     try {
       const titleInput = DOMUtils.getElementById("detailsTitleInput");
-      const descriptionInput = DOMUtils.getElementById("detailsDescriptionInput");
-      
+      const descriptionInput = DOMUtils.getElementById(
+        "detailsDescriptionInput"
+      );
+
       const updatedData = {
         title: titleInput?.value || this.currentVideo.title,
         description: descriptionInput?.value || this.currentVideo.description,
@@ -1803,61 +2103,85 @@ class MovieLibraryApp {
   async showThumbnailModal(video, startIndex = 0) {
     this.currentThumbnails = [];
     this.currentThumbnailIndex = 0;
-    
+
     try {
       console.log("showThumbnailModal - video object:", video);
-      console.log("showThumbnailModal - chapter_thumbnails:", video.chapter_thumbnails);
-      
+      console.log(
+        "showThumbnailModal - chapter_thumbnails:",
+        video.chapter_thumbnails
+      );
+
       // Always include main thumbnail as the first item
       if (video && video.thumbnail_path) {
         this.currentThumbnails.push({
           path: video.thumbnail_path,
           timestamp: 0,
-          isMain: true
+          isMain: true,
         });
       }
-      
+
       // Use chapter thumbnails if available
       if (video && video.chapter_thumbnails) {
         let chapters = [];
-        
+
         if (Array.isArray(video.chapter_thumbnails)) {
           chapters = video.chapter_thumbnails;
-        } else if (typeof video.chapter_thumbnails === 'string') {
+        } else if (typeof video.chapter_thumbnails === "string") {
           try {
             const parsed = JSON.parse(video.chapter_thumbnails);
             if (Array.isArray(parsed)) {
               chapters = parsed;
-            } else if (typeof parsed === 'object' && parsed !== null) {
-              chapters = Object.values(parsed).filter(item => 
-                item && typeof item === 'object' && item.path && item.timestamp !== undefined
+            } else if (typeof parsed === "object" && parsed !== null) {
+              chapters = Object.values(parsed).filter(
+                (item) =>
+                  item &&
+                  typeof item === "object" &&
+                  item.path &&
+                  item.timestamp !== undefined
               );
             }
           } catch (error) {
             console.warn("Failed to parse chapter_thumbnails:", error);
           }
-        } else if (typeof video.chapter_thumbnails === 'object' && video.chapter_thumbnails !== null) {
-          chapters = Object.values(video.chapter_thumbnails).filter(item => 
-            item && typeof item === 'object' && item.path && item.timestamp !== undefined
+        } else if (
+          typeof video.chapter_thumbnails === "object" &&
+          video.chapter_thumbnails !== null
+        ) {
+          chapters = Object.values(video.chapter_thumbnails).filter(
+            (item) =>
+              item &&
+              typeof item === "object" &&
+              item.path &&
+              item.timestamp !== undefined
           );
         }
-        
-        const validChapters = chapters.filter(item => 
-          item && typeof item === 'object' && item.path && item.timestamp !== undefined
+
+        const validChapters = chapters.filter(
+          (item) =>
+            item &&
+            typeof item === "object" &&
+            item.path &&
+            item.timestamp !== undefined
         );
-        
+
         // Add chapter thumbnails after main thumbnail
         this.currentThumbnails.push(...validChapters);
-        
-        console.log("showThumbnailModal - processed thumbnails:", this.currentThumbnails);
+
+        console.log(
+          "showThumbnailModal - processed thumbnails:",
+          this.currentThumbnails
+        );
       }
-      
+
       if (this.currentThumbnails.length === 0) {
-        console.warn("No valid thumbnails found for video:", video?.title || video?.filename);
+        console.warn(
+          "No valid thumbnails found for video:",
+          video?.title || video?.filename
+        );
         this.notificationManager.show("サムネイルが見つかりません", "warning");
         return;
       }
-      
+
       // Set the correct starting index
       if (startIndex === 0) {
         // Start with main thumbnail (index 0)
@@ -1870,7 +2194,7 @@ class MovieLibraryApp {
           this.currentThumbnailIndex = 0;
         }
       }
-      
+
       // モーダルを表示
       const modal = DOMUtils.getElementById("thumbnailModal");
       if (modal) {
@@ -1889,46 +2213,53 @@ class MovieLibraryApp {
     if (modal) {
       modal.style.display = "none";
     }
-    
+
     // Remove keyboard listener
     if (this.thumbnailModalKeyboardHandler) {
-      document.removeEventListener('keydown', this.thumbnailModalKeyboardHandler);
+      document.removeEventListener(
+        "keydown",
+        this.thumbnailModalKeyboardHandler
+      );
       this.thumbnailModalKeyboardHandler = null;
     }
-    
+
     this.currentThumbnails = [];
     this.currentThumbnailIndex = 0;
   }
 
   updateThumbnailModalContent() {
     if (this.currentThumbnails.length === 0) return;
-    
+
     const thumbnail = this.currentThumbnails[this.currentThumbnailIndex];
     const img = DOMUtils.getElementById("modalThumbnailImage");
     const info = DOMUtils.getElementById("thumbnailInfo");
-    
+
     if (img && thumbnail.path) {
       img.src = `file://${thumbnail.path}`;
     }
-    
+
     if (info) {
       const timestamp = DOMUtils.getElementById("thumbnailTimestamp");
       const index = DOMUtils.getElementById("thumbnailIndex");
-      
+
       if (timestamp) {
         if (thumbnail.isMain) {
           timestamp.textContent = "メインサムネイル";
         } else {
-          timestamp.textContent = FormatUtils.formatDuration(thumbnail.timestamp || 0);
+          timestamp.textContent = FormatUtils.formatDuration(
+            thumbnail.timestamp || 0
+          );
         }
       }
-      
+
       if (index) {
         if (thumbnail.isMain) {
           index.textContent = `メインサムネイル (1 / ${this.currentThumbnails.length})`;
         } else {
           const chapterNumber = this.currentThumbnailIndex; // Since main is at index 0
-          index.textContent = `チャプター ${chapterNumber} (${this.currentThumbnailIndex + 1} / ${this.currentThumbnails.length})`;
+          index.textContent = `チャプター ${chapterNumber} (${
+            this.currentThumbnailIndex + 1
+          } / ${this.currentThumbnails.length})`;
         }
       }
     }
@@ -1949,7 +2280,7 @@ class MovieLibraryApp {
           if (e.target === modal) {
             this.hideThumbnailModal();
           }
-        }
+        },
       });
     }
 
@@ -1957,58 +2288,65 @@ class MovieLibraryApp {
     if (prevBtn) {
       DOMUtils.removeAllEventListeners(prevBtn);
       DOMUtils.addEventListeners(prevBtn, {
-        click: () => this.showPreviousThumbnail()
+        click: () => this.showPreviousThumbnail(),
       });
     }
 
     if (nextBtn) {
       DOMUtils.removeAllEventListeners(nextBtn);
       DOMUtils.addEventListeners(nextBtn, {
-        click: () => this.showNextThumbnail()
+        click: () => this.showNextThumbnail(),
       });
     }
 
     if (closeBtn) {
       DOMUtils.removeAllEventListeners(closeBtn);
       DOMUtils.addEventListeners(closeBtn, {
-        click: () => this.hideThumbnailModal()
+        click: () => this.hideThumbnailModal(),
       });
     }
 
     if (setMainBtn) {
       DOMUtils.removeAllEventListeners(setMainBtn);
       DOMUtils.addEventListeners(setMainBtn, {
-        click: () => this.setMainThumbnail()
+        click: () => this.setMainThumbnail(),
       });
     }
   }
 
   showPreviousThumbnail() {
     if (this.currentThumbnails.length === 0) return;
-    
-    this.currentThumbnailIndex = 
-      (this.currentThumbnailIndex - 1 + this.currentThumbnails.length) % this.currentThumbnails.length;
+
+    this.currentThumbnailIndex =
+      (this.currentThumbnailIndex - 1 + this.currentThumbnails.length) %
+      this.currentThumbnails.length;
     this.updateThumbnailModalContent();
   }
 
   showNextThumbnail() {
     if (this.currentThumbnails.length === 0) return;
-    
-    this.currentThumbnailIndex = 
+
+    this.currentThumbnailIndex =
       (this.currentThumbnailIndex + 1) % this.currentThumbnails.length;
     this.updateThumbnailModalContent();
   }
 
   async setMainThumbnail() {
     if (!this.currentVideo || this.currentThumbnails.length === 0) return;
-    
+
     try {
-      const thumbnail = this.currentThumbnails[this.currentThumbnailIndex];
-      await window.electronAPI.setMainThumbnail(this.currentVideo.filePath, thumbnail.timestamp);
-      
-      this.notificationManager.show("メインサムネイルを設定しました", "success");
+           const thumbnail = this.currentThumbnails[this.currentThumbnailIndex];
+      await window.electronAPI.setMainThumbnail(
+        this.currentVideo.filePath,
+        thumbnail.timestamp
+      );
+
+      this.notificationManager.show(
+        "メインサムネイルを設定しました",
+        "success"
+      );
       this.hideThumbnailModal();
-      
+
       // ビデオリストを更新してサムネイルの変更を反映
       setTimeout(() => {
         this.renderVideoList();
@@ -2021,44 +2359,62 @@ class MovieLibraryApp {
 
   async refreshMainThumbnail() {
     if (!this.currentVideo) return;
-    
+
     try {
-      const updatedVideo = await window.electronAPI.regenerateMainThumbnail(this.currentVideo.id);
+      const updatedVideo = await window.electronAPI.regenerateMainThumbnail(
+        this.currentVideo.id
+      );
       this.notificationManager.show("サムネイルを更新しました", "success");
-      
+
       // 現在のビデオを更新し、ローカルデータも更新
       this.currentVideo = updatedVideo;
-      const updatedLocalVideo = this.videoManager.updateLocalVideoData(updatedVideo);
-      
+      const updatedLocalVideo =
+        this.videoManager.updateLocalVideoData(updatedVideo);
+
       // filteredVideosも更新
-      const filteredIndex = this.filteredVideos.findIndex(video => video.id === updatedVideo.id);
+      const filteredIndex = this.filteredVideos.findIndex(
+        (video) => video.id === updatedVideo.id
+      );
       if (filteredIndex !== -1) {
-        this.filteredVideos[filteredIndex] = { ...this.filteredVideos[filteredIndex], ...updatedVideo };
-        console.log("Updated filteredVideos entry:", this.filteredVideos[filteredIndex]);
-        console.log("Updated thumbnail_path:", this.filteredVideos[filteredIndex].thumbnail_path);
+        this.filteredVideos[filteredIndex] = {
+          ...this.filteredVideos[filteredIndex],
+          ...updatedVideo,
+        };
+        console.log(
+          "Updated filteredVideos entry:",
+          this.filteredVideos[filteredIndex]
+        );
+        console.log(
+          "Updated thumbnail_path:",
+          this.filteredVideos[filteredIndex].thumbnail_path
+        );
       } else {
         console.warn("Video not found in filteredVideos:", updatedVideo.id);
       }
-      
+
       // キャッシュをクリアしてサムネイルを強制的に更新
       const timestamp = Date.now();
-      
+
       // 即座にサムネイルを強制更新
       this.forceUpdateThumbnails(updatedVideo, timestamp);
-      
+
       // ビデオリストとサイドバーを再描画
       setTimeout(() => {
         this.renderVideoList();
         this.renderSidebar();
-        
+
         // レンダリング後に再度サムネイル更新を確実に実行
         setTimeout(() => {
           this.forceUpdateThumbnails(updatedVideo, timestamp);
         }, 50);
-        
+
         // 詳細パネルが開いている場合は更新
         const detailsPanel = document.getElementById("detailsPanel");
-        if (detailsPanel && detailsPanel.style.display !== "none" && this.currentVideo) {
+        if (
+          detailsPanel &&
+          detailsPanel.style.display !== "none" &&
+          this.currentVideo
+        ) {
           // 詳細パネルを再描画
           this.showDetails(this.currentVideo);
         }
@@ -2071,28 +2427,41 @@ class MovieLibraryApp {
 
   // グリッド/リスト表示のサムネイルを強制更新
   forceUpdateThumbnails(updatedVideo, timestamp) {
-    console.log("forceUpdateThumbnails called for video:", updatedVideo?.id, "timestamp:", timestamp);
-    
+    console.log(
+      "forceUpdateThumbnails called for video:",
+      updatedVideo?.id,
+      "timestamp:",
+      timestamp
+    );
+
     // 現在表示されている動画アイテムのサムネイルを更新
-    const videoItems = document.querySelectorAll('.video-item');
-    videoItems.forEach(item => {
+    const videoItems = document.querySelectorAll(".video-item");
+    videoItems.forEach((item) => {
       const videoIndex = parseInt(item.dataset.index);
       const video = this.filteredVideos[videoIndex];
-      
+
       if (video && video.id === updatedVideo?.id) {
         // .video-thumbnail div内のimg要素を取得
-        const thumbnailImg = item.querySelector('.video-thumbnail img');
+        const thumbnailImg = item.querySelector(".video-thumbnail img");
         if (thumbnailImg) {
           const newSrc = `file://${updatedVideo.thumbnail_path}?t=${timestamp}`;
-          console.log("Updating thumbnail img src from:", thumbnailImg.src, "to:", newSrc);
+          console.log(
+            "Updating thumbnail img src from:",
+            thumbnailImg.src,
+            "to:",
+            newSrc
+          );
           thumbnailImg.src = newSrc;
-          
+
           // 画像の読み込みを強制
           thumbnailImg.onload = () => {
             console.log("Thumbnail successfully updated for video:", video.id);
           };
           thumbnailImg.onerror = () => {
-            console.error("Failed to load updated thumbnail for video:", video.id);
+            console.error(
+              "Failed to load updated thumbnail for video:",
+              video.id
+            );
           };
         } else {
           console.warn("Thumbnail img element not found for video:", video.id);
@@ -2104,19 +2473,19 @@ class MovieLibraryApp {
   // Tooltip methods
   showTooltip(e, video) {
     this.hideTooltip(); // 既存のツールチップを隠す
-    
+
     const tooltip = DOMUtils.getElementById("videoTooltip");
     if (!tooltip) return;
-    
+
     // ツールチップの内容を設定
     const titleElement = tooltip.querySelector(".tooltip-title");
     const infoElement = tooltip.querySelector(".tooltip-info");
     const tagsElement = tooltip.querySelector(".tooltip-tags");
-    
+
     if (titleElement) {
       titleElement.textContent = video.title || video.filename;
     }
-    
+
     if (infoElement) {
       const info = [];
       if (video.duration) {
@@ -2126,11 +2495,13 @@ class MovieLibraryApp {
         info.push(`サイズ: ${FormatUtils.formatFileSize(video.fileSize)}`);
       }
       if (video.rating > 0) {
-        info.push(`評価: ${"★".repeat(video.rating)}${"☆".repeat(5 - video.rating)}`);
+        info.push(
+          `評価: ${"★".repeat(video.rating)}${"☆".repeat(5 - video.rating)}`
+        );
       }
       infoElement.textContent = info.join(" | ");
     }
-    
+
     if (tagsElement) {
       if (video.tags && video.tags.length > 0) {
         tagsElement.textContent = `タグ: ${video.tags.join(", ")}`;
@@ -2139,13 +2510,13 @@ class MovieLibraryApp {
         tagsElement.style.display = "none";
       }
     }
-    
+
     // ツールチップの位置を調整
     this.positionTooltip(e, tooltip);
-    
+
     // ツールチップを表示
     tooltip.style.display = "block";
-    
+
     // 一定時間後に自動で隠す
     this.tooltipTimeout = setTimeout(() => {
       this.hideTooltip();
@@ -2157,20 +2528,20 @@ class MovieLibraryApp {
     const tooltipRect = tooltip.getBoundingClientRect();
     const viewportWidth = window.innerWidth;
     const viewportHeight = window.innerHeight;
-    
+
     let left = rect.left + rect.width / 2 - tooltipRect.width / 2;
     let top = rect.top - tooltipRect.height - 10;
-    
+
     // 画面端の調整
     if (left < 10) left = 10;
     if (left + tooltipRect.width > viewportWidth - 10) {
       left = viewportWidth - tooltipRect.width - 10;
     }
-    
+
     if (top < 10) {
       top = rect.bottom + 10;
     }
-    
+
     tooltip.style.left = `${left}px`;
     tooltip.style.top = `${top}px`;
   }
@@ -2180,12 +2551,12 @@ class MovieLibraryApp {
     if (tooltip) {
       tooltip.style.display = "none";
     }
-    
+
     if (this.tooltipTimeout) {
       clearTimeout(this.tooltipTimeout);
       this.tooltipTimeout = null;
     }
-    
+
     if (this.tooltipInterval) {
       clearInterval(this.tooltipInterval);
       this.tooltipInterval = null;
@@ -2204,30 +2575,33 @@ class MovieLibraryApp {
   setupThumbnailModalKeyboardListeners() {
     // Remove any existing keyboard listener
     if (this.thumbnailModalKeyboardHandler) {
-      document.removeEventListener('keydown', this.thumbnailModalKeyboardHandler);
+      document.removeEventListener(
+        "keydown",
+        this.thumbnailModalKeyboardHandler
+      );
     }
-    
+
     // Create new keyboard handler
     this.thumbnailModalKeyboardHandler = (e) => {
-      if (e.key === 'ArrowLeft') {
+      if (e.key === "ArrowLeft") {
         e.preventDefault();
         this.showPreviousThumbnail();
-      } else if (e.key === 'ArrowRight') {
+      } else if (e.key === "ArrowRight") {
         e.preventDefault();
         this.showNextThumbnail();
-      } else if (e.key === 'Escape') {
+      } else if (e.key === "Escape") {
         e.preventDefault();
         this.hideThumbnailModal();
       }
     };
-    
+
     // Add keyboard listener
-    document.addEventListener('keydown', this.thumbnailModalKeyboardHandler);
+    document.addEventListener("keydown", this.thumbnailModalKeyboardHandler);
   }
 }
 
 // Initialize the app when DOM is loaded
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener("DOMContentLoaded", () => {
   window.movieApp = new MovieLibraryApp();
 });
 

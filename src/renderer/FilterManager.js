@@ -7,15 +7,18 @@ export class FilterManager {
     this.currentFilter = { rating: 0, tags: [], directories: [] };
     this.selectedDirectories = []; // フォルダフィルター用の選択状態
     this.saveFilterStateEnabled = true; // フィルター状態保存を有効にする
-    
+
     this.loadSettings();
   }
 
   // 設定を読み込み
   loadSettings() {
     const saveFilterState = localStorage.getItem("saveFilterState");
-    console.log("FilterManager.loadSettings - raw saveFilterState from localStorage:", saveFilterState);
-    
+    console.log(
+      "FilterManager.loadSettings - raw saveFilterState from localStorage:",
+      saveFilterState
+    );
+
     // 初回起動時はデフォルトでtrueにする
     if (saveFilterState === null) {
       this.saveFilterStateEnabled = true;
@@ -23,23 +26,29 @@ export class FilterManager {
       console.log("FilterManager.loadSettings - first time, set to true");
     } else {
       this.saveFilterStateEnabled = saveFilterState === "true";
-      console.log("FilterManager.loadSettings - loaded from storage:", this.saveFilterStateEnabled);
+      console.log(
+        "FilterManager.loadSettings - loaded from storage:",
+        this.saveFilterStateEnabled
+      );
     }
   }
 
   // 設定を保存
   saveSettings() {
-    localStorage.setItem("saveFilterState", this.saveFilterStateEnabled.toString());
+    localStorage.setItem(
+      "saveFilterState",
+      this.saveFilterStateEnabled.toString()
+    );
   }
 
   // フィルター状態を保存
   saveFilterState() {
     if (!this.saveFilterStateEnabled) return;
-    
+
     const filterState = {
       rating: this.currentFilter.rating,
       tags: this.currentFilter.tags,
-      directories: this.selectedDirectories
+      directories: this.selectedDirectories,
     };
     localStorage.setItem("filterState", JSON.stringify(filterState));
     console.log("FilterManager - Filter state saved:", filterState);
@@ -47,14 +56,20 @@ export class FilterManager {
 
   // フィルター状態を読み込み
   loadFilterState() {
-    console.log("FilterManager.loadFilterState called, saveFilterStateEnabled:", this.saveFilterStateEnabled);
+    console.log(
+      "FilterManager.loadFilterState called, saveFilterStateEnabled:",
+      this.saveFilterStateEnabled
+    );
     if (!this.saveFilterStateEnabled) {
       console.log("FilterManager.loadFilterState - disabled, skipping");
       return;
     }
-    
+
     const saved = localStorage.getItem("filterState");
-    console.log("FilterManager.loadFilterState - raw data from localStorage:", saved);
+    console.log(
+      "FilterManager.loadFilterState - raw data from localStorage:",
+      saved
+    );
     if (saved) {
       try {
         const filterState = JSON.parse(saved);
@@ -65,7 +80,7 @@ export class FilterManager {
         console.log("FilterManager - Applied to:", {
           rating: this.currentFilter.rating,
           tags: this.currentFilter.tags,
-          directories: this.selectedDirectories
+          directories: this.selectedDirectories,
         });
       } catch (error) {
         console.error("FilterManager - Failed to load filter state:", error);
@@ -116,7 +131,7 @@ export class FilterManager {
 
   // 全ディレクトリを選択
   selectAllDirectories(directories) {
-    this.selectedDirectories = directories.map(dir => dir.path);
+    this.selectedDirectories = directories.map((dir) => dir.path);
     this.saveDirectoryFilterState();
     this.saveFilterState();
   }
@@ -130,7 +145,10 @@ export class FilterManager {
 
   // ディレクトリフィルターの状態をlocalStorageに保存
   saveDirectoryFilterState() {
-    localStorage.setItem("selectedDirectories", JSON.stringify(this.selectedDirectories));
+    localStorage.setItem(
+      "selectedDirectories",
+      JSON.stringify(this.selectedDirectories)
+    );
   }
 
   // ディレクトリフィルターの状態をlocalStorageから読み込み
@@ -146,26 +164,30 @@ export class FilterManager {
     // フィルター状態がロードされていない場合のみデフォルト設定
     if (this.selectedDirectories.length === 0) {
       // デフォルトで全てのフォルダを選択状態にする
-      this.selectedDirectories = directories.map(dir => dir.path);
+      this.selectedDirectories = directories.map((dir) => dir.path);
     }
 
     // 削除されたフォルダを選択状態から除外
-    this.selectedDirectories = this.selectedDirectories.filter(
-      dirPath => directories.some(dir => dir.path === dirPath)
+    this.selectedDirectories = this.selectedDirectories.filter((dirPath) =>
+      directories.some((dir) => dir.path === dirPath)
     );
-    
+
     // 新しいフォルダが追加された場合、それもデフォルトで選択状態にする
-    directories.forEach(dir => {
+    directories.forEach((dir) => {
       if (!this.selectedDirectories.includes(dir.path)) {
         this.selectedDirectories.push(dir.path);
       }
     });
-    
+
     this.saveDirectoryFilterState();
   }
 
   // フィルターとソートを適用
-  applyFiltersAndSort(videos, searchQuery = "", currentSort = { field: "filename", order: "ASC" }) {
+  applyFiltersAndSort(
+    videos,
+    searchQuery = "",
+    currentSort = { field: "filename", order: "ASC" }
+  ) {
     let filtered = [...videos]; // Start from all videos
 
     // Apply rating filter
@@ -209,7 +231,7 @@ export class FilterManager {
       // 選択されたフォルダの動画のみ表示
       filtered = filtered.filter((video) => {
         // ビデオのパスが選択されたディレクトリのいずれかに含まれているかチェック
-        return this.selectedDirectories.some(dirPath =>
+        return this.selectedDirectories.some((dirPath) =>
           video.path.startsWith(dirPath)
         );
       });

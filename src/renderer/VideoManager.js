@@ -104,13 +104,13 @@ export class VideoManager {
       await window.electronAPI.updateTag(oldTagName, newTagName);
 
       // ローカルデータを更新
-      const tagIndex = this.tags.findIndex(tag => tag.name === oldTagName);
+      const tagIndex = this.tags.findIndex((tag) => tag.name === oldTagName);
       if (tagIndex !== -1) {
         this.tags[tagIndex].name = newTagName;
       }
 
       // 動画のタグも更新
-      this.videos.forEach(video => {
+      this.videos.forEach((video) => {
         if (video.tags) {
           const tagIndex = video.tags.indexOf(oldTagName);
           if (tagIndex !== -1) {
@@ -131,18 +131,18 @@ export class VideoManager {
     try {
       // タグを持つ動画を取得
       const videosWithTag = this.videos.filter(
-        video => video.tags && video.tags.includes(tagName)
+        (video) => video.tags && video.tags.includes(tagName)
       );
 
       await window.electronAPI.deleteTag(tagName);
 
       // ローカルデータを更新
-      this.tags = this.tags.filter(tag => tag.name !== tagName);
+      this.tags = this.tags.filter((tag) => tag.name !== tagName);
 
       // 動画からタグを削除
-      this.videos.forEach(video => {
+      this.videos.forEach((video) => {
         if (video.tags) {
-          video.tags = video.tags.filter(tag => tag !== tagName);
+          video.tags = video.tags.filter((tag) => tag !== tagName);
         }
       });
 
@@ -157,7 +157,7 @@ export class VideoManager {
   async addTagToVideo(videoId, tagName) {
     try {
       console.log("VideoManager.addTagToVideo: Starting", { videoId, tagName });
-      
+
       // データベースに追加（重複チェックはデータベース側で実行）
       await window.electronAPI.addTagToVideo(videoId, tagName);
       console.log("VideoManager.addTagToVideo: electronAPI call successful");
@@ -165,8 +165,11 @@ export class VideoManager {
       // タグリストを再読み込み（新しいタグがサイドバーに表示されるように）
       console.log("VideoManager.addTagToVideo: Reloading tags");
       await this.loadTags();
-      console.log("VideoManager.addTagToVideo: Tags reloaded, count:", this.tags.length);
-      
+      console.log(
+        "VideoManager.addTagToVideo: Tags reloaded, count:",
+        this.tags.length
+      );
+
       return true;
     } catch (error) {
       console.error("VideoManager - Error adding tag to video:", error);
@@ -177,11 +180,16 @@ export class VideoManager {
   // 動画からタグを削除
   async removeTagFromVideo(videoId, tagName) {
     try {
-      console.log("VideoManager.removeTagFromVideo: Starting", { videoId, tagName });
-      
+      console.log("VideoManager.removeTagFromVideo: Starting", {
+        videoId,
+        tagName,
+      });
+
       // データベースから削除
       await window.electronAPI.removeTagFromVideo(videoId, tagName);
-      console.log("VideoManager.removeTagFromVideo: electronAPI call successful");
+      console.log(
+        "VideoManager.removeTagFromVideo: electronAPI call successful"
+      );
 
       // タグリストを再読み込み（削除されたタグがサイドバーから除外される場合の対応）
       await this.loadTags();
@@ -198,9 +206,9 @@ export class VideoManager {
   async updateVideo(videoId, updatedData) {
     try {
       await window.electronAPI.updateVideo(videoId, updatedData);
-      
+
       // ローカルの動画データを更新
-      const videoIndex = this.videos.findIndex(v => v.id === videoId);
+      const videoIndex = this.videos.findIndex((v) => v.id === videoId);
       if (videoIndex !== -1) {
         Object.assign(this.videos[videoIndex], updatedData);
       }
@@ -249,12 +257,12 @@ export class VideoManager {
 
   // 指定されたIDの動画を取得
   getVideoById(videoId) {
-    return this.videos.find(video => video.id === videoId);
+    return this.videos.find((video) => video.id === videoId);
   }
 
   // 特定のタグを取得
   getTagByName(tagName) {
-    return this.tags.find(tag => tag.name === tagName);
+    return this.tags.find((tag) => tag.name === tagName);
   }
 
   // 動画数を取得
@@ -274,12 +282,20 @@ export class VideoManager {
 
   // ローカルの動画データを更新
   updateLocalVideoData(updatedVideo) {
-    const index = this.videos.findIndex(video => video.id === updatedVideo.id);
+    const index = this.videos.findIndex(
+      (video) => video.id === updatedVideo.id
+    );
     if (index !== -1) {
       // サムネイルパスが更新された場合、filteredVideosにも反映させるために完全に置換
       this.videos[index] = { ...this.videos[index], ...updatedVideo };
-      console.log("VideoManager - Local video data updated for video:", updatedVideo.id);
-      console.log("VideoManager - Updated thumbnail_path:", updatedVideo.thumbnail_path);
+      console.log(
+        "VideoManager - Local video data updated for video:",
+        updatedVideo.id
+      );
+      console.log(
+        "VideoManager - Updated thumbnail_path:",
+        updatedVideo.thumbnail_path
+      );
       return this.videos[index];
     }
     console.warn("VideoManager - Video not found for update:", updatedVideo.id);
