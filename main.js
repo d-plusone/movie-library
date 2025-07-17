@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require("electron");
 const path = require("path");
 const fs = require("fs").promises;
 const chokidar = require("chokidar");
@@ -46,6 +46,9 @@ class MovieLibraryApp {
       show: false, // 初期状態では非表示にして最大化後に表示
     });
 
+    // カスタムメニューを設定
+    this.createMenu();
+
     // ウィンドウを最大化してから表示
     this.mainWindow.maximize();
     this.mainWindow.show();
@@ -69,6 +72,83 @@ class MovieLibraryApp {
       // すべてのwatcherを停止
       this.watchers.forEach((watcher) => watcher.close());
     });
+  }
+
+  createMenu() {
+    // macOS用のシンプルなメニュー
+    if (process.platform === "darwin") {
+      const menuTemplate = [
+        {
+          label: "Movie Library",
+          submenu: [
+            {
+              label: "設定を開く",
+              accelerator: "Cmd+,",
+              click: () => {
+                this.mainWindow.webContents.send("open-settings");
+              },
+            },
+            { type: "separator" },
+            {
+              label: "Movie Libraryを終了",
+              accelerator: "Cmd+Q",
+              click: () => {
+                app.quit();
+              },
+            },
+          ],
+        },
+        {
+          label: "ウィンドウ",
+          submenu: [
+            {
+              label: "最小化",
+              accelerator: "Cmd+M",
+              click: () => {
+                this.mainWindow.minimize();
+              },
+            },
+            {
+              label: "閉じる",
+              accelerator: "Cmd+W",
+              click: () => {
+                this.mainWindow.close();
+              },
+            },
+          ],
+        },
+      ];
+
+      const menu = Menu.buildFromTemplate(menuTemplate);
+      Menu.setApplicationMenu(menu);
+    } else {
+      // Windows/Linux用のシンプルなメニュー
+      const menuTemplate = [
+        {
+          label: "ファイル",
+          submenu: [
+            {
+              label: "設定を開く",
+              accelerator: "Ctrl+,",
+              click: () => {
+                this.mainWindow.webContents.send("open-settings");
+              },
+            },
+            { type: "separator" },
+            {
+              label: "終了",
+              accelerator: "Ctrl+Q",
+              click: () => {
+                app.quit();
+              },
+            },
+          ],
+        },
+      ];
+
+      const menu = Menu.buildFromTemplate(menuTemplate);
+      Menu.setApplicationMenu(menu);
+    }
   }
 
   setupIpcHandlers() {
@@ -285,15 +365,15 @@ class MovieLibraryApp {
 
   async generateThumbnailsForVideos(videos) {
     // 新規動画（サムネイル生成が必要な動画）のみフィルタリング
-    const newVideos = videos.filter(video => video.needsThumbnails);
-    
+    const newVideos = videos.filter((video) => video.needsThumbnails);
+
     if (newVideos.length === 0) {
       console.log("No new videos requiring thumbnail generation");
       return;
     }
 
     console.log(`Generating thumbnails for ${newVideos.length} new videos`);
-    
+
     this.mainWindow.webContents.send("thumbnail-progress", {
       type: "thumbnail-start",
       count: newVideos.length,
@@ -363,12 +443,13 @@ class MovieLibraryApp {
       ignored: /^\./,
       persistent: true,
       depth: 10,
-    });    watcher.on("add", async (filePath) => {
+    });
+    watcher.on("add", async (filePath) => {
       if (this.videoScanner.isVideoFile(filePath)) {
         try {
           const video = await this.videoScanner.processFile(filePath);
           this.mainWindow.webContents.send("video-added", filePath);
-          
+
           // 新しく追加された動画で、サムネイル生成が必要な場合のみ実行
           if (video && video.needsThumbnails) {
             console.log("Auto-generating thumbnails for new video:", video.path);
@@ -414,7 +495,7 @@ app.whenReady().then(async () => {
   // macOS固有の設定
   if (process.platform === "darwin") {
     app.setName("Movie Library");
-    
+
     // Dockアイコンの設定
     const iconPath = path.join(__dirname, "assets", "icon.icns");
     const fs = require("fs");

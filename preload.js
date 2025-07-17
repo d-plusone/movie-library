@@ -49,6 +49,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   onVideoRemoved: (callback) => {
     ipcRenderer.on("video-removed", (event, filePath) => callback(filePath));
   },
+  onOpenSettings: (callback) => {
+    ipcRenderer.on("open-settings", () => callback());
+  },
 
   // Remove listeners
   removeAllListeners: (channel) => {

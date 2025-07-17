@@ -266,6 +266,7 @@ class MovieLibraryApp {
       window.electronAPI.onVideoRemoved((filePath) =>
         this.handleVideoRemoved(filePath)
       );
+      window.electronAPI.onOpenSettings(() => this.showSettings());
     }
   }
 
