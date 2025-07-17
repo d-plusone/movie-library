@@ -715,9 +715,6 @@ export class UIRenderer {
           <img src="file://${thumbnail.path}" alt="Chapter ${
           index + 1
         }" loading="lazy">
-          <div class="chapter-time">${FormatUtils.formatDuration(
-            thumbnail.timestamp || 0
-          )}</div>
         `;
 
         // Add click event to open thumbnail modal

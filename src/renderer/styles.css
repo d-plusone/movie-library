@@ -1493,17 +1493,6 @@ body {
     object-fit: contain; /* アスペクト比を保持 */
 }
 
-.tooltip-chapter-time {
-    position: absolute;
-    bottom: 2px;
-    right: 2px;
-    background: rgba(0, 0, 0, 0.8);
-    color: white;
-    padding: 1px 4px;
-    border-radius: 2px;
-    font-size: 9px;
-}
-
 /* File extension display */
 .video-extension {
     display: inline-block;
