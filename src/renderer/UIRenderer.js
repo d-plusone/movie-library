@@ -412,7 +412,7 @@ export class UIRenderer {
       detailsFilePath: video.path,
       detailsFileSize: FormatUtils.formatFileSize(video.size || 0),
       detailsDuration: FormatUtils.formatDuration(video.duration || 0),
-      detailsResolution: video.resolution || "不明",
+      detailsResolution: (video.width && video.height) ? `${video.width}x${video.height}` : "不明",
       detailsFps: video.fps ? `${video.fps} fps` : "不明",
       detailsCodec: video.codec || "不明"
     };
