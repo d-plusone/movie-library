@@ -28,6 +28,10 @@
                         <span class="icon">🖼️</span>
                         サムネイル再生成
                     </button>
+                    <button id="bulkTagApplyBtn" class="btn btn-secondary">
+                        <span class="icon">🏷️</span>
+                        タグ一括反映
+                    </button>
                 </div>
             </div>
             <div class="header-right">
@@ -415,6 +419,37 @@
                 <div class="modal-actions">
                     <button id="cancelTagEditBtn" class="btn btn-secondary">キャンセル</button>
                     <button id="saveTagEditBtn" class="btn btn-primary">保存</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bulk Tag Apply Dialog -->
+        <div id="bulkTagApplyDialog" class="modal" style="display: none;">
+            <div class="modal-content bulk-tag-apply-modal">
+                <div class="modal-header">
+                    <h2>タグ一括反映</h2>
+                    <button id="closeBulkTagApplyDialog" class="btn btn-icon">×</button>
+                </div>
+                <div class="modal-body">
+                    <div class="bulk-tag-apply-container">
+                        <div class="bulk-tag-apply-table-container">
+                            <table id="bulkTagApplyTable" class="bulk-tag-apply-table">
+                                <thead>
+                                    <tr>
+                                        <th class="video-name-header">動画名</th>
+                                        <!-- Tag columns will be dynamically added here -->
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- Video rows will be dynamically added here -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-actions">
+                    <button id="applyBulkTagsBtn" class="btn btn-primary bulk-tag-apply-btn">反映</button>
+                    <button id="cancelBulkTagApplyBtn" class="btn btn-secondary">キャンセル</button>
                 </div>
             </div>
         </div>

@@ -179,6 +179,10 @@ class MovieLibraryApp {
     this.safeAddEventListener("generateThumbnailsBtn", "click", () =>
       this.regenerateThumbnails()
     );
+    this.safeAddEventListener("bulkTagApplyBtn", "click", () => {
+      console.log("Bulk tag apply button clicked");
+      this.showBulkTagApplyDialog();
+    });
     this.safeAddEventListener("themeToggleBtn", "click", () =>
       this.toggleTheme()
     );
@@ -362,6 +366,9 @@ class MovieLibraryApp {
     // Tag edit dialog events
     this.initializeTagEditDialogEventListeners();
 
+    // Bulk tag apply dialog events
+    this.initializeBulkTagApplyDialogEventListeners();
+
     // Thumbnail modal events
     this.initializeThumbnailModalEventListeners();
   }
@@ -471,6 +478,27 @@ class MovieLibraryApp {
       thumbnailModal.addEventListener("click", (e) => {
         if (e.target.id === "thumbnailModal") {
           this.hideThumbnailModal();
+        }
+      });
+    }
+  }
+
+  initializeBulkTagApplyDialogEventListeners() {
+    this.safeAddEventListener("closeBulkTagApplyDialog", "click", () =>
+      this.hideBulkTagApplyDialog()
+    );
+    this.safeAddEventListener("cancelBulkTagApplyBtn", "click", () =>
+      this.hideBulkTagApplyDialog()
+    );
+    this.safeAddEventListener("applyBulkTagsBtn", "click", () =>
+      this.applyBulkTags()
+    );
+
+    const bulkTagApplyDialog = document.getElementById("bulkTagApplyDialog");
+    if (bulkTagApplyDialog) {
+      bulkTagApplyDialog.addEventListener("click", (e) => {
+        if (e.target.id === "bulkTagApplyDialog") {
+          this.hideBulkTagApplyDialog();
         }
       });
     }
@@ -930,7 +958,8 @@ class MovieLibraryApp {
 
   async handleVideoAdded(filePath) {
     await this.videoManager.handleVideoAdded(filePath);
-    const filename = filePath.split('/').pop() || filePath.split('\\').pop() || filePath;
+    const filename =
+      filePath.split("/").pop() || filePath.split("\\").pop() || filePath;
     this.notificationManager.show(
       `新しい動画が追加されました: ${filename}`,
       "info"
@@ -2637,6 +2666,241 @@ class MovieLibraryApp {
 
     // Add keyboard listener
     document.addEventListener("keydown", this.thumbnailModalKeyboardHandler);
+  }
+
+  // Bulk Tag Apply Dialog methods
+  showBulkTagApplyDialog() {
+    console.log("showBulkTagApplyDialog called");
+    const bulkTagApplyDialog = DOMUtils.getElementById("bulkTagApplyDialog");
+    const bulkTagApplyTable = DOMUtils.getElementById("bulkTagApplyTable");
+
+    console.log("bulkTagApplyDialog element:", bulkTagApplyDialog);
+    console.log("bulkTagApplyTable element:", bulkTagApplyTable);
+
+    if (!bulkTagApplyDialog || !bulkTagApplyTable) {
+      console.error("Bulk tag apply dialog elements not found");
+      return;
+    }
+
+    // Get current filtered videos
+    const currentVideos = this.filteredVideos || [];
+    console.log("Current videos count:", currentVideos.length);
+
+    if (currentVideos.length === 0) {
+      alert("表示する動画がありません。");
+      return;
+    }
+
+    // Get all available tags
+    const allTags = this.videoManager.getTags();
+    console.log("All tags:", allTags);
+
+    // Clear existing table content
+    const thead = bulkTagApplyTable.querySelector("thead tr");
+    const tbody = bulkTagApplyTable.querySelector("tbody");
+
+    // Clear existing headers (except video name)
+    const videoNameHeader = thead.querySelector(".video-name-header");
+    thead.innerHTML = "";
+    thead.appendChild(videoNameHeader);
+
+    // Clear existing rows
+    tbody.innerHTML = "";
+
+    // Add tag column headers
+    allTags.forEach((tag) => {
+      const th = document.createElement("th");
+      th.className = "tag-column-header";
+      th.textContent = tag.name;
+      th.title = `${tag.name} (${tag.count}個の動画で使用)`;
+      thead.appendChild(th);
+    });
+
+    // Add video rows
+    currentVideos.forEach((video, index) => {
+      const tr = document.createElement("tr");
+
+      // Video name cell
+      const videoNameCell = document.createElement("td");
+      videoNameCell.className = "video-name-cell";
+      const titleSpan = document.createElement("span");
+      titleSpan.className = "video-title-text";
+      titleSpan.textContent = video.title || video.filename;
+      titleSpan.title = video.title || video.filename;
+      videoNameCell.appendChild(titleSpan);
+      tr.appendChild(videoNameCell);
+
+      // Tag checkbox cells
+      allTags.forEach((tag) => {
+        const td = document.createElement("td");
+        td.className = "tag-checkbox-cell";
+
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.className = "tag-checkbox";
+        checkbox.dataset.videoId = video.id;
+        checkbox.dataset.tagName = tag.name;
+
+        // Check if video already has this tag
+        if (video.tags && video.tags.includes(tag.name)) {
+          checkbox.checked = true;
+        }
+
+        td.appendChild(checkbox);
+        tr.appendChild(td);
+      });
+
+      tbody.appendChild(tr);
+    });
+
+    bulkTagApplyDialog.style.display = "flex";
+  }
+
+  hideBulkTagApplyDialog() {
+    const bulkTagApplyDialog = DOMUtils.getElementById("bulkTagApplyDialog");
+    if (bulkTagApplyDialog) {
+      bulkTagApplyDialog.style.display = "none";
+    }
+  }
+
+  async applyBulkTags() {
+    console.log("applyBulkTags called");
+
+    const bulkTagApplyDialog = DOMUtils.getElementById("bulkTagApplyDialog");
+    if (!bulkTagApplyDialog) return;
+
+    // Get all checkboxes
+    const checkboxes = bulkTagApplyDialog.querySelectorAll(".tag-checkbox");
+    const changes = [];
+
+    // Collect all changes
+    checkboxes.forEach((checkbox) => {
+      const videoId = parseInt(checkbox.dataset.videoId);
+      const tagName = checkbox.dataset.tagName;
+      const isChecked = checkbox.checked;
+
+      // Find the video
+      const video = this.filteredVideos.find((v) => v.id === videoId);
+      if (!video) return;
+
+      const currentlyHasTag = video.tags && video.tags.includes(tagName);
+
+      if (isChecked && !currentlyHasTag) {
+        // Add tag
+        changes.push({
+          videoId: videoId,
+          tagName: tagName,
+          action: "add",
+        });
+      } else if (!isChecked && currentlyHasTag) {
+        // Remove tag
+        changes.push({
+          videoId: videoId,
+          tagName: tagName,
+          action: "remove",
+        });
+      }
+    });
+
+    console.log("Changes to apply:", changes);
+
+    if (changes.length === 0) {
+      this.notificationManager.show("変更がありません", "info");
+      this.hideBulkTagApplyDialog();
+      return;
+    }
+
+    // Confirm changes
+    const addCount = changes.filter((c) => c.action === "add").length;
+    const removeCount = changes.filter((c) => c.action === "remove").length;
+    const confirmMessage = `${addCount}個のタグ追加と${removeCount}個のタグ削除を実行しますか？`;
+
+    if (!confirm(confirmMessage)) {
+      return;
+    }
+
+    try {
+      // Apply changes
+      let successCount = 0;
+      let errorCount = 0;
+
+      for (const change of changes) {
+        try {
+          if (change.action === "add") {
+            await this.videoManager.addTagToVideo(
+              change.videoId,
+              change.tagName
+            );
+          } else if (change.action === "remove") {
+            await this.videoManager.removeTagFromVideo(
+              change.videoId,
+              change.tagName
+            );
+          }
+
+          // Update local video data
+          const video = this.filteredVideos.find(
+            (v) => v.id === change.videoId
+          );
+          if (video) {
+            if (change.action === "add") {
+              if (!video.tags) video.tags = [];
+              if (!video.tags.includes(change.tagName)) {
+                video.tags.push(change.tagName);
+              }
+            } else if (change.action === "remove") {
+              if (video.tags) {
+                video.tags = video.tags.filter((tag) => tag !== change.tagName);
+              }
+            }
+
+            // Update VideoManager local data
+            this.videoManager.updateLocalVideoData(video);
+          }
+
+          successCount++;
+        } catch (error) {
+          console.error(
+            `Error applying change for video ${change.videoId}, tag ${change.tagName}:`,
+            error
+          );
+          errorCount++;
+        }
+      }
+
+      // Update UI
+      this.renderVideoList();
+      this.renderSidebar();
+      this.applyFiltersAndSort();
+
+      // Update current video details if open
+      if (this.currentVideo) {
+        const updatedCurrentVideo = this.filteredVideos.find(
+          (v) => v.id === this.currentVideo.id
+        );
+        if (updatedCurrentVideo) {
+          this.currentVideo = updatedCurrentVideo;
+          this.uiRenderer.updateDetailsTagsDisplay(this.currentVideo.tags);
+        }
+      }
+
+      this.hideBulkTagApplyDialog();
+
+      if (errorCount === 0) {
+        this.notificationManager.show(
+          `タグの一括反映が完了しました (${successCount}件の変更)`,
+          "success"
+        );
+      } else {
+        this.notificationManager.show(
+          `タグの一括反映が完了しました (成功: ${successCount}件、失敗: ${errorCount}件)`,
+          "info"
+        );
+      }
+    } catch (error) {
+      console.error("Error in applyBulkTags:", error);
+      this.showErrorDialog("タグの一括反映に失敗しました", error);
+    }
   }
 }
 
