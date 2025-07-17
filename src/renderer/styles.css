@@ -348,23 +348,12 @@ body {
     flex: 1;
     padding: 2px 0;
     border-radius: 4px;
-    transition: background-color 0.2s ease;
     color: inherit !important;
-}
-
-.tag-name:hover,
-.directory-name:hover {
-    background: rgba(0, 0, 0, 0.1);
 }
 
 .tag-item.active .tag-name,
 .directory-item.active .directory-name {
     color: white !important;
-}
-
-.tag-item.active .tag-name:hover,
-.directory-item.active .directory-name:hover {
-    background: rgba(255, 255, 255, 0.1) !important;
 }
 
 .tag-actions {
@@ -404,8 +393,7 @@ body {
 
 .tag-item:hover,
 .directory-item:hover {
-    background: var(--bg-tertiary) !important;
-    opacity: 0.8;
+    background: rgba(0, 0, 0, 0.1) !important;
 }
 
 .tag-item.active:hover,
