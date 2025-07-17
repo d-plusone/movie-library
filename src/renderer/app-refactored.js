@@ -97,6 +97,10 @@ class MovieLibraryApp {
       // フィルター状態を復元してからUIを更新（loadDirectories後に実行）
       this.filterManager.loadFilterState();
       
+      // タグオートコンプリート候補を設定
+      const allTags = this.videoManager.getTags();
+      this.uiRenderer.updateTagSuggestions(allTags);
+      
       // まずサイドバーとビデオリストを描画してDOM要素を作成
       this.renderVideoList();
       this.renderSidebar();
@@ -285,18 +289,7 @@ class MovieLibraryApp {
       }
     });
 
-    // Tag input
-    this.safeAddEventListener("tagInput", "keypress", (e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        e.stopPropagation();
-        const tagName = e.target.value.trim();
-        if (tagName) {
-          this.addTagToCurrentVideo(tagName);
-          e.target.value = "";
-        }
-      }
-    });
+    // タグ入力は setupVideoDetailsListeners で処理するため、ここでは設定しない
   }
 
   initializeErrorDialogEventListeners() {
@@ -387,6 +380,7 @@ class MovieLibraryApp {
           const video = this.filteredVideos[index];
           if (video) {
             this.uiRenderer.setSelectedVideoIndex(index);
+            // filteredVideosの最新データを使用
             this.showDetails(video);
             this.uiRenderer.highlightSelectedVideo();
           }
@@ -1201,20 +1195,42 @@ class MovieLibraryApp {
 
   // Video details panel methods
   showDetails(video) {
-    this.currentVideo = video;
-    this.uiRenderer.renderVideoDetails(video);
+    console.log("showDetails: Starting for video:", video?.id, video?.title || video?.filename);
+    
+    // VideoManagerから最新のビデオデータを取得
+    const latestVideo = this.videoManager.getVideoById(video.id);
+    if (latestVideo) {
+      this.currentVideo = latestVideo;
+      console.log("showDetails: Using latest video data from VideoManager");
+    } else {
+      this.currentVideo = video;
+      console.log("showDetails: Using provided video data");
+    }
+    
+    this.uiRenderer.renderVideoDetails(this.currentVideo);
+    
+    // タグオートコンプリート候補を更新
+    const allTags = this.videoManager.getTags();
+    console.log("showDetails: Updating tag suggestions with", allTags.length, "tags");
+    this.uiRenderer.updateTagSuggestions(allTags);
     
     // ビデオ詳細パネルを表示
     const detailsPanel = DOMUtils.getElementById("detailsPanel");
     if (detailsPanel) {
       detailsPanel.style.display = "block";
+      console.log("showDetails: Details panel displayed");
+    } else {
+      console.error("showDetails: Details panel not found");
     }
     
     // 詳細パネルのイベントリスナーを設定
+    console.log("showDetails: Setting up video details listeners");
     this.setupVideoDetailsListeners();
     
     // 評価星の表示を初期化
-    this.updateRatingDisplay(video.rating || 0, false);
+    this.updateRatingDisplay(this.currentVideo.rating || 0, false);
+    
+    console.log("showDetails: Complete");
   }
 
   hideDetails() {
@@ -1323,22 +1339,87 @@ class MovieLibraryApp {
     const tagInput = document.getElementById("tagInput");
 
     if (tagInput) {
-      // 既存のイベントリスナーを削除
-      tagInput.replaceWith(tagInput.cloneNode(true));
+      console.log("setupVideoDetailsListeners: Setting up tag input for video:", this.currentVideo.id);
       
-      // 新しい要素を取得
-      const newTagInput = document.getElementById("tagInput");
+      // 既存のイベントリスナーを削除してからクリーンアップ
+      const newTagInput = tagInput.cloneNode(true);
+      tagInput.parentNode.replaceChild(newTagInput, tagInput);
       
+      // IME変換状態を追跡する変数
+      let isComposing = false;
+      let lastInputValue = '';
+      
+      // IME変換開始
+      newTagInput.addEventListener('compositionstart', (e) => {
+        console.log("setupVideoDetailsListeners: compositionstart event");
+        isComposing = true;
+      });
+      
+      // IME変換終了
+      newTagInput.addEventListener('compositionend', (e) => {
+        console.log("setupVideoDetailsListeners: compositionend event, value:", e.target.value);
+        isComposing = false;
+        lastInputValue = e.target.value;
+        
+        // 変換確定のEnterの場合、少し待ってからkeydownイベントを無視するフラグをリセット
+        setTimeout(() => {
+          console.log("setupVideoDetailsListeners: composition settled");
+        }, 10);
+      });
+      
+      // 入力値の変化を追跡
+      newTagInput.addEventListener('input', (e) => {
+        console.log("setupVideoDetailsListeners: input event triggered, value:", e.target.value, "isComposing:", isComposing);
+        if (!isComposing) {
+          lastInputValue = e.target.value;
+        }
+      });
+      
+      // キーダウンイベント（メインのEnter処理）
       newTagInput.addEventListener('keydown', (e) => {
+        console.log("setupVideoDetailsListeners: keydown event triggered, key:", e.key, "isComposing:", isComposing);
+        
         if (e.key === "Enter") {
+          // IME変換中のEnterは無視
+          if (isComposing) {
+            console.log("setupVideoDetailsListeners: Ignoring Enter during IME composition");
+            return;
+          }
+          
+          // datalist候補選択時のEnterを検出
+          // 候補選択の場合、inputイベントが発火された直後にkeydownが来る
+          const currentValue = newTagInput.value.trim();
+          
+          // 値が変わったばかり（候補選択など）の場合は一度無視
+          if (currentValue !== lastInputValue.trim()) {
+            console.log("setupVideoDetailsListeners: Value changed from candidate selection, ignoring Enter");
+            lastInputValue = currentValue;
+            return;
+          }
+          
           e.preventDefault();
-          const tagName = newTagInput.value.trim();
-          if (tagName) {
-            this.addTagToCurrentVideo(tagName);
+          e.stopPropagation();
+          
+          console.log("setupVideoDetailsListeners: Processing Enter for tag addition, value:", currentValue);
+          if (currentValue) {
+            console.log("setupVideoDetailsListeners: Calling addTagToCurrentVideo");
+            this.addTagToCurrentVideo(currentValue);
             newTagInput.value = "";
+            lastInputValue = "";
           }
         }
       });
+      
+      // フォーカス時の初期化
+      newTagInput.addEventListener('focus', (e) => {
+        console.log("setupVideoDetailsListeners: focus event triggered");
+        lastInputValue = e.target.value;
+        isComposing = false;
+      });
+      
+      console.log("setupVideoDetailsListeners: Tag input event listeners attached successfully");
+    } else {
+      console.warn("setupVideoDetailsListeners: tagInput element not found");
     }
   }
 
@@ -1423,41 +1504,194 @@ class MovieLibraryApp {
     }
   }
 
+  // 特定の動画のタグ表示を即座に更新する関数
+  updateVideoTagsDisplay(videoId) {
+    console.log("updateVideoTagsDisplay: Starting update for video:", videoId);
+    
+    // 現在表示されている動画アイテムを検索
+    const videoItems = document.querySelectorAll('.video-item');
+    
+    videoItems.forEach((item, index) => {
+      const video = this.filteredVideos[index];
+      if (video && video.id === videoId) {
+        console.log("updateVideoTagsDisplay: Found video item at index", index);
+        
+        // タグコンテナを取得
+        const tagsContainer = item.querySelector('.video-tags');
+        if (tagsContainer) {
+          console.log("updateVideoTagsDisplay: Updating tags for video", video.title || video.filename);
+          
+          // タグコンテナをクリア
+          tagsContainer.innerHTML = "";
+          
+          // タグを再描画
+          if (video.tags && video.tags.length > 0) {
+            const currentView = this.uiRenderer.getCurrentView();
+            
+            if (currentView === 'grid') {
+              // Grid view: show up to 3 tags plus overflow indicator
+              const maxVisibleTags = 3;
+              const visibleTags = video.tags.slice(0, maxVisibleTags);
+              const hiddenTags = video.tags.slice(maxVisibleTags);
+              
+              // Add visible tags
+              visibleTags.forEach((tag) => {
+                const tagSpan = document.createElement("span");
+                tagSpan.className = "video-tag";
+                tagSpan.textContent = tag;
+                tagsContainer.appendChild(tagSpan);
+              });
+              
+              // Add overflow indicator if there are hidden tags
+              if (hiddenTags.length > 0) {
+                const overflowSpan = document.createElement("span");
+                overflowSpan.className = "video-tag tag-overflow";
+                overflowSpan.textContent = `+${hiddenTags.length}`;
+                overflowSpan.title = `他のタグ: ${hiddenTags.join(", ")}`;
+                tagsContainer.appendChild(overflowSpan);
+              }
+            } else {
+              // List view: show all tags
+              video.tags.forEach((tag) => {
+                const tagSpan = document.createElement("span");
+                tagSpan.className = "video-tag";
+                tagSpan.textContent = tag;
+                tagsContainer.appendChild(tagSpan);
+              });
+            }
+            
+            console.log("updateVideoTagsDisplay: Tags updated to:", video.tags);
+          } else {
+            console.log("updateVideoTagsDisplay: No tags to display");
+          }
+        } else {
+          console.warn("updateVideoTagsDisplay: Tags container not found for video item");
+        }
+        
+        return; // 見つかったので終了
+      }
+    });
+    
+    console.log("updateVideoTagsDisplay: Complete for video:", videoId);
+  }
+
   async addTagToCurrentVideo(tagName) {
-    if (!tagName || !this.currentVideo) return;
+    if (!tagName || !this.currentVideo) {
+      console.log("addTagToCurrentVideo: invalid input", { tagName, currentVideo: !!this.currentVideo });
+      return;
+    }
+
+    console.log("addTagToCurrentVideo: Starting tag addition", { tagName, videoId: this.currentVideo.id });
+
+    // 先にローカルでの重複チェックを行う
+    if (!this.currentVideo.tags) {
+      this.currentVideo.tags = [];
+      console.log("addTagToCurrentVideo: Initialized currentVideo.tags array");
+    }
+    
+    if (this.currentVideo.tags.includes(tagName)) {
+      console.log("addTagToCurrentVideo: Tag already exists locally, skipping:", tagName);
+      return;
+    }
 
     try {
+      // データベースに追加（重複チェックはデータベース側でも実行される）
+      console.log("addTagToCurrentVideo: Calling videoManager.addTagToVideo");
       await this.videoManager.addTagToVideo(this.currentVideo.id, tagName);
+      console.log("addTagToCurrentVideo: Tag added to database successfully");
       
-      if (!this.currentVideo.tags) this.currentVideo.tags = [];
-      if (!this.currentVideo.tags.includes(tagName)) {
-        this.currentVideo.tags.push(tagName);
-        this.uiRenderer.updateDetailsTagsDisplay(this.currentVideo.tags);
-        this.renderSidebar();
-        this.renderVideoList(); // Re-render video list to show updated tags
+      // ローカルデータの更新：currentVideoとfilteredVideosの両方を更新
+      this.currentVideo.tags.push(tagName);
+      console.log("addTagToCurrentVideo: Tag added to currentVideo.tags", this.currentVideo.tags);
+      
+      // filteredVideosの該当ビデオも更新
+      const filteredIndex = this.filteredVideos.findIndex(video => video.id === this.currentVideo.id);
+      if (filteredIndex !== -1) {
+        if (!this.filteredVideos[filteredIndex].tags) {
+          this.filteredVideos[filteredIndex].tags = [];
+        }
+        if (!this.filteredVideos[filteredIndex].tags.includes(tagName)) {
+          this.filteredVideos[filteredIndex].tags.push(tagName);
+          console.log("addTagToCurrentVideo: Tag added to filteredVideos", this.filteredVideos[filteredIndex].tags);
+        }
       }
+      
+      // VideoManagerのローカルデータも更新
+      console.log("addTagToCurrentVideo: Updating VideoManager local data");
+      this.videoManager.updateLocalVideoData(this.currentVideo);
+      
+      // UI更新
+      this.uiRenderer.updateDetailsTagsDisplay(this.currentVideo.tags);
+      this.updateVideoTagsDisplay(this.currentVideo.id);
+      
+      // オートコンプリート候補を更新
+      const allTags = this.videoManager.getTags();
+      this.uiRenderer.updateTagSuggestions(allTags);
+      
+      // サイドバーを更新
+      this.renderSidebar();
+      
+      console.log("addTagToCurrentVideo: Tag added and UI updated successfully:", tagName);
     } catch (error) {
-      console.error("Error adding tag:", error);
-      this.showErrorDialog("タグの追加に失敗しました", error);
+      console.error("addTagToCurrentVideo: Error adding tag:", error);
+      
+      // エラーが「すでに存在する」場合は、ローカルデータを同期
+      if (error.message && error.message.includes('already exists')) {
+        console.log("addTagToCurrentVideo: Tag already exists in database, syncing local data");
+        if (!this.currentVideo.tags.includes(tagName)) {
+          this.currentVideo.tags.push(tagName);
+          this.uiRenderer.updateDetailsTagsDisplay(this.currentVideo.tags);
+          this.updateVideoTagsDisplay(this.currentVideo.id);
+        }
+      } else {
+        this.showErrorDialog("タグの追加に失敗しました", error);
+      }
     }
   }
 
   async removeTagFromCurrentVideo(tagName) {
-    if (!this.currentVideo) return;
+    if (!this.currentVideo) {
+      console.log("removeTagFromCurrentVideo: No current video");
+      return;
+    }
+
+    console.log("removeTagFromCurrentVideo: Starting tag removal", { tagName, videoId: this.currentVideo.id });
 
     try {
+      // データベースから削除
       await this.videoManager.removeTagFromVideo(this.currentVideo.id, tagName);
+      console.log("removeTagFromCurrentVideo: Tag removed from database successfully");
       
+      // ローカルデータを更新
       if (this.currentVideo.tags) {
-        this.currentVideo.tags = this.currentVideo.tags.filter(
-          (tag) => tag !== tagName
-        );
+        this.currentVideo.tags = this.currentVideo.tags.filter(tag => tag !== tagName);
+        console.log("removeTagFromCurrentVideo: Tag removed from currentVideo", this.currentVideo.tags);
+        
+        // filteredVideosも更新
+        const filteredIndex = this.filteredVideos.findIndex(video => video.id === this.currentVideo.id);
+        if (filteredIndex !== -1 && this.filteredVideos[filteredIndex].tags) {
+          this.filteredVideos[filteredIndex].tags = this.filteredVideos[filteredIndex].tags.filter(tag => tag !== tagName);
+          console.log("removeTagFromCurrentVideo: Tag removed from filteredVideos", this.filteredVideos[filteredIndex].tags);
+        }
+        
+        // VideoManagerのローカルデータも更新
+        this.videoManager.updateLocalVideoData(this.currentVideo);
+        
+        // UI更新
         this.uiRenderer.updateDetailsTagsDisplay(this.currentVideo.tags);
-        this.renderVideoList();
+        this.updateVideoTagsDisplay(this.currentVideo.id);
+        
+        // オートコンプリート候補を更新
+        const allTags = this.videoManager.getTags();
+        this.uiRenderer.updateTagSuggestions(allTags);
+        
+        // サイドバーを更新
         this.renderSidebar();
+        
+        console.log("removeTagFromCurrentVideo: Tag removed and UI updated successfully:", tagName);
       }
     } catch (error) {
-      console.error("Error removing tag:", error);
+      console.error("removeTagFromCurrentVideo: Error removing tag:", error);
       this.showErrorDialog("タグの削除に失敗しました", error);
     }
   }

@@ -156,19 +156,17 @@ export class VideoManager {
   // 動画にタグを追加
   async addTagToVideo(videoId, tagName) {
     try {
-      await window.electronAPI.addTagToVideo(videoId, tagName);
+      console.log("VideoManager.addTagToVideo: Starting", { videoId, tagName });
       
-      // ローカルの動画データを更新
-      const video = this.videos.find(v => v.id === videoId);
-      if (video) {
-        if (!video.tags) video.tags = [];
-        if (!video.tags.includes(tagName)) {
-          video.tags.push(tagName);
-        }
-      }
+      // データベースに追加（重複チェックはデータベース側で実行）
+      await window.electronAPI.addTagToVideo(videoId, tagName);
+      console.log("VideoManager.addTagToVideo: electronAPI call successful");
 
-      // タグリストを再読み込み
+      // タグリストを再読み込み（新しいタグがサイドバーに表示されるように）
+      console.log("VideoManager.addTagToVideo: Reloading tags");
       await this.loadTags();
+      console.log("VideoManager.addTagToVideo: Tags reloaded, count:", this.tags.length);
+      
       return true;
     } catch (error) {
       console.error("VideoManager - Error adding tag to video:", error);
@@ -179,13 +177,15 @@ export class VideoManager {
   // 動画からタグを削除
   async removeTagFromVideo(videoId, tagName) {
     try {
-      await window.electronAPI.removeTagFromVideo(videoId, tagName);
+      console.log("VideoManager.removeTagFromVideo: Starting", { videoId, tagName });
       
-      // ローカルの動画データを更新
-      const video = this.videos.find(v => v.id === videoId);
-      if (video && video.tags) {
-        video.tags = video.tags.filter(tag => tag !== tagName);
-      }
+      // データベースから削除
+      await window.electronAPI.removeTagFromVideo(videoId, tagName);
+      console.log("VideoManager.removeTagFromVideo: electronAPI call successful");
+
+      // タグリストを再読み込み（削除されたタグがサイドバーから除外される場合の対応）
+      await this.loadTags();
+      console.log("VideoManager.removeTagFromVideo: Tags reloaded");
 
       return true;
     } catch (error) {
@@ -247,7 +247,7 @@ export class VideoManager {
     return [...this.directories];
   }
 
-  // 特定の動画を取得
+  // 指定されたIDの動画を取得
   getVideoById(videoId) {
     return this.videos.find(video => video.id === videoId);
   }

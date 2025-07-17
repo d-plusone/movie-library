@@ -208,7 +208,10 @@
                         <div class="info-group">
                             <label>タグ</label>
                             <div class="tags-input-container">
-                                <input type="text" id="tagInput" class="tag-input" placeholder="タグを追加してEnterキーを押してください...">
+                                <input type="text" id="tagInput" class="tag-input" placeholder="タグを追加してEnterキーを押してください..." list="tagSuggestions">
+                                <datalist id="tagSuggestions">
+                                    <!-- Tag suggestions will be populated here -->
+                                </datalist>
                                 <div id="detailsTagsList" class="details-tags">
                                     <!-- Tags will be populated here -->
                                 </div>

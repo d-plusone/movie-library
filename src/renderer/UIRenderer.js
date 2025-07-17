@@ -871,12 +871,18 @@ export class UIRenderer {
 
   // 詳細パネルのタグ表示を更新
   updateDetailsTagsDisplay(tags) {
+    console.log("updateDetailsTagsDisplay called with tags:", tags);
     const tagsContainer = document.getElementById("detailsTagsList");
-    if (!tagsContainer) return;
+    if (!tagsContainer) {
+      console.warn("updateDetailsTagsDisplay: detailsTagsList container not found");
+      return;
+    }
     
+    console.log("updateDetailsTagsDisplay: Clearing existing tags");
     tagsContainer.innerHTML = "";
     
     if (tags && tags.length > 0) {
+      console.log("updateDetailsTagsDisplay: Rendering", tags.length, "tags");
       tags.forEach(tag => {
         const tagElement = document.createElement("span");
         tagElement.className = "video-tag details-tag";
@@ -885,7 +891,40 @@ export class UIRenderer {
           <button class="remove-tag-btn" data-tag="${FormatUtils.escapeHtml(tag)}" title="タグを削除">×</button>
         `;
         tagsContainer.appendChild(tagElement);
+        console.log("updateDetailsTagsDisplay: Added tag element for:", tag);
       });
+    } else {
+      console.log("updateDetailsTagsDisplay: No tags to display");
     }
+    console.log("updateDetailsTagsDisplay: Complete");
+  }
+
+  // タグのオートコンプリート候補を更新
+  updateTagSuggestions(allTags) {
+    console.log("updateTagSuggestions: Updating with", allTags.length, "tags");
+    console.log("updateTagSuggestions: Tags data:", allTags);
+    
+    const datalist = document.getElementById("tagSuggestions");
+    if (!datalist) {
+      console.warn("updateTagSuggestions: tagSuggestions datalist not found");
+      return;
+    }
+    
+    console.log("updateTagSuggestions: Found datalist element");
+    
+    // 既存のオプションをクリア
+    datalist.innerHTML = "";
+    console.log("updateTagSuggestions: Cleared existing options");
+    
+    // 全てのタグをオプションとして追加
+    allTags.forEach((tag, index) => {
+      const option = document.createElement("option");
+      option.value = tag.name;
+      option.textContent = tag.name;
+      datalist.appendChild(option);
+      console.log(`updateTagSuggestions: Added option ${index + 1}:`, tag.name);
+    });
+    
+    console.log("updateTagSuggestions: Updated autocomplete with", allTags.length, "suggestions");
   }
 }
