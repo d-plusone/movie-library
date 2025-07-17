@@ -260,13 +260,15 @@ class ThumbnailGenerator {
       ffmpeg(videoPath)
         .seekInput(timestamp)
         .frames(1)
-        .size(`${defaultOptions.width}x${defaultOptions.height}`)
         .videoCodec("mjpeg")
         .outputOptions([
           "-q:v",
           defaultOptions.quality.toString(),
           "-f",
           "image2",
+          // アスペクト比を保持しながらサイズ調整
+          "-vf",
+          `scale=${defaultOptions.width}:${defaultOptions.height}:force_original_aspect_ratio=decrease,pad=${defaultOptions.width}:${defaultOptions.height}:(ow-iw)/2:(oh-ih)/2:black`
         ])
         .output(outputPath)
         .on("end", () => {
