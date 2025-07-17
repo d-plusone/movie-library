@@ -1061,4 +1061,29 @@ export class UIRenderer {
       videoCountElement.textContent = `${count} 動画`;
     }
   }
+
+  // 詳細パネルのタグ表示を更新
+  updateDetailsTagsDisplay(tags) {
+    const tagsContainer = document.getElementById("detailsTagsList");
+    if (!tagsContainer) {
+      console.warn("updateDetailsTagsDisplay - detailsTagsList not found");
+      return;
+    }
+
+    tagsContainer.innerHTML = "";
+
+    if (tags && tags.length > 0) {
+      tags.forEach((tag) => {
+        const tagElement = document.createElement("span");
+        tagElement.className = "video-tag details-tag";
+        tagElement.innerHTML = `
+          ${FormatUtils.escapeHtml(tag)}
+          <button class="remove-tag-btn" data-tag="${FormatUtils.escapeHtml(
+            tag
+          )}" title="タグを削除">×</button>
+        `;
+        tagsContainer.appendChild(tagElement);
+      });
+    }
+  }
 }
