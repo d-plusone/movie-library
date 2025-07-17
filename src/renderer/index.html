@@ -12,39 +12,41 @@
     <div id="app">
         <!-- Header -->
         <header class="app-header">
-            <div class="header-left">
-            </div>
-            <div class="header-center">
-                <div class="header-actions">
-                    <button id="addDirectoryBtn" class="btn btn-primary">
-                        <span class="icon">📁</span>
-                        フォルダを追加
+            <div class="header-main">
+                <div class="header-left">
+                </div>
+                <div class="header-center">
+                    <div class="header-actions">
+                        <button id="addDirectoryBtn" class="btn btn-primary">
+                            <span class="icon">📁</span>
+                            <span>フォルダを追加</span>
+                        </button>
+                        <button id="scanDirectoriesBtn" class="btn btn-secondary">
+                            <span class="icon">🔄</span>
+                            <span>再スキャン</span>
+                        </button>
+                        <button id="generateThumbnailsBtn" class="btn btn-secondary">
+                            <span class="icon">🖼️</span>
+                            <span>サムネイル再生成</span>
+                        </button>
+                        <button id="bulkTagApplyBtn" class="btn btn-secondary">
+                            <span class="icon">🏷️</span>
+                            <span>タグ一括反映</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="header-right">
+                    <div class="search-container">
+                        <input type="text" id="searchInput" class="search-input" placeholder="動画を検索...">
+                        <span class="search-icon">🔍</span>
+                    </div>
+                    <button id="themeToggleBtn" class="btn btn-icon" title="テーマ切り替え">
+                        <span class="icon">🌙</span>
                     </button>
-                    <button id="scanDirectoriesBtn" class="btn btn-secondary">
-                        <span class="icon">🔄</span>
-                        再スキャン
-                    </button>
-                    <button id="generateThumbnailsBtn" class="btn btn-secondary">
-                        <span class="icon">🖼️</span>
-                        サムネイル再生成
-                    </button>
-                    <button id="bulkTagApplyBtn" class="btn btn-secondary">
-                        <span class="icon">🏷️</span>
-                        タグ一括反映
+                    <button id="settingsBtn" class="btn btn-icon">
+                        <span class="icon">⚙️</span>
                     </button>
                 </div>
-            </div>
-            <div class="header-right">
-                <div class="search-container">
-                    <input type="text" id="searchInput" class="search-input" placeholder="動画を検索...">
-                    <span class="search-icon">🔍</span>
-                </div>
-                <button id="themeToggleBtn" class="btn btn-icon" title="テーマ切り替え">
-                    <span class="icon">🌙</span>
-                </button>
-                <button id="settingsBtn" class="btn btn-icon">
-                    <span class="icon">⚙️</span>
-                </button>
             </div>
         </header>
 
