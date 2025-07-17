@@ -911,19 +911,6 @@ export class UIRenderer {
 
       // 情報（時間、サイズ、評価を縦に配置）
       const infoDiv = document.createElement("div");
-      const info = [];
-      if (video.duration) {
-        info.push(`時間: ${FormatUtils.formatDuration(video.duration)}`);
-      }
-      if (video.size) {
-        info.push(`サイズ: ${FormatUtils.formatFileSize(video.size)}`);
-      }
-      if (video.rating > 0) {
-        info.push(
-          `評価: ${"★".repeat(video.rating)}${"☆".repeat(5 - video.rating)}`
-        );
-      }
-      infoDiv.innerHTML = info.join("<br>");
       infoDiv.style.fontSize = "11px";
       infoDiv.style.textAlign = "center";
       infoDiv.style.lineHeight = "1.4";
