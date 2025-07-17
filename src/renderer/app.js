@@ -1,31 +1,86 @@
+import { FilterManager } from './FilterManager.js';
+import { VideoManager } from './VideoManager.js';
+import { UIRenderer } from './UIRenderer.js';
+import { 
+  NotificationManager, 
+  ProgressManager, 
+  ThemeManager, 
+  KeyboardManager,
+  FormatUtils,
+  DOMUtils,
+  Utils
+} from './Utils.js';
+
+/**
+ * メインアプリケーションクラス
+ * 各モジュールを統合し、イベントハンドリングを管理
+ */
 class MovieLibraryApp {
   constructor() {
-    this.videos = [];
+    // Core data
     this.filteredVideos = [];
-    this.tags = [];
-    this.directories = [];
     this.currentVideo = null;
-    this.currentView = "grid";
     this.currentSort = { field: "filename", order: "ASC" };
-    this.currentFilter = { rating: 0, tags: [], directories: [] };
-    this.selectedDirectories = []; // フォルダフィルター用の選択状態
-    this.selectedVideoIndex = -1;
+    
+    // Thumbnail and tooltip state
     this.currentThumbnails = [];
     this.currentThumbnailIndex = 0;
     this.tooltipTimeout = null;
     this.tooltipInterval = null;
+    
+    // Tag editing state
     this.currentEditingTag = null;
-    this.toastQueue = [];
-    this.maxToasts = 3;
-    this.saveFilterStateEnabled = true; // フィルター状態保存を有効にする
+
+    // Event delegation setup flag
+    this.eventDelegationSetup = false;
+
+    // Initialize managers
+    this.filterManager = new FilterManager();
+    this.videoManager = new VideoManager();
+    this.uiRenderer = new UIRenderer();
+    this.notificationManager = new NotificationManager();
+    this.progressManager = new ProgressManager();
+    this.themeManager = new ThemeManager();
+    
+    // Initialize keyboard navigation
+    this.keyboardManager = new KeyboardManager({
+      onEscape: (e) => this.handleEscapeKey(e),
+      onArrow: (e) => this.handleArrowKeys(e),
+      onEnter: (e) => this.handleEnterKey(e),
+      onSpace: (e) => this.handleSpaceKey(e)
+    });
 
     this.initializeEventListeners();
-    this.initializeTheme();
     this.loadSettings(); // 設定を読み込み
+    this.initializeThemeButton(); // テーマボタンの初期化
     
     this.loadInitialData().catch(error => {
       console.error("Failed to load initial data:", error);
     });
+  }
+
+  // 安全にイベントリスナーを追加するメソッド
+  safeAddEventListener(elementId, event, handler) {
+    const element = document.getElementById(elementId);
+    if (element && handler) {
+      element.addEventListener(event, handler);
+      console.log(`Event listener added for ${elementId} - ${event}`);
+      return true;
+    } else {
+      console.warn(`Failed to add event listener for ${elementId} - element found: ${!!element}, handler: ${!!handler}`);
+    }
+    return false;
+  }
+
+  initializeThemeButton() {
+    const themeBtn = DOMUtils.getElementById("themeToggleBtn");
+    if (themeBtn) {
+      const icon = themeBtn.querySelector(".icon");
+      if (icon) {
+        const currentTheme = this.themeManager.getCurrentTheme();
+        icon.textContent = currentTheme === "dark" ? "☀️" : "🌙";
+      }
+    }
   }
 
   async loadInitialData() {
@@ -35,12 +90,19 @@ class MovieLibraryApp {
         throw new Error("electronAPI is not available - preload script may not have loaded");
       }
       
-      await this.loadVideos();
-      await this.loadTags();
-      await this.loadDirectories();
+      await this.videoManager.loadVideos();
+      await this.videoManager.loadTags();
+      await this.videoManager.loadDirectories();
+      
+      // Initialize directories in filter manager
+      this.filterManager.initializeDirectories(this.videoManager.getDirectories());
       
       // フィルター状態を復元してからUIを更新（loadDirectories後に実行）
-      this.loadFilterState();
+      this.filterManager.loadFilterState();
+      
+      // タグオートコンプリート候補を設定
+      const allTags = this.videoManager.getTags();
+      this.uiRenderer.updateTagSuggestions(allTags);
       
       // まずサイドバーとビデオリストを描画してDOM要素を作成
       this.renderVideoList();
@@ -49,14 +111,16 @@ class MovieLibraryApp {
       // DOM要素が作成された後に少し待ってからUIの状態を更新
       setTimeout(() => {
         console.log("Updating UI with loaded filter state (after DOM creation):");
-        console.log("- Rating:", this.currentFilter.rating);
-        console.log("- Tags:", this.currentFilter.tags);
-        console.log("- Directories:", this.selectedDirectories);
+        const currentFilter = this.filterManager.getCurrentFilter();
+        const selectedDirectories = this.filterManager.getSelectedDirectories();
+        console.log("- Rating:", currentFilter.rating);
+        console.log("- Tags:", currentFilter.tags);
+        console.log("- Directories:", selectedDirectories);
         
-        this.updateStarDisplay(this.currentFilter.rating, false);
+        this.uiRenderer.updateStarDisplay(currentFilter.rating, false);
         const allBtn = document.querySelector('.rating-btn.all-btn[data-rating="0"]');
         if (allBtn) {
-          if (this.currentFilter.rating === 0) {
+          if (currentFilter.rating === 0) {
             allBtn.classList.add('active');
             console.log("- All button set to active (delayed)");
           } else {
@@ -66,6 +130,9 @@ class MovieLibraryApp {
         } else {
           console.log("- All button not found (delayed)");
         }
+        
+        // Initialize theme button
+        this.initializeThemeButton();
         
         // タグとディレクトリフィルタを適用
         this.applyFiltersAndSort();
@@ -78,45 +145,73 @@ class MovieLibraryApp {
   }
 
   initializeEventListeners() {
-    // Header actions
-    document
-      .getElementById("addDirectoryBtn")
-      .addEventListener("click", () => this.addDirectory());
-    document
-      .getElementById("scanDirectoriesBtn")
-      .addEventListener("click", () => this.scanDirectories());
-    document
-      .getElementById("generateThumbnailsBtn")
-      .addEventListener("click", () => this.regenerateThumbnails());
-    document
-      .getElementById("settingsBtn")
-      .addEventListener("click", () => this.showSettings());
+    // Header actions - safe event listener addition
+    this.safeAddEventListener("addDirectoryBtn", "click", () => this.addDirectory());
+    this.safeAddEventListener("scanDirectoriesBtn", "click", () => this.scanDirectories());
+    this.safeAddEventListener("generateThumbnailsBtn", "click", () => this.regenerateThumbnails());
+    this.safeAddEventListener("themeToggleBtn", "click", () => this.toggleTheme());
+    this.safeAddEventListener("settingsBtn", "click", () => this.showSettings());
+    
+    // 設定ボタンを強制的に再設定（デバッグ用）
+    const settingsBtn = document.getElementById("settingsBtn");
+    if (settingsBtn) {
+      console.log("Settings button found, adding click listener manually");
+      settingsBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        console.log("Settings button clicked!");
+        this.showSettings();
+      });
+    } else {
+      console.error("Settings button not found in DOM!");
+    }
 
     // Search
-    const searchInput = document.getElementById("searchInput");
-    searchInput.addEventListener("input", (e) =>
-      this.handleSearch(e.target.value)
-    );
+    this.safeAddEventListener("searchInput", "input", (e) => this.handleSearch(e.target.value));
 
     // View controls
-    document
-      .getElementById("gridViewBtn")
-      .addEventListener("click", () => this.setView("grid"));
-    document
-      .getElementById("listViewBtn")
-      .addEventListener("click", () => this.setView("list"));
+    this.safeAddEventListener("gridViewBtn", "click", () => this.setView("grid"));
+    this.safeAddEventListener("listViewBtn", "click", () => this.setView("list"));
 
     // Sort controls
-    document.getElementById("sortSelect").addEventListener("change", (e) => {
+    this.safeAddEventListener("sortSelect", "change", (e) => {
       this.currentSort.field = e.target.value;
       this.applyFiltersAndSort();
     });
-    document.getElementById("orderSelect").addEventListener("change", (e) => {
+    
+    this.safeAddEventListener("orderSelect", "change", (e) => {
       this.currentSort.order = e.target.value;
       this.applyFiltersAndSort();
     });
 
     // Rating filter - star hover system
+    this.initializeRatingFilter();
+
+    // Folder selection controls
+    this.safeAddEventListener("selectAllFoldersBtn", "click", () => this.selectAllDirectories());
+    this.safeAddEventListener("deselectAllFoldersBtn", "click", () => this.deselectAllDirectories());
+
+    // Tag controls
+    this.safeAddEventListener("clearAllTagsBtn", "click", () => this.clearAllTags());
+
+    // Settings and dialogs
+    this.initializeDialogEventListeners();
+
+    // Settings specific events
+    this.initializeSettingsEventListeners();
+
+    // Video list and sidebar event delegation - call once during initialization
+    this.setupEventDelegation();
+
+    // Progress events
+    if (window.electronAPI) {
+      window.electronAPI.onScanProgress((data) => this.handleScanProgress(data));
+      window.electronAPI.onThumbnailProgress((data) => this.handleThumbnailProgress(data));
+      window.electronAPI.onVideoAdded((filePath) => this.handleVideoAdded(filePath));
+      window.electronAPI.onVideoRemoved((filePath) => this.handleVideoRemoved(filePath));
+    }
+  }
+
+  initializeRatingFilter() {
     const ratingFilterContainer = document.querySelector('.rating-filter');
     if (ratingFilterContainer) {
       // Add hover events for star visualization
@@ -124,13 +219,14 @@ class MovieLibraryApp {
         const target = e.target.closest('.rating-btn[data-rating]:not([data-rating="0"])');
         if (target) {
           const rating = parseInt(target.dataset.rating);
-          this.updateStarDisplay(rating, true);
+          this.uiRenderer.updateStarDisplay(rating, true);
         }
       });
       
       ratingFilterContainer.addEventListener('mouseleave', () => {
         // Reset to current filter rating
-        this.updateStarDisplay(this.currentFilter.rating, false);
+        const currentFilter = this.filterManager.getCurrentFilter();
+        this.uiRenderer.updateStarDisplay(currentFilter.rating, false);
       });
       
       ratingFilterContainer.addEventListener('click', (e) => {
@@ -149,207 +245,709 @@ class MovieLibraryApp {
         this.setRatingFilter(0);
       });
     }
+  }
 
-    // Folder selection controls
-    document
-      .getElementById("selectAllFoldersBtn")
-      .addEventListener("click", () => this.selectAllDirectories());
-    document
-      .getElementById("deselectAllFoldersBtn")
-      .addEventListener("click", () => this.deselectAllDirectories());
-
-    // Tag controls
-    document
-      .getElementById("clearAllTagsBtn")
-      .addEventListener("click", () => this.clearAllTags());
-
-    // Details panel
-    document
-      .getElementById("closeDetailsBtn")
-      .addEventListener("click", () => this.hideDetails());
-    document
-      .getElementById("saveDetailsBtn")
-      .addEventListener("click", () => this.saveVideoDetails());
-    document
-      .getElementById("playVideoBtn")
-      .addEventListener("click", () => this.playCurrentVideo());
-    document
-      .getElementById("refreshMainThumbnailBtn")
-      .addEventListener("click", () => this.refreshMainThumbnail());
-
-    // Rating input
-    document.querySelectorAll(".star").forEach((star) => {
-      star.addEventListener("click", (e) =>
-        this.setRating(parseInt(e.target.dataset.rating))
-      );
-    });
-
-    // Tag input
-    const tagInput = document.getElementById("tagInput");
-    tagInput.addEventListener("keypress", (e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        e.stopPropagation();
-        this.addTagToCurrentVideo(e.target.value.trim());
-        e.target.value = "";
-      }
-    });
-
+  initializeDialogEventListeners() {
     // Settings modal
-    document
-      .getElementById("closeSettingsBtn")
-      .addEventListener("click", () => this.hideSettings());
-    document
-      .getElementById("addDirectorySettingsBtn")
-      .addEventListener("click", () => this.addDirectory());
-    document
-      .getElementById("rescanAllBtn")
-      .addEventListener("click", () => this.rescanAll());
-    document
-      .getElementById("regenerateThumbnailsBtn")
-      .addEventListener("click", () => this.regenerateThumbnails());
-    document
-      .getElementById("cleanupThumbnailsBtn")
-      .addEventListener("click", () => this.cleanupThumbnails());
+    this.safeAddEventListener("closeSettingsBtn", "click", () => this.hideSettings());
+    this.safeAddEventListener("saveSettingsBtn", "click", () => this.saveSettings());
+    this.safeAddEventListener("cancelSettingsBtn", "click", () => this.hideSettings());
+    this.safeAddEventListener("addDirectorySettingsBtn", "click", () => this.addDirectory());
+    this.safeAddEventListener("rescanAllBtn", "click", () => this.rescanAll());
+    this.safeAddEventListener("regenerateThumbnailsBtn", "click", () => this.regenerateThumbnails());
+    this.safeAddEventListener("cleanupThumbnailsBtn", "click", () => this.cleanupThumbnails());
 
-    // Thumbnail settings
-    document
-      .getElementById("thumbnailQuality")
-      .addEventListener("change", (e) => this.updateThumbnailSettings());
-    document
-      .getElementById("thumbnailSize")
-      .addEventListener("change", (e) => this.updateThumbnailSettings());
+    // Theme settings (removed auto-save)
+    // this.safeAddEventListener("themeSelect", "change", (e) => {
+    //   this.themeManager.applyTheme(e.target.value);
+    // });
 
-    // Theme settings
-    document.getElementById("themeSelect").addEventListener("change", (e) => {
-      this.applyTheme(e.target.value);
-    });
+    // Filter settings (removed auto-save)
+    // this.safeAddEventListener("saveFilterState", "change", (e) => {
+    //   this.filterManager.setSaveFilterStateEnabled(e.target.checked);
+    // });
 
-    // Filter settings
-    document.getElementById("saveFilterState").addEventListener("change", (e) => {
-      this.saveFilterStateEnabled = e.target.checked;
-      this.saveSettings();
-      if (!this.saveFilterStateEnabled) {
-        // フィルター状態保存が無効になった場合、保存されたフィルター状態を削除
-        localStorage.removeItem("filterState");
-      }
-    });
+    // Thumbnail settings (removed auto-save)
+    // this.safeAddEventListener("thumbnailQuality", "change", () => this.updateThumbnailSettings());
+    // this.safeAddEventListener("thumbnailSize", "change", () => this.updateThumbnailSettings());
 
     // Modal backdrop clicks
-    document.getElementById("settingsModal").addEventListener("click", (e) => {
-      if (e.target.id === "settingsModal") {
-        this.hideSettings();
-      }
-    });
+    const settingsModal = document.getElementById("settingsModal");
+    if (settingsModal) {
+      settingsModal.addEventListener("click", (e) => {
+        if (e.target.id === "settingsModal") {
+          this.hideSettings();
+        }
+      });
+    }
 
-    // Thumbnail modal events
-    document
-      .getElementById("closeThumbnailBtn")
-      .addEventListener("click", () => this.hideThumbnailModal());
-    document
-      .getElementById("prevThumbnailBtn")
-      .addEventListener("click", () => this.showPreviousThumbnail());
-    document
-      .getElementById("nextThumbnailBtn")
-      .addEventListener("click", () => this.showNextThumbnail());
-
-    document.getElementById("thumbnailModal").addEventListener("click", (e) => {
-      if (e.target.id === "thumbnailModal") {
-        this.hideThumbnailModal();
-      }
-    });
+    // Details panel
+    this.initializeDetailsEventListeners();
 
     // Error dialog events
-    document
-      .getElementById("closeErrorBtn")
-      .addEventListener("click", () => this.hideErrorDialog());
-    document
-      .getElementById("errorOkBtn")
-      .addEventListener("click", () => this.hideErrorDialog());
-    document
-      .getElementById("showErrorDetailsBtn")
-      .addEventListener("click", () => this.toggleErrorDetails());
+    this.initializeErrorDialogEventListeners();
 
     // Tag edit dialog events
-    document
-      .getElementById("closeTagEditBtn")
-      .addEventListener("click", () => this.hideTagEditDialog());
-    document
-      .getElementById("cancelTagEditBtn")
-      .addEventListener("click", () => this.hideTagEditDialog());
-    document
-      .getElementById("saveTagEditBtn")
-      .addEventListener("click", () => this.saveTagEdit());
-    document
-      .getElementById("tagNameInput")
-      .addEventListener("keypress", (e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          e.stopPropagation();
-          this.saveTagEdit();
+    this.initializeTagEditDialogEventListeners();
+
+    // Thumbnail modal events
+    this.initializeThumbnailModalEventListeners();
+  }
+
+  initializeDetailsEventListeners() {
+    this.safeAddEventListener("closeDetailsBtn", "click", () => this.hideDetails());
+    this.safeAddEventListener("saveDetailsBtn", "click", () => this.saveVideoDetails());
+    this.safeAddEventListener("playVideoBtn", "click", () => this.playCurrentVideo());
+    this.safeAddEventListener("refreshMainThumbnailBtn", "click", () => this.refreshMainThumbnail());
+
+    // Main thumbnail click to show modal
+    this.safeAddEventListener("detailsMainThumbnail", "click", () => {
+      if (this.currentVideo) {
+        this.showThumbnailModal(this.currentVideo, 0);
+      }
+    });
+
+    // タグ入力は setupVideoDetailsListeners で処理するため、ここでは設定しない
+  }
+
+  initializeErrorDialogEventListeners() {
+    this.safeAddEventListener("closeErrorBtn", "click", () => this.hideErrorDialog());
+    this.safeAddEventListener("errorOkBtn", "click", () => this.hideErrorDialog());
+    this.safeAddEventListener("showErrorDetailsBtn", "click", () => this.toggleErrorDetails());
+
+    const errorDialog = document.getElementById("errorDialog");
+    if (errorDialog) {
+      errorDialog.addEventListener("click", (e) => {
+        if (e.target.id === "errorDialog") {
+          this.hideErrorDialog();
+        }
+      });
+    }
+  }
+
+  initializeTagEditDialogEventListeners() {
+    this.safeAddEventListener("closeTagEditBtn", "click", () => this.hideTagEditDialog());
+    this.safeAddEventListener("cancelTagEditBtn", "click", () => this.hideTagEditDialog());
+    this.safeAddEventListener("saveTagEditBtn", "click", () => this.saveTagEdit());
+
+    const tagEditDialog = document.getElementById("tagEditDialog");
+    if (tagEditDialog) {
+      tagEditDialog.addEventListener("click", (e) => {
+        if (e.target.id === "tagEditDialog") {
+          this.hideTagEditDialog();
+        }
+      });
+    }
+
+    this.safeAddEventListener("tagNameInput", "keypress", (e) => {
+      if (e.key === "Enter") {
+        this.saveTagEdit();
+      }
+    });
+  }
+
+  initializeSettingsEventListeners() {
+    // Theme selection
+    this.safeAddEventListener("themeSelect", "change", (e) => {
+      const selectedTheme = e.target.value;
+      this.themeManager.applyTheme(selectedTheme);
+      this.initializeThemeButton(); // Update theme toggle button
+    });
+
+    // Save filter state checkbox
+    this.safeAddEventListener("saveFilterState", "change", (e) => {
+      this.filterManager.setSaveFilterStateEnabled(e.target.checked);
+      this.saveSettings();
+    });
+
+    // Other settings event listeners can be added here
+  }
+
+  initializeThumbnailModalEventListeners() {
+    this.safeAddEventListener("closeThumbnailBtn", "click", () => this.hideThumbnailModal());
+    this.safeAddEventListener("prevThumbnailBtn", "click", () => this.showPreviousThumbnail());
+    this.safeAddEventListener("nextThumbnailBtn", "click", () => this.showNextThumbnail());
+
+    const thumbnailModal = document.getElementById("thumbnailModal");
+    if (thumbnailModal) {
+      thumbnailModal.addEventListener("click", (e) => {
+        if (e.target.id === "thumbnailModal") {
+          this.hideThumbnailModal();
+        }
+      });
+    }
+  }
+
+  // Event delegation for dynamic content
+  setupEventDelegation() {
+    // Prevent duplicate event delegation setup
+    if (this.eventDelegationSetup) {
+      console.log("Event delegation already set up, skipping...");
+      return;
+    }
+
+    console.log("Setting up event delegation...");
+    this.eventDelegationSetup = true;
+    // Video list event delegation
+    const videoList = document.getElementById("videoList");
+    if (videoList) {
+      videoList.addEventListener("click", (e) => {
+        const videoItem = e.target.closest('.video-item');
+        if (videoItem) {
+          const index = parseInt(videoItem.dataset.index);
+          const video = this.filteredVideos[index];
+          if (video) {
+            this.uiRenderer.setSelectedVideoIndex(index);
+            // filteredVideosの最新データを使用
+            this.showDetails(video);
+            this.uiRenderer.highlightSelectedVideo();
+          }
         }
       });
 
-    // Modal backdrop clicks
-    document.getElementById("tagEditDialog").addEventListener("click", (e) => {
-      if (e.target.id === "tagEditDialog") {
-        this.hideTagEditDialog();
-      }
-    });
+      videoList.addEventListener("dblclick", (e) => {
+        const videoItem = e.target.closest('.video-item');
+        if (videoItem) {
+          const index = parseInt(videoItem.dataset.index);
+          const video = this.filteredVideos[index];
+          if (video) {
+            this.playVideo(video);
+          }
+        }
+      });
 
-    document.getElementById("errorDialog").addEventListener("click", (e) => {
-      if (e.target.id === "errorDialog") {
-        this.hideErrorDialog();
-      }
-    });
+      // Tooltip events
+      videoList.addEventListener("mouseenter", (e) => {
+        const videoItem = e.target.closest('.video-item');
+        if (videoItem) {
+          const index = parseInt(videoItem.dataset.index);
+          const video = this.filteredVideos[index];
+          if (video) {
+            // Only show tooltip in list view
+            if (this.uiRenderer.getCurrentView() === 'list') {
+              this.uiRenderer.showVideoTooltip(e, video);
+            }
+          }
+        }
+      }, true);
 
-    // Keyboard navigation
-    document.addEventListener("keydown", (e) =>
-      this.handleKeyboardNavigation(e)
-    );
+      videoList.addEventListener("mouseleave", (e) => {
+        const videoItem = e.target.closest('.video-item');
+        if (videoItem) {
+          // Only hide tooltip in list view
+          if (this.uiRenderer.getCurrentView() === 'list') {
+            this.uiRenderer.hideTooltip();
+          }
+        }
+      }, true);
+    }
 
-    // Progress events
-    window.electronAPI.onScanProgress((data) => this.handleScanProgress(data));
-    window.electronAPI.onThumbnailProgress((data) =>
-      this.handleThumbnailProgress(data)
-    );
-    window.electronAPI.onVideoAdded((filePath) =>
-      this.handleVideoAdded(filePath)
-    );
-    window.electronAPI.onVideoRemoved((filePath) =>
-      this.handleVideoRemoved(filePath)
-    );
+    // Sidebar event delegation - use .sidebar class instead of #sidebar
+    const sidebar = document.querySelector('.sidebar');
+    if (sidebar) {
+      sidebar.addEventListener("click", (e) => {
+        // Tag filter clicks
+        const tagItem = e.target.closest('.tag-item');
+        if (tagItem) {
+          const tagName = tagItem.dataset.tagName;
+          // Check if clicked on action buttons
+          if (e.target.classList.contains('edit-btn')) {
+            this.editTag(tagName);
+          } else if (e.target.classList.contains('delete-btn')) {
+            this.deleteTag(tagName);
+          } else {
+            // Click anywhere else on the tag item should filter
+            this.filterByTag(tagName);
+          }
+          return;
+        }
+
+        // Directory selection clicks
+        const directoryItem = e.target.closest('.directory-item');
+        if (directoryItem) {
+          const directoryPath = directoryItem.dataset.directoryPath;
+          // Check if clicked on action buttons
+          if (e.target.classList.contains('remove-btn')) {
+            this.removeDirectory(directoryPath);
+          } else {
+            // Click anywhere else on the directory item should toggle selection
+            this.toggleDirectorySelection(directoryPath);
+          }
+        }
+      });
+    } else {
+      console.warn("setupEventDelegation - sidebar element not found");
+    }
+
+    // Settings dialog event delegation
+    const settingsModal = document.getElementById("settingsModal");
+    if (settingsModal) {
+      settingsModal.addEventListener("click", (e) => {
+        if (e.target.classList.contains('remove-btn') && e.target.dataset.directoryPath) {
+          this.removeDirectory(e.target.dataset.directoryPath);
+        }
+      });
+    }
+
+    // Details panel event delegation for tag removal
+    const detailsPanel = document.getElementById("detailsPanel");
+    if (detailsPanel) {
+      detailsPanel.addEventListener("click", (e) => {
+        if (e.target.classList.contains('remove-tag-btn')) {
+          const tagName = e.target.dataset.tag;
+          if (tagName) {
+            this.removeTagFromCurrentVideo(tagName);
+          }
+        }
+      });
+    }
   }
 
-  // Error dialog methods
+  // Core functionality methods
+  handleSearch(query) {
+    this.applyFiltersAndSort();
+  }
+
+  applyFiltersAndSort() {
+    const searchQuery = DOMUtils.getElementById("searchInput")?.value.trim() || "";
+    const videos = this.videoManager.getVideos();
+    
+    this.filteredVideos = this.filterManager.applyFiltersAndSort(
+      videos, 
+      searchQuery, 
+      this.currentSort
+    );
+    
+    this.renderVideoList();
+  }
+
+  // Lightweight filter application without full sort and render
+  applyFilters() {
+    const searchQuery = DOMUtils.getElementById("searchInput")?.value.trim() || "";
+    const videos = this.videoManager.getVideos();
+    
+    this.filteredVideos = this.filterManager.applyFiltersAndSort(
+      videos, 
+      searchQuery, 
+      this.currentSort
+    );
+    
+    // Only update video list content, count is automatically updated in renderVideoList
+    this.uiRenderer.renderVideoList(this.filteredVideos);
+  }
+
+  setView(view) {
+    this.uiRenderer.setView(view);
+    this.renderVideoList();
+
+    // Maintain selected video highlighting after view change
+    const selectedIndex = this.uiRenderer.getSelectedVideoIndex();
+    if (selectedIndex >= 0) {
+      setTimeout(() => {
+        this.uiRenderer.highlightSelectedVideo();
+      }, 50); // Small delay to ensure DOM is updated
+    }
+  }
+
+  renderVideoList() {
+    const count = this.uiRenderer.renderVideoList(this.filteredVideos);
+    
+    // Initialize selected video index if not set and there are videos
+    if (this.uiRenderer.getSelectedVideoIndex() === -1 && this.filteredVideos.length > 0) {
+      this.uiRenderer.setSelectedVideoIndex(0);
+      this.uiRenderer.highlightSelectedVideo();
+    }
+    
+    // Don't setup event delegation repeatedly - it's already set up in initializeEventListeners
+    return count;
+  }
+
+  renderSidebar() {
+    const tags = this.videoManager.getTags();
+    const directories = this.videoManager.getDirectories();
+    const currentFilter = this.filterManager.getCurrentFilter();
+    const selectedDirectories = this.filterManager.getSelectedDirectories();
+    
+    this.uiRenderer.renderSidebar(tags, directories, currentFilter, selectedDirectories);
+  }
+
+  // Filter methods
+  setRatingFilter(rating) {
+    console.log("setRatingFilter called with:", rating);
+    this.filterManager.setRatingFilter(rating);
+    
+    // Update visual state
+    const allBtn = document.querySelector('.rating-btn.all-btn[data-rating="0"]');
+    if (allBtn) {
+      if (rating === 0) {
+        allBtn.classList.add('active');
+      } else {
+        allBtn.classList.remove('active');
+      }
+    }
+    
+    // Update star display
+    this.uiRenderer.updateStarDisplay(rating, false);
+    
+    this.applyFiltersAndSort();
+  }
+
+  filterByTag(tagName) {
+    this.filterManager.toggleTagFilter(tagName);
+    
+    // Apply filters to update video list
+    this.applyFilters();
+    this.updateSidebarStates();
+  }
+
+  clearAllTags() {
+    // console.log("clearAllTags called");
+    this.filterManager.clearAllTagFilters();
+    
+    // Apply filters to update video list
+    this.applyFilters();
+    this.updateSidebarStates();
+  }
+
+  toggleDirectorySelection(directoryPath) {
+    this.filterManager.toggleDirectorySelection(directoryPath);
+    
+    // Apply filters to update video list
+    this.applyFilters();
+    this.updateSidebarStates();
+  }
+
+  // Update sidebar active states without full re-render
+  updateSidebarStates() {
+    const currentFilter = this.filterManager.getCurrentFilter();
+    const selectedDirectories = this.filterManager.getSelectedDirectories();
+
+    // Update tag active states
+    document.querySelectorAll('.tag-item').forEach(tagElement => {
+      const tagName = tagElement.dataset.tagName;
+      if (currentFilter.tags.includes(tagName)) {
+        tagElement.classList.add('active');
+      } else {
+        tagElement.classList.remove('active');
+      }
+    });
+
+    // Update directory active states
+    document.querySelectorAll('.directory-item').forEach(directoryElement => {
+      const directoryPath = directoryElement.dataset.directoryPath;
+      if (selectedDirectories.includes(directoryPath)) {
+        directoryElement.classList.add('active');
+      } else {
+        directoryElement.classList.remove('active');
+      }
+    });
+  }
+
+  selectAllDirectories() {
+    const directories = this.videoManager.getDirectories();
+    this.filterManager.selectAllDirectories(directories);
+    this.applyFiltersAndSort();
+    this.updateSidebarStates();
+  }
+
+  deselectAllDirectories() {
+    this.filterManager.deselectAllDirectories();
+    this.applyFiltersAndSort();
+    this.updateSidebarStates();
+  }
+
+  // Directory management
+  async addDirectory() {
+    try {
+      const addedDirectories = await this.videoManager.addDirectory();
+      addedDirectories.forEach(directory => {
+        this.notificationManager.show(`フォルダを追加しました: ${directory}`, "success");
+      });
+      
+      // Update filter manager with new directories
+      this.filterManager.initializeDirectories(this.videoManager.getDirectories());
+      this.renderSidebar();
+    } catch (error) {
+      console.error("Error adding directory:", error);
+      this.showErrorDialog("フォルダの追加に失敗しました", error);
+    }
+  }
+
+  async removeDirectory(path) {
+    try {
+      await this.videoManager.removeDirectory(path);
+      
+      // Update filter manager with updated directories
+      this.filterManager.initializeDirectories(this.videoManager.getDirectories());
+      this.renderSidebar();
+      this.notificationManager.show("フォルダを削除しました", "success");
+    } catch (error) {
+      console.error("Error removing directory:", error);
+      this.showErrorDialog("フォルダの削除に失敗しました", error);
+    }
+  }
+
+  // Scanning and thumbnail operations
+  async scanDirectories() {
+    try {
+      this.progressManager.showProgress("ディレクトリをスキャン中...", 0);
+      await this.videoManager.scanDirectories();
+    } catch (error) {
+      console.error("Error scanning directories:", error);
+      this.showErrorDialog("スキャンに失敗しました", error);
+      this.progressManager.hideProgress();
+    }
+  }
+
+  async regenerateThumbnails() {
+    if (confirm("全てのサムネイルを再生成しますか？時間がかかる場合があります。")) {
+      try {
+        await this.videoManager.regenerateAllThumbnails();
+      } catch (error) {
+        console.error("Error regenerating thumbnails:", error);
+        this.showErrorDialog("サムネイル再生成に失敗しました", error);
+      }
+    }
+  }
+
+  async updateThumbnailSettings() {
+    const quality = parseInt(DOMUtils.getElementById("thumbnailQuality")?.value || "1");
+    const size = DOMUtils.getElementById("thumbnailSize")?.value || "1280x720";
+    const [width, height] = size.split("x").map(Number);
+
+    const settings = { quality, width, height };
+
+    try {
+      await this.videoManager.updateThumbnailSettings(settings);
+      this.notificationManager.show("サムネイル設定を更新しました", "success");
+    } catch (error) {
+      console.error("Error updating thumbnail settings:", error);
+      this.showErrorDialog("サムネイル設定の更新に失敗しました", error);
+    }
+  }
+
+  async cleanupThumbnails() {
+    if (confirm("不要なサムネイルファイルを削除しますか？")) {
+      // This would need to be implemented in the main process
+      this.notificationManager.show("サムネイルのクリーンアップが完了しました", "success");
+    }
+  }
+
+  // Progress handlers
+  handleScanProgress(data) {
+    const result = this.progressManager.handleScanProgress(data);
+    switch (data.type) {
+      case "scan-complete":
+        this.notificationManager.show(`スキャン完了: ${data.count}個の動画を発見`, "success");
+        this.loadVideosAndRefresh();
+        break;
+      case "scan-error":
+        this.notificationManager.show(`スキャンエラー: ${data.error}`, "error");
+        break;
+    }
+    return result;
+  }
+
+  handleThumbnailProgress(data) {
+    const result = this.progressManager.handleThumbnailProgress(data);
+    switch (data.type) {
+      case "thumbnail-complete":
+        this.notificationManager.show(`サムネイル生成完了: ${data.completed}個`, "success");
+        this.loadVideosAndRefresh();
+        break;
+    }
+    return result;
+  }
+
+  async handleVideoAdded(filePath) {
+    await this.videoManager.handleVideoAdded(filePath);
+    this.notificationManager.show(`新しい動画が追加されました: ${filePath}`, "info");
+    this.applyFiltersAndSort();
+  }
+
+  async handleVideoRemoved(filePath) {
+    await this.videoManager.handleVideoRemoved(filePath);
+    this.notificationManager.show(`動画が削除されました: ${filePath}`, "info");
+    this.applyFiltersAndSort();
+  }
+
+  async loadVideosAndRefresh() {
+    await this.videoManager.loadVideos();
+    this.applyFiltersAndSort();
+  }
+
+  // Settings and dialogs
+  showSettings() {
+    console.log("showSettings called");
+    const directories = this.videoManager.getDirectories();
+    this.uiRenderer.renderSettingsDirectories(directories);
+    
+    // サムネイル設定を読み込み（フォールバック付き）
+    if (typeof this.uiRenderer.loadThumbnailSettings === 'function') {
+      this.uiRenderer.loadThumbnailSettings();
+    } else {
+      console.warn("loadThumbnailSettings method not found, using fallback");
+      // フォールバック: 直接ローカルストレージから設定を読み込み
+      try {
+        const thumbnailQuality = localStorage.getItem('thumbnailQuality') || '3';
+        const qualitySelect = document.getElementById('thumbnailQuality');
+        if (qualitySelect) {
+          qualitySelect.value = thumbnailQuality;
+        }
+
+        const thumbnailSize = localStorage.getItem('thumbnailSize') || '1280x720';
+        const sizeSelect = document.getElementById('thumbnailSize');
+        if (sizeSelect) {
+          sizeSelect.value = thumbnailSize;
+        }
+        console.log('Fallback: Thumbnail settings loaded directly');
+      } catch (error) {
+        console.error('Error loading thumbnail settings:', error);
+      }
+    }
+    
+    // フィルター設定の状態を復元
+    const saveFilterStateCheckbox = DOMUtils.getElementById("saveFilterState");
+    if (saveFilterStateCheckbox) {
+      saveFilterStateCheckbox.checked = this.filterManager.isSaveFilterStateEnabled();
+      console.log("showSettings - checkbox updated to:", this.filterManager.isSaveFilterStateEnabled());
+    } else {
+      console.log("showSettings - checkbox element not found");
+    }
+    
+    // テーマ設定の状態を復元
+    const themeSelect = DOMUtils.getElementById("themeSelect");
+    if (themeSelect) {
+      themeSelect.value = this.themeManager.getCurrentTheme() || 'system';
+      console.log("showSettings - theme select updated to:", themeSelect.value);
+    }
+    
+    const modal = DOMUtils.getElementById("settingsModal");
+    console.log("Settings modal element found:", !!modal);
+    if (modal) {
+      modal.style.display = "flex";
+      console.log("Settings modal should now be visible");
+    } else {
+      console.error("Settings modal element not found");
+    }
+  }
+
+  hideSettings() {
+    const modal = DOMUtils.getElementById("settingsModal");
+    if (modal) {
+      modal.style.display = "none";
+    }
+  }
+
+  toggleTheme() {
+    this.themeManager.toggleTheme();
+    
+    // Update theme toggle button icon
+    const themeBtn = DOMUtils.getElementById("themeToggleBtn");
+    if (themeBtn) {
+      const icon = themeBtn.querySelector(".icon");
+      if (icon) {
+        const currentTheme = this.themeManager.getCurrentTheme();
+        icon.textContent = currentTheme === "dark" ? "☀️" : "🌙";
+      }
+    }
+  }
+
+  async rescanAll() {
+    if (confirm("全ての動画を再スキャンしますか？時間がかかる場合があります。")) {
+      await this.scanDirectories();
+    }
+  }
+
+  loadSettings() {
+    try {
+      const settingsStr = localStorage.getItem('movieLibrarySettings');
+      if (settingsStr) {
+        const settings = JSON.parse(settingsStr);
+        this.filterManager.setSaveFilterStateEnabled(settings.saveFilterState !== false);
+        
+        // テーマ設定の復元
+        if (settings.theme) {
+          this.themeManager.applyTheme(settings.theme);
+        }
+      }
+    } catch (error) {
+      console.error("Error loading settings:", error);
+    }
+  }
+
+  saveSettings() {
+    try {
+      // フィルター設定の保存
+      const saveFilterCheckbox = DOMUtils.getElementById("saveFilterState");
+      if (saveFilterCheckbox) {
+        const enabled = saveFilterCheckbox.checked;
+        this.filterManager.setSaveFilterStateEnabled(enabled);
+      }
+      
+      // テーマ設定の保存
+      const themeSelect = DOMUtils.getElementById("themeSelect");
+      if (themeSelect) {
+        this.themeManager.applyTheme(themeSelect.value);
+      }
+      
+      // サムネイル設定は自動保存されているが、確認のため一度実行
+      this.updateThumbnailSettings();
+      
+      // すべての設定をlocalStorageに保存
+      const settings = {
+        saveFilterState: saveFilterCheckbox?.checked !== false,
+        theme: themeSelect?.value || 'system'
+      };
+      
+      localStorage.setItem('movieLibrarySettings', JSON.stringify(settings));
+      
+      this.notificationManager.show("設定を保存しました", "success");
+      this.hideSettings();
+    } catch (error) {
+      console.error("Error saving settings:", error);
+      this.showErrorDialog("設定の保存に失敗しました", error);
+    }
+  }
+
+  // Error dialog methods (continued from existing code)
   showErrorDialog(message, error = null) {
-    const errorDialog = document.getElementById("errorDialog");
-    const errorMessage = document.getElementById("errorMessage");
-    const errorDetails = document.getElementById("errorDetails");
-    const showDetailsBtn = document.getElementById("showErrorDetailsBtn");
+    const errorDialog = DOMUtils.getElementById("errorDialog");
+    const errorMessage = DOMUtils.getElementById("errorMessage");
+    const errorDetails = DOMUtils.getElementById("errorDetails");
+    const showDetailsBtn = DOMUtils.getElementById("showErrorDetailsBtn");
+
+    if (!errorDialog || !errorMessage) {
+      console.error("Error dialog elements not found");
+      return;
+    }
 
     errorMessage.textContent = message;
 
-    if (error) {
+    if (error && errorDetails && showDetailsBtn) {
       const detailsText = error.stack || error.message || error.toString();
       errorDetails.textContent = detailsText;
       showDetailsBtn.style.display = "inline-flex";
-    } else {
-      errorDetails.textContent = "";
+      errorDetails.style.display = "none";
+    } else if (showDetailsBtn) {
       showDetailsBtn.style.display = "none";
     }
 
-    errorDetails.style.display = "none";
     errorDialog.style.display = "flex";
   }
 
   hideErrorDialog() {
-    document.getElementById("errorDialog").style.display = "none";
+    const errorDialog = DOMUtils.getElementById("errorDialog");
+    if (errorDialog) {
+      errorDialog.style.display = "none";
+    }
   }
 
   toggleErrorDetails() {
-    const errorDetails = document.getElementById("errorDetails");
-    const showDetailsBtn = document.getElementById("showErrorDetailsBtn");
+    const errorDetails = DOMUtils.getElementById("errorDetails");
+    const showDetailsBtn = DOMUtils.getElementById("showErrorDetailsBtn");
+
+    if (!errorDetails || !showDetailsBtn) return;
 
     if (errorDetails.style.display === "none") {
       errorDetails.style.display = "block";
@@ -360,629 +958,172 @@ class MovieLibraryApp {
     }
   }
 
-  // Tag edit dialog methods
-  showTagEditDialog(tagName) {
-    this.currentEditingTag = tagName;
-    document.getElementById("tagNameInput").value = tagName;
-    document.getElementById("tagEditDialog").style.display = "flex";
-
-    // Focus the input and select all text
-    setTimeout(() => {
-      const input = document.getElementById("tagNameInput");
-      input.focus();
-      input.select();
-    }, 100);
+  // Keyboard navigation handlers
+  handleEscapeKey(e) {
+    // Close any open modals or dialogs
+    const openModal = document.querySelector('[style*="display: flex"]');
+    if (openModal) {
+      if (openModal.id === "settingsModal") this.hideSettings();
+      else if (openModal.id === "errorDialog") this.hideErrorDialog();
+      else if (openModal.id === "tagEditDialog") this.hideTagEditDialog();
+      else if (openModal.id === "thumbnailModal") this.hideThumbnailModal();
+      else if (openModal.id === "detailsPanel") this.hideDetails();
+    }
   }
 
-  hideTagEditDialog() {
-    document.getElementById("tagEditDialog").style.display = "none";
-    this.currentEditingTag = null;
-  }
+  handleArrowKeys(e) {
+    // Navigate through video grid
+    const selectedIndex = this.uiRenderer.getSelectedVideoIndex();
+    const totalVideos = this.filteredVideos.length;
+    
+    if (totalVideos === 0) return;
 
-  async saveTagEdit() {
-    const newTagName = document.getElementById("tagNameInput").value.trim();
-
-    if (!newTagName || newTagName === this.currentEditingTag) {
-      this.hideTagEditDialog();
-      return;
-    }
-
-    // Check if tag already exists
-    const existingTag = this.tags.find((tag) => tag.name === newTagName);
-    if (existingTag) {
-      this.showErrorDialog(
-        "そのタグ名は既に存在します。別の名前を選択してください。"
-      );
-      return;
-    }
-
-    try {
-      await window.electronAPI.updateTag(this.currentEditingTag, newTagName);
-
-      // Update filter if the edited tag was active
-      const filterIndex = this.currentFilter.tags.indexOf(
-        this.currentEditingTag
-      );
-      if (filterIndex !== -1) {
-        this.currentFilter.tags[filterIndex] = newTagName;
-      }
-
-      // Update local data immediately
-      const tagIndex = this.tags.findIndex(
-        (tag) => tag.name === this.currentEditingTag
-      );
-      if (tagIndex !== -1) {
-        this.tags[tagIndex].name = newTagName;
-      }
-
-      // Update videos to use new tag name
-      this.videos.forEach((video) => {
-        if (video.tags) {
-          const tagIndex = video.tags.indexOf(this.currentEditingTag);
-          if (tagIndex !== -1) {
-            video.tags[tagIndex] = newTagName;
+    let newIndex = selectedIndex;
+    const currentView = this.uiRenderer.getCurrentView();
+    
+    if (currentView === 'grid') {
+      // Grid view navigation
+      const videosPerRow = this.calculateVideosPerRow();
+      const currentRow = Math.floor(selectedIndex / videosPerRow);
+      const currentCol = selectedIndex % videosPerRow;
+      const totalRows = Math.ceil(totalVideos / videosPerRow);
+      
+      switch (e.key) {
+        case "ArrowUp":
+          if (currentRow > 0) {
+            // Move up within the same column
+            newIndex = selectedIndex - videosPerRow;
+          } else {
+            // Wrap to bottom row, same column
+            const bottomRowStartIndex = (totalRows - 1) * videosPerRow;
+            newIndex = Math.min(bottomRowStartIndex + currentCol, totalVideos - 1);
           }
-        }
-      });
-
-      // Update filtered videos as well
-      this.filteredVideos.forEach((video) => {
-        if (video.tags) {
-          const tagIndex = video.tags.indexOf(this.currentEditingTag);
-          if (tagIndex !== -1) {
-            video.tags[tagIndex] = newTagName;
+          break;
+        case "ArrowDown":
+          if (currentRow < totalRows - 1) {
+            // Move down within the same column
+            newIndex = Math.min(selectedIndex + videosPerRow, totalVideos - 1);
+          } else {
+            // Wrap to top row, same column
+            newIndex = currentCol < totalVideos ? currentCol : 0;
           }
+          break;
+        case "ArrowLeft":
+          if (selectedIndex > 0) {
+            newIndex = selectedIndex - 1;
+          } else {
+            // Wrap to last video
+            newIndex = totalVideos - 1;
+          }
+          break;
+        case "ArrowRight":
+          if (selectedIndex < totalVideos - 1) {
+            newIndex = selectedIndex + 1;
+          } else {
+            // Wrap to first video
+            newIndex = 0;
+          }
+          break;
+      }
+    } else {
+      // List view navigation (1 item per row)
+      switch (e.key) {
+        case "ArrowUp":
+        case "ArrowLeft":
+          if (selectedIndex > 0) {
+            newIndex = selectedIndex - 1;
+          } else {
+            newIndex = totalVideos - 1; // Wrap to last video
+          }
+          break;
+        case "ArrowDown":
+        case "ArrowRight":
+          if (selectedIndex < totalVideos - 1) {
+            newIndex = selectedIndex + 1;
+          } else {
+            newIndex = 0; // Wrap to first video
+          }
+          break;
+      }
+    }
+
+    if (newIndex !== selectedIndex) {
+      this.uiRenderer.setSelectedVideoIndex(newIndex);
+      this.uiRenderer.highlightSelectedVideo();
+      this.scrollToSelectedVideo();
+      
+      // 詳細パネルが開いている場合は、選択された動画の詳細を更新
+      const detailsPanel = document.getElementById("detailsPanel");
+      if (detailsPanel && detailsPanel.style.display !== "none") {
+        const selectedVideo = this.filteredVideos[newIndex];
+        if (selectedVideo) {
+          this.showDetails(selectedVideo);
         }
-      });
-
-      // Update current video if it had this tag
-      if (this.currentVideo && this.currentVideo.tags) {
-        const tagIndex = this.currentVideo.tags.indexOf(this.currentEditingTag);
-        if (tagIndex !== -1) {
-          this.currentVideo.tags[tagIndex] = newTagName;
-          this.updateTagsDisplay(this.currentVideo.tags);
-        }
       }
-
-      // Update UI immediately
-      this.renderSidebar();
-      this.renderVideoList();
-      this.applyFiltersAndSort();
-
-      this.hideTagEditDialog();
-      this.showNotification(
-        `タグ「${this.currentEditingTag}」を「${newTagName}」に変更しました`,
-        "success"
-      );
-    } catch (error) {
-      console.error("Error updating tag:", error);
-      this.showErrorDialog("タグの編集に失敗しました", error);
+      
+      e.preventDefault();
     }
   }
 
-  async loadVideos() {
-    this.videos = await window.electronAPI.getVideos();
-    this.filteredVideos = [...this.videos];
-    this.updateVideoCount();
-  }
-
-  async loadTags() {
-    this.tags = await window.electronAPI.getTags();
-  }
-
-  async loadDirectories() {
-    this.directories = await window.electronAPI.getDirectories();
-
-    // フィルター状態がロードされていない場合のみデフォルト設定
-    if (this.selectedDirectories.length === 0) {
-      // デフォルトで全てのフォルダを選択状態にする
-      this.selectedDirectories = this.directories.map(dir => dir.path);
-    }
-
-    // 削除されたフォルダを選択状態から除外
-    this.selectedDirectories = this.selectedDirectories.filter(
-      dirPath => this.directories.some(dir => dir.path === dirPath)
-    );
-    
-    // 新しいフォルダが追加された場合、それもデフォルトで選択状態にする
-    this.directories.forEach(dir => {
-      if (!this.selectedDirectories.includes(dir.path)) {
-        this.selectedDirectories.push(dir.path);
-      }
-    });
-    
-    this.saveDirectoryFilterState();
-    // saveFilterState()は削除 - loadInitialData()でloadFilterState()が後から呼ばれるため
-  }
-
-  async addDirectory() {
-    try {
-      const directories = await window.electronAPI.chooseDirectory();
-      if (directories && directories.length > 0) {
-        for (const directory of directories) {
-          await window.electronAPI.addDirectory(directory);
-          this.showNotification(
-            `フォルダを追加しました: ${directory}`,
-            "success"
-          );
-        }
-        await this.loadDirectories();
-        this.renderSidebar();
-      }
-    } catch (error) {
-      console.error("Error adding directory:", error);
-      this.showErrorDialog("フォルダの追加に失敗しました", error);
-    }
-  }
-
-  async removeDirectory(path) {
-    try {
-      await window.electronAPI.removeDirectory(path);
-      await this.loadDirectories();
-      this.renderSidebar();
-      this.showNotification("フォルダを削除しました", "success");
-    } catch (error) {
-      console.error("Error removing directory:", error);
-      this.showErrorDialog("フォルダの削除に失敗しました", error);
-    }
-  }
-
-  // フォルダ選択の切り替え
-  toggleDirectorySelection(directoryPath) {
-    const index = this.selectedDirectories.indexOf(directoryPath);
-    if (index === -1) {
-      // 選択されていない場合は追加
-      this.selectedDirectories.push(directoryPath);
-    } else {
-      // 選択されている場合は削除
-      this.selectedDirectories.splice(index, 1);
-    }
-
-    this.saveDirectoryFilterState();
-    this.saveFilterState(); // フィルター状態を保存
-    this.renderSidebar();
-    this.applyFiltersAndSort();
-  }
-
-  // 全フォルダを選択
-  selectAllDirectories() {
-    this.selectedDirectories = this.directories.map(dir => dir.path);
-    this.saveDirectoryFilterState();
-    this.saveFilterState(); // フィルター状態を保存
-    this.renderSidebar();
-    this.applyFiltersAndSort();
-  }
-
-  // 全フォルダの選択を解除（1つだけ残す）
-  deselectAllDirectories() {
-    this.selectedDirectories = [];
-    this.saveDirectoryFilterState();
-    this.saveFilterState(); // フィルター状態を保存
-    this.renderSidebar();
-    this.applyFiltersAndSort();
-  }
-
-  // フォルダフィルターの状態をlocalStorageに保存
-  saveDirectoryFilterState() {
-    localStorage.setItem("selectedDirectories", JSON.stringify(this.selectedDirectories));
-  }
-
-  // フォルダフィルターの状態をlocalStorageから読み込み
-  loadDirectoryFilterState() {
-    const saved = localStorage.getItem("selectedDirectories");
-    if (saved) {
-      this.selectedDirectories = JSON.parse(saved);
-    }
-  }
-
-  // 設定を読み込み
-  loadSettings() {
-    const saveFilterState = localStorage.getItem("saveFilterState");
-    console.log("loadSettings - raw saveFilterState from localStorage:", saveFilterState);
-    
-    // 初回起動時はデフォルトでtrueにする
-    if (saveFilterState === null) {
-      this.saveFilterStateEnabled = true;
-      this.saveSettings(); // デフォルト値を保存
-      console.log("loadSettings - first time, set to true");
-    } else {
-      this.saveFilterStateEnabled = saveFilterState === "true";
-      console.log("loadSettings - loaded from storage:", this.saveFilterStateEnabled);
-    }
-    
-    // 設定ダイアログのチェックボックスを更新
-    const checkbox = document.getElementById("saveFilterState");
-    if (checkbox) {
-      checkbox.checked = this.saveFilterStateEnabled;
-      console.log("loadSettings - checkbox updated:", checkbox.checked);
-    } else {
-      console.log("loadSettings - checkbox element not found yet");
-    }
-  }
-
-  // 設定を保存
-  saveSettings() {
-    localStorage.setItem("saveFilterState", this.saveFilterStateEnabled.toString());
-  }
-
-  // フィルター状態を保存
-  saveFilterState() {
-    if (!this.saveFilterStateEnabled) return;
-    
-    const filterState = {
-      rating: this.currentFilter.rating,
-      tags: this.currentFilter.tags,
-      directories: this.selectedDirectories
-    };
-    localStorage.setItem("filterState", JSON.stringify(filterState));
-    console.log("Filter state saved:", filterState);
-  }
-
-  // フィルター状態を読み込み
-  loadFilterState() {
-    console.log("loadFilterState called, saveFilterStateEnabled:", this.saveFilterStateEnabled);
-    if (!this.saveFilterStateEnabled) {
-      console.log("loadFilterState - disabled, skipping");
-      return;
-    }
-    
-    const saved = localStorage.getItem("filterState");
-    console.log("loadFilterState - raw data from localStorage:", saved);
-    if (saved) {
-      try {
-        const filterState = JSON.parse(saved);
-        this.currentFilter.rating = filterState.rating || 0;
-        this.currentFilter.tags = filterState.tags || [];
-        this.selectedDirectories = filterState.directories || [];
-        console.log("Filter state loaded:", filterState);
-        console.log("Applied to:", {
-          rating: this.currentFilter.rating,
-          tags: this.currentFilter.tags,
-          directories: this.selectedDirectories
-        });
-      } catch (error) {
-        console.error("Failed to load filter state:", error);
-      }
-    } else {
-      console.log("loadFilterState - no saved data found");
-    }
-  }
-
-  async scanDirectories() {
-    try {
-      this.showProgress("ディレクトリをスキャン中...", 0);
-      await window.electronAPI.scanDirectories();
-    } catch (error) {
-      console.error("Error scanning directories:", error);
-      this.showErrorDialog("スキャンに失敗しました", error);
-      this.hideProgress();
-    }
-  }
-
-  async generateThumbnails() {
-    try {
-      this.showProgress("サムネイルを生成中...", 0);
-      await window.electronAPI.generateThumbnails();
-    } catch (error) {
-      console.error("Error generating thumbnails:", error);
-      this.showErrorDialog("サムネイル生成に失敗しました", error);
-      this.hideProgress();
-    }
-  }
-
-  handleSearch(query) {
-    // Don't modify filteredVideos directly here, let applyFiltersAndSort handle it
-    this.applyFiltersAndSort();
-  }
-
-  applyFiltersAndSort() {
-    let filtered = [...this.videos]; // Start from all videos, not filteredVideos
-
-    // Apply rating filter
-    if (this.currentFilter.rating > 0) {
-      filtered = filtered.filter(
-        (video) => video.rating >= this.currentFilter.rating
-      );
-    }
-
-    // Search filter (apply after other filters)
-    const searchQuery = document.getElementById("searchInput").value.trim();
-    if (searchQuery !== "") {
-      filtered = filtered.filter(
-        (video) =>
-          video.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          video.filename.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          (video.description &&
-            video.description
-              .toLowerCase()
-              .includes(searchQuery.toLowerCase())) ||
-          (video.tags &&
-            video.tags.some((tag) =>
-              tag.toLowerCase().includes(searchQuery.toLowerCase())
-            ))
-      );
-    }
-
-    // Apply tag filter (OR search - any matching tag)
-    if (this.currentFilter.tags.length > 0) {
-      filtered = filtered.filter(
-        (video) =>
-          video.tags &&
-          this.currentFilter.tags.some((tag) => video.tags.includes(tag))
-      );
-    }
-
-    // Apply directory filter
-    if (this.selectedDirectories.length === 0) {
-      // フォルダが一つも選択されていない場合は、すべての動画を非表示にする
-      filtered = [];
-    } else if (this.selectedDirectories.length < this.directories.length) {
-      // 一部のフォルダが選択されている場合は、そのフォルダの動画のみ表示
-      filtered = filtered.filter((video) => {
-        // ビデオのパスが選択されたディレクトリのいずれかに含まれているかチェック
-        return this.selectedDirectories.some(dirPath =>
-          video.path.startsWith(dirPath)
-        );
-      });
-    }
-    // すべてのフォルダが選択されている場合は何もしない（すべての動画を表示）
-
-    // Apply sorting
-    filtered.sort((a, b) => {
-      let aValue = a[this.currentSort.field];
-      let bValue = b[this.currentSort.field];
-
-      if (typeof aValue === "string") {
-        aValue = aValue.toLowerCase();
-        bValue = bValue.toLowerCase();
-      }
-
-      if (this.currentSort.order === "ASC") {
-        return aValue < bValue ? -1 : aValue > bValue ? 1 : 0;
-      } else {
-        return aValue > bValue ? -1 : aValue < bValue ? 1 : 0;
-      }
-    });
-
-    this.filteredVideos = filtered;
-    this.renderVideoList();
-    this.updateVideoCount();
-  }
-
-  setView(view) {
-    this.currentView = view;
-    document
-      .querySelectorAll(".view-btn")
-      .forEach((btn) => btn.classList.remove("active"));
-    document.getElementById(view + "ViewBtn").classList.add("active");
-
+  // Calculate videos per row for grid view
+  calculateVideosPerRow() {
     const videoList = document.getElementById("videoList");
-    videoList.className = `video-list ${view}-view`;
-    this.renderVideoList();
-
-    // Maintain selected video highlighting after view change
-    if (this.selectedVideoIndex >= 0) {
-      setTimeout(() => {
-        this.highlightSelectedVideo();
-      }, 50); // Small delay to ensure DOM is updated
-    }
+    if (!videoList) return 4; // Default fallback
+    
+    const videoItems = videoList.querySelectorAll('.video-item');
+    if (videoItems.length === 0) return 4;
+    
+    const containerWidth = videoList.clientWidth;
+    const itemWidth = videoItems[0].offsetWidth + 20; // Include margin
+    
+    return Math.floor(containerWidth / itemWidth) || 1;
   }
 
-  renderVideoList() {
-    const videoList = document.getElementById("videoList");
+  // Scroll to selected video if it's out of view
+  scrollToSelectedVideo() {
+    const selectedIndex = this.uiRenderer.getSelectedVideoIndex();
+    const videoItems = document.querySelectorAll('.video-item');
     
-    if (!videoList) {
-      console.error("Video list element not found!");
-      return;
-    }
-    
-    videoList.innerHTML = "";
-
-    if (this.filteredVideos.length === 0) {
-      const noVideosMsg = document.createElement("div");
-      noVideosMsg.className = "no-videos-message";
-      noVideosMsg.textContent = "表示する動画がありません";
-      videoList.appendChild(noVideosMsg);
-      return;
-    }
-
-    this.filteredVideos.forEach((video, index) => {
-      const videoElement = this.createVideoElement(video, index);
-      videoList.appendChild(videoElement);
-    });
-
-    // Update selected video if needed
-    if (
-      this.selectedVideoIndex >= 0 &&
-      this.selectedVideoIndex < this.filteredVideos.length
-    ) {
-      this.highlightSelectedVideo();
-    }
-  }
-
-  createVideoElement(video, index) {
-    const div = document.createElement("div");
-    div.className = "video-item";
-    div.dataset.index = index;
-    div.dataset.videoId = video.id;
-    div.addEventListener("click", () => {
-      this.selectedVideoIndex = index;
-      this.showDetails(video);
-      this.highlightSelectedVideo();
-    });
-    div.addEventListener("dblclick", () => this.playVideo(video));
-
-    // Add mouse events for tooltip
-    div.addEventListener("mouseenter", (e) => this.showTooltip(e, video));
-    div.addEventListener("mouseleave", () => this.hideTooltip());
-
-    const thumbnailSrc = video.thumbnail_path
-      ? `file://${video.thumbnail_path}`
-      : "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIwIiBoZWlnaHQ9IjE4MCIgdmlld0JveD0iMCAwIDMyMCAxODAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMjAiIGhlaWdodD0iMTgwIiBmaWxsPSIjRjVGNUY3Ii8+CjxwYXRoIGQ9Ik0xMjggNzJMMTkyIDEwOEwxMjggMTQ0VjcyWiIgZmlsbD0iIzk5OTk5OSIvPgo8L3N2Zz4K";
-
-    const duration = this.formatDuration(video.duration);
-    const fileSize = this.formatFileSize(video.size);
-    const rating = "⭐".repeat(video.rating || 0);
-    const extension = this.getFileExtension(video.filename);
-
-    // Create video info div
-    const videoInfoDiv = document.createElement("div");
-    videoInfoDiv.className = "video-info";
-
-    // Create and populate video info elements
-    const titleDiv = document.createElement("div");
-    titleDiv.className = "video-title";
-    titleDiv.innerHTML = `${video.title}<span class="video-extension">${extension}</span>`;
-
-    // Create tags container first (for grid view positioning)
-    const tagsContainer = document.createElement("div");
-    tagsContainer.className = "video-tags";
-
-    const metaDiv = document.createElement("div");
-    metaDiv.className = "video-meta";
-
-    // Create meta info separately for flexible layout
-    const metaInfoDiv = document.createElement("div");
-    metaInfoDiv.className = "meta-info";
-    metaInfoDiv.innerHTML = `
-        <div>サイズ: ${fileSize}</div>
-        <div>解像度: ${video.width}x${video.height}</div>
-        <div>追加日: ${new Date(video.added_at).toLocaleDateString("ja-JP")}</div>
-    `;
-
-    const ratingDiv = document.createElement("div");
-    ratingDiv.className = "video-rating";
-    ratingDiv.textContent = rating;
-
-    // Debug: Log video tags and current view
-    if (video.tags && video.tags.length > 0) {
-      if (this.currentView === 'grid') {
-        // Grid view: show up to 3 tags plus overflow indicator
-        const maxVisibleTags = 3;
-        const visibleTags = video.tags.slice(0, maxVisibleTags);
-        const hiddenTags = video.tags.slice(maxVisibleTags);
-
-        // Add visible tags
-        visibleTags.forEach((tag) => {
-          const tagSpan = document.createElement("span");
-          tagSpan.className = "video-tag";
-          tagSpan.textContent = tag;
-          tagsContainer.appendChild(tagSpan);
-        });
-
-        // Add overflow indicator if there are hidden tags
-        if (hiddenTags.length > 0) {
-          const overflowIndicator = document.createElement("span");
-          overflowIndicator.className = "video-tag-overflow";
-          overflowIndicator.textContent = `+${hiddenTags.length}`;
-          overflowIndicator.title = `他のタグ: ${hiddenTags.join(", ")}`;
-          tagsContainer.appendChild(overflowIndicator);
+    if (selectedIndex >= 0 && videoItems[selectedIndex]) {
+      const selectedItem = videoItems[selectedIndex];
+      const container = document.getElementById("videoList");
+      
+      if (container) {
+        const containerRect = container.getBoundingClientRect();
+        const itemRect = selectedItem.getBoundingClientRect();
+        
+        if (itemRect.top < containerRect.top || itemRect.bottom > containerRect.bottom) {
+          selectedItem.scrollIntoView({
+            behavior: 'smooth',
+            block: 'center'
+          });
         }
-      } else {
-        // List view: show all tags
-        video.tags.forEach((tag) => {
-          const tagSpan = document.createElement("span");
-          tagSpan.className = "video-tag";
-          tagSpan.textContent = tag;
-          tagsContainer.appendChild(tagSpan);
-        });
       }
     }
-
-    // Assemble meta div with info and tags
-    metaDiv.appendChild(metaInfoDiv);
-    metaDiv.appendChild(tagsContainer);
-
-    // Assemble video info
-    videoInfoDiv.appendChild(titleDiv);
-    videoInfoDiv.appendChild(metaDiv);
-    videoInfoDiv.appendChild(ratingDiv);
-
-    // Create thumbnail div
-    const thumbnailDiv = document.createElement("div");
-    thumbnailDiv.className = "video-thumbnail";
-
-    const thumbnailImg = document.createElement("img");
-    thumbnailImg.src = thumbnailSrc;
-    thumbnailImg.alt = video.title;
-    thumbnailImg.loading = "lazy";
-
-    const durationDiv = document.createElement("div");
-    durationDiv.className = "video-duration";
-    durationDiv.textContent = duration;
-
-    thumbnailDiv.appendChild(thumbnailImg);
-    thumbnailDiv.appendChild(durationDiv);
-
-    // Assemble the complete video element
-    div.appendChild(thumbnailDiv);
-    div.appendChild(videoInfoDiv);
-
-    return div;
   }
 
-  renderTags() {
-    const tagsList = document.getElementById("tagsList");
-    
-    if (!tagsList) {
-      console.error("tagsList element not found!");
-      return;
+  handleEnterKey(e) {
+    const selectedIndex = this.uiRenderer.getSelectedVideoIndex();
+    if (selectedIndex >= 0 && this.filteredVideos[selectedIndex]) {
+      this.showDetails(this.filteredVideos[selectedIndex]);
     }
-    
-    tagsList.innerHTML = "";
-
-    this.tags.forEach((tag) => {
-      const tagElement = document.createElement("div");
-      tagElement.className = "tag-item";
-
-      // Check if this tag is currently being filtered
-      const isActive = this.currentFilter.tags.includes(tag.name);
-      if (isActive) {
-        tagElement.classList.add("active");
-      }
-
-      // Create tag name span
-      const tagNameSpan = document.createElement("span");
-      tagNameSpan.className = "tag-name";
-      tagNameSpan.textContent = tag.name;
-      tagNameSpan.title = "クリックでフィルター";
-      tagNameSpan.onclick = () => this.filterByTag(tag.name);
-
-      // Create actions container
-      const actionsDiv = document.createElement("div");
-      actionsDiv.className = "tag-actions";
-
-      // Edit button
-      const editBtn = document.createElement("button");
-      editBtn.className = "tag-action-btn edit-btn";
-      editBtn.textContent = "✏️";
-      editBtn.title = "タグ名を編集";
-      editBtn.onclick = () => this.editTag(tag.name);
-
-      // Delete button
-      const deleteBtn = document.createElement("button");
-      deleteBtn.className = "tag-action-btn delete-btn";
-      deleteBtn.textContent = "×";
-      deleteBtn.title = "タグを削除";
-      deleteBtn.onclick = () => this.deleteTag(tag.name);
-
-      actionsDiv.appendChild(editBtn);
-      actionsDiv.appendChild(deleteBtn);
-
-      tagElement.appendChild(tagNameSpan);
-      tagElement.appendChild(actionsDiv);
-      tagsList.appendChild(tagElement);
-    });
   }
 
+  handleSpaceKey(e) {
+    const selectedIndex = this.uiRenderer.getSelectedVideoIndex();
+    if (selectedIndex >= 0 && this.filteredVideos[selectedIndex]) {
+      this.playVideo(this.filteredVideos[selectedIndex]);
+    }
+  }
+
+  // Tag management
   editTag(tagName) {
     this.showTagEditDialog(tagName);
   }
 
   async deleteTag(tagName) {
     try {
-      // Get videos that have this tag
-      const videosWithTag = this.videos.filter(
+      const videosWithTag = this.videoManager.getVideos().filter(
         (video) => video.tags && video.tags.includes(tagName)
       );
 
@@ -999,29 +1140,13 @@ class MovieLibraryApp {
       }
 
       if (confirm(confirmMessage)) {
-        await window.electronAPI.deleteTag(tagName);
+        await this.videoManager.deleteTag(tagName);
 
         // Remove tag from current filter if it's active
-        this.currentFilter.tags = this.currentFilter.tags.filter(
-          (tag) => tag !== tagName
-        );
-
-        // Update local data immediately
-        this.tags = this.tags.filter((tag) => tag.name !== tagName);
-
-        // Update videos to remove deleted tag
-        this.videos.forEach((video) => {
-          if (video.tags) {
-            video.tags = video.tags.filter((tag) => tag !== tagName);
-          }
-        });
-
-        // Update filtered videos as well
-        this.filteredVideos.forEach((video) => {
-          if (video.tags) {
-            video.tags = video.tags.filter((tag) => tag !== tagName);
-          }
-        });
+        const currentFilter = this.filterManager.getCurrentFilter();
+        if (currentFilter.tags.includes(tagName)) {
+          this.filterManager.toggleTagFilter(tagName); // This will remove it
+        }
 
         // Update current video if it had this tag
         if (this.currentVideo && this.currentVideo.tags) {
@@ -1036,7 +1161,7 @@ class MovieLibraryApp {
         this.renderVideoList();
         this.applyFiltersAndSort();
 
-        this.showNotification(`タグ「${tagName}」を削除しました`, "success");
+        this.notificationManager.show(`タグ「${tagName}」を削除しました`, "success");
       }
     } catch (error) {
       console.error("Error deleting tag:", error);
@@ -1044,741 +1169,95 @@ class MovieLibraryApp {
     }
   }
 
-  filterByTag(tagName) {
-    if (this.currentFilter.tags.includes(tagName)) {
-      this.currentFilter.tags = this.currentFilter.tags.filter(
-        (tag) => tag !== tagName
-      );
-    } else {
-      this.currentFilter.tags.push(tagName);
-    }
-    this.saveFilterState(); // フィルター状態を保存
-    this.renderSidebar(); // Re-render to update active states
-    this.applyFiltersAndSort();
-  }
-
-  renderSidebar() {
-    try {
-      console.log("renderSidebar called");
-      console.log("Current filter tags:", this.currentFilter.tags);
-      console.log("Current selected directories:", this.selectedDirectories);
-      this.renderTags();
-      this.renderDirectories();
-    } catch (error) {
-      console.error("Error rendering sidebar:", error);
-    }
-  }
-
-  renderDirectories() {
-    const directoriesList = document.getElementById("directoriesList");
+  // Tag edit dialog methods
+  showTagEditDialog(tagName) {
+    this.currentEditingTag = tagName;
+    const tagNameInput = DOMUtils.getElementById("tagNameInput");
+    const tagEditDialog = DOMUtils.getElementById("tagEditDialog");
     
-    if (!directoriesList) {
-      console.error("directoriesList element not found!");
+    if (tagNameInput && tagEditDialog) {
+      tagNameInput.value = tagName;
+      tagEditDialog.style.display = "flex";
+
+      // Focus the input and select all text
+      setTimeout(() => {
+        tagNameInput.focus();
+        tagNameInput.select();
+      }, 100);
+    }
+  }
+
+  hideTagEditDialog() {
+    const tagEditDialog = DOMUtils.getElementById("tagEditDialog");
+    if (tagEditDialog) {
+      tagEditDialog.style.display = "none";
+    }
+    this.currentEditingTag = null;
+  }
+
+  async saveTagEdit() {
+    const tagNameInput = DOMUtils.getElementById("tagNameInput");
+    if (!tagNameInput) return;
+
+    const newTagName = tagNameInput.value.trim();
+
+    if (!newTagName || newTagName === this.currentEditingTag) {
+      this.hideTagEditDialog();
       return;
     }
-    
-    directoriesList.innerHTML = "";
 
-    this.directories.forEach((directory) => {
-      const directoryElement = document.createElement("div");
-      directoryElement.className = "directory-item";
+    // Check if tag already exists
+    const existingTag = this.videoManager.getTagByName(newTagName);
+    if (existingTag) {
+      this.showErrorDialog(
+        "そのタグ名は既に存在します。別の名前を選択してください。"
+      );
+      return;
+    }
 
-      // Check if this directory is currently selected
-      const isSelected = this.selectedDirectories.includes(directory.path);
-      if (isSelected) {
-        directoryElement.classList.add("active");
+    try {
+      await this.videoManager.updateTag(this.currentEditingTag, newTagName);
+
+      // Update filter if the edited tag was active
+      const currentFilter = this.filterManager.getCurrentFilter();
+      if (currentFilter.tags.includes(this.currentEditingTag)) {
+        // Remove old tag and add new tag to filter
+        this.filterManager.toggleTagFilter(this.currentEditingTag); // Remove
+        this.filterManager.toggleTagFilter(newTagName); // Add
       }
 
-      // Create directory name span
-      const directoryNameSpan = document.createElement("span");
-      directoryNameSpan.className = "directory-name";
-      directoryNameSpan.textContent = directory.name;
-      directoryNameSpan.title = "クリックで選択/選択解除";
-      directoryNameSpan.onclick = () => this.toggleDirectorySelection(directory.path);
+      // Update current video if it had this tag
+      if (this.currentVideo && this.currentVideo.tags) {
+        const tagIndex = this.currentVideo.tags.indexOf(this.currentEditingTag);
+        if (tagIndex !== -1) {
+          this.currentVideo.tags[tagIndex] = newTagName;
+          this.updateTagsDisplay(this.currentVideo.tags);
+        }
+      }
 
-      // Create actions container
-      const actionsDiv = document.createElement("div");
-      actionsDiv.className = "directory-actions";
+      // Update UI immediately
+      this.renderSidebar();
+      this.renderVideoList();
+      this.applyFiltersAndSort();
 
-      // Remove button
-      const removeBtn = document.createElement("button");
-      removeBtn.className = "directory-action-btn remove-btn";
-      removeBtn.textContent = "×";
-      removeBtn.title = "フォルダを削除";
-      removeBtn.onclick = () => this.removeDirectory(directory.path);
-
-      actionsDiv.appendChild(removeBtn);
-
-      directoryElement.appendChild(directoryNameSpan);
-      directoryElement.appendChild(actionsDiv);
-      directoriesList.appendChild(directoryElement);
-    });
-
-    // Also update settings modal
-    this.renderSettingsDirectories();
-  }
-
-  renderSettingsDirectories() {
-    const settingsDirectoriesList = document.getElementById(
-      "settingsDirectoriesList"
-    );
-    if (!settingsDirectoriesList) return;
-
-    settingsDirectoriesList.innerHTML = "";
-
-    this.directories.forEach((directory) => {
-      const directoryElement = document.createElement("div");
-      directoryElement.className = "settings-directory-item";
-      directoryElement.innerHTML = `
-                <div class="directory-path">${directory.path}</div>
-                <button class="btn btn-icon remove-btn" onclick="movieApp.removeDirectory('${directory.path}')">×</button>
-            `;
-      settingsDirectoriesList.appendChild(directoryElement);
-    });
-  }
-
-  showSettings() {
-    this.renderSettingsDirectories();
-    this.loadThumbnailSettings();
-    
-    // フィルター設定の状態を復元
-    const saveFilterStateCheckbox = document.getElementById("saveFilterState");
-    if (saveFilterStateCheckbox) {
-      saveFilterStateCheckbox.checked = this.saveFilterStateEnabled;
-      console.log("showSettings - checkbox updated to:", this.saveFilterStateEnabled);
-    } else {
-      console.log("showSettings - checkbox element not found");
-    }
-    
-    const modal = document.getElementById("settingsModal");
-    if (modal) {
-      modal.style.display = "flex";
-    } else {
-      console.error("Settings modal element not found");
-    }
-  }
-
-  hideSettings() {
-    document.getElementById("settingsModal").style.display = "none";
-  }
-
-  async rescanAll() {
-    if (
-      confirm("全ての動画を再スキャンしますか？時間がかかる場合があります。")
-    ) {
-      await this.scanDirectories();
-    }
-  }
-
-  async regenerateThumbnails() {
-    if (
-      confirm("全てのサムネイルを再生成しますか？時間がかかる場合があります。")
-    ) {
-      await window.electronAPI.regenerateAllThumbnails();
-    }
-  }
-
-  async updateThumbnailSettings() {
-    const quality = parseInt(document.getElementById("thumbnailQuality").value);
-    const size = document.getElementById("thumbnailSize").value;
-    const [width, height] = size.split("x").map(Number);
-
-    const settings = {
-      quality,
-      width,
-      height,
-    };
-
-    await window.electronAPI.updateThumbnailSettings(settings);
-    this.showNotification("サムネイル設定を更新しました", "success");
-  }
-
-  loadThumbnailSettings() {
-    // Load saved settings or use defaults
-    document.getElementById("thumbnailQuality").value = "1"; // Default to highest quality
-    document.getElementById("thumbnailSize").value = "1280x720"; // Default to HD
-  }
-
-  async cleanupThumbnails() {
-    if (confirm("不要なサムネイルファイルを削除しますか？")) {
-      // This would need to be implemented in the main process
-      this.showNotification(
-        "サムネイルのクリーンアップが完了しました",
+      this.hideTagEditDialog();
+      this.notificationManager.show(
+        `タグ「${this.currentEditingTag}」を「${newTagName}」に変更しました`,
         "success"
       );
-    }
-  }
-
-  showProgress(text, percent) {
-    const progressContainer = document.getElementById("progressContainer");
-    const progressText = document.getElementById("progressText");
-    const progressPercent = document.getElementById("progressPercent");
-    const progressFill = document.getElementById("progressFill");
-
-    progressText.textContent = text;
-    progressPercent.textContent = `${Math.round(percent)}%`;
-    progressFill.style.width = `${percent}%`;
-    progressContainer.style.display = "block";
-  }
-
-  hideProgress() {
-    document.getElementById("progressContainer").style.display = "none";
-  }
-
-  handleScanProgress(data) {
-    switch (data.type) {
-      case "scan-start":
-        this.showProgress(`スキャン中: ${data.directory}`, 0);
-        break;
-      case "scan-progress":
-        const percent = (data.progress.current / data.progress.total) * 100;
-        this.showProgress(`スキャン中: ${data.progress.file}`, percent);
-        break;
-      case "scan-complete":
-        this.hideProgress();
-        this.showNotification(
-          `スキャン完了: ${data.count}個の動画を発見`,
-          "success"
-        );
-        this.loadVideos();
-        break;
-      case "scan-error":
-        this.hideProgress();
-        this.showNotification(`スキャンエラー: ${data.error}`, "error");
-        break;
-    }
-  }
-
-  handleThumbnailProgress(data) {
-    switch (data.type) {
-      case "thumbnail-start":
-        this.showProgress("サムネイル生成中...", 0);
-        break;
-      case "thumbnail-progress":
-        const percent = (data.completed / data.total) * 100;
-        this.showProgress(
-          `サムネイル生成中: ${data.completed}/${data.total}`,
-          percent
-        );
-        break;
-      case "thumbnail-complete":
-        this.hideProgress();
-        this.showNotification(
-          `サムネイル生成完了: ${data.completed}個`,
-          "success"
-        );
-        this.loadVideos();
-        break;
-    }
-  }
-
-  async handleVideoAdded(filePath) {
-    await this.loadVideos();
-    this.showNotification(`新しい動画が追加されました: ${filePath}`, "info");
-  }
-
-  async handleVideoRemoved(filePath) {
-    await this.loadVideos();
-    this.showNotification(`動画が削除されました: ${filePath}`, "info");
-  }
-
-  updateVideoCount() {
-    const videoCountElement = document.getElementById("videoCount");
-    if (videoCountElement) {
-      const count = this.filteredVideos.length;
-      videoCountElement.textContent = `${count} 動画`;
-    }
-  }
-
-  showNotification(message, type = "info") {
-    const container = document.getElementById("notificationContainer");
-
-    // 通知の制限: 最大3個まで表示
-    const existingNotifications = container.querySelectorAll('.notification');
-    if (existingNotifications.length >= this.maxToasts) {
-      // 最も古い通知を削除
-      existingNotifications[0].remove();
-    }
-
-    const notification = document.createElement("div");
-    notification.className = `notification ${type}`;
-
-    // Create message element
-    const messageElement = document.createElement("div");
-    messageElement.className = "notification-message";
-    messageElement.textContent = message;
-
-    // Create close button
-    const closeButton = document.createElement("button");
-    closeButton.className = "notification-close";
-    closeButton.innerHTML = "×";
-    closeButton.title = "閉じる";
-    closeButton.addEventListener("click", () => {
-      notification.remove();
-    });
-
-    notification.appendChild(messageElement);
-    notification.appendChild(closeButton);
-    container.appendChild(notification);
-
-    // Auto-remove after 5 seconds
-    const autoRemoveTimeout = setTimeout(() => {
-      if (notification.parentNode) {
-        notification.remove();
-      }
-    }, 5000);
-
-    // Clear timeout if manually closed
-    closeButton.addEventListener("click", () => {
-      clearTimeout(autoRemoveTimeout);
-    });
-  }
-
-  formatDuration(seconds) {
-    if (!seconds) return "00:00:00";
-
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = Math.floor(seconds % 60);
-
-    return `${hours.toString().padStart(2, "0")}:${minutes
-      .toString()
-      .padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
-  }
-
-  formatFileSize(bytes) {
-    if (bytes === 0) return "0 Bytes";
-
-    const k = 1024;
-    const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
-  }
-
-  getFileExtension(filename) {
-    const extension = filename.split(".").pop();
-    return extension ? extension.toUpperCase() : "";
-  }
-
-  // Tooltip methods
-  showTooltip(e, video) {
-    if (this.tooltipTimeout) {
-      clearTimeout(this.tooltipTimeout);
-    }
-
-    this.tooltipTimeout = setTimeout(() => {
-      this.displayTooltip(e, video);
-    }, 300); // Show tooltip after 300ms hover
-  }
-
-  displayTooltip(e, video) {
-    const tooltip = document.getElementById("tooltip");
-    const tooltipTitle = document.getElementById("tooltipTitle");
-    const tooltipChapters = document.getElementById("tooltipChapters");
-
-    if (!tooltip || !tooltipTitle || !tooltipChapters) {
-      console.error("Tooltip elements not found");
-      return;
-    }
-
-    tooltipTitle.textContent = video.title;
-
-    // Clear previous content and intervals
-    if (this.tooltipInterval) {
-      clearInterval(this.tooltipInterval);
-      this.tooltipInterval = null;
-    }
-
-    if (video.chapterThumbnails && video.chapterThumbnails.length > 0) {
-      // Create a single image element for cycling through chapters
-      tooltipChapters.innerHTML = `
-                <div class="tooltip-preview">
-                    <img id="tooltipPreviewImage" src="file://${
-                      video.chapterThumbnails[0].path
-                    }" alt="Preview" loading="lazy">
-                    <div class="tooltip-chapter-info">
-                        <span id="tooltipCurrentChapter">1 / ${
-                          video.chapterThumbnails.length
-                        }</span>
-                        <span id="tooltipTimestamp">${this.formatDuration(
-                          video.chapterThumbnails[0].timestamp
-                        )}</span>
-                    </div>
-                </div>
-            `;
-
-      // Start cycling through chapters
-      let currentChapterIndex = 0;
-      this.tooltipInterval = setInterval(() => {
-        currentChapterIndex =
-          (currentChapterIndex + 1) % video.chapterThumbnails.length;
-        const chapter = video.chapterThumbnails[currentChapterIndex];
-
-        const previewImage = document.getElementById("tooltipPreviewImage");
-        const chapterInfo = document.getElementById("tooltipCurrentChapter");
-        const timestampInfo = document.getElementById("tooltipTimestamp");
-
-        if (previewImage && chapterInfo && timestampInfo) {
-          previewImage.src = `file://${chapter.path}`;
-          chapterInfo.textContent = `${currentChapterIndex + 1} / ${
-            video.chapterThumbnails.length
-          }`;
-          timestampInfo.textContent = this.formatDuration(chapter.timestamp);
-        }
-      }, 1000); // Change every 1 second
-    } else {
-      tooltipChapters.innerHTML =
-        '<div style="color: #ccc; font-size: 12px; text-align: center; padding: 20px;">チャプターサムネイルなし</div>';
-    }
-
-    // Reset tooltip styles
-    tooltip.style.display = "block";
-    tooltip.style.visibility = "visible";
-    tooltip.style.opacity = "1";
-
-    // Position tooltip (simplified positioning)
-    const mouseX = e.clientX;
-    const mouseY = e.clientY;
-
-    // Show tooltip to the right of cursor, then adjust if needed
-    let left = mouseX + 15;
-    let top = mouseY - 50;
-
-    // Get tooltip dimensions after showing
-    const tooltipRect = tooltip.getBoundingClientRect();
-
-    // Adjust if tooltip goes off screen
-    if (left + tooltipRect.width > window.innerWidth) {
-      left = mouseX - tooltipRect.width - 15;
-    }
-
-    if (top + tooltipRect.height > window.innerHeight) {
-      top = window.innerHeight - tooltipRect.height - 10;
-    }
-
-    if (left < 10) left = 10;
-    if (top < 10) top = 10;
-
-    tooltip.style.left = left + "px";
-    tooltip.style.top = top + "px";
-  }
-
-  hideTooltip() {
-    if (this.tooltipTimeout) {
-      clearTimeout(this.tooltipTimeout);
-      this.tooltipTimeout = null;
-    }
-
-    if (this.tooltipInterval) {
-      clearInterval(this.tooltipInterval);
-      this.tooltipInterval = null;
-    }
-
-    const tooltip = document.getElementById("tooltip");
-    if (tooltip) {
-      tooltip.style.display = "none";
-      tooltip.style.visibility = "hidden";
-      tooltip.style.opacity = "0";
-    }
-  }
-
-  // Rating filter methods
-  updateStarDisplay(rating, isHover = false) {
-    const starElements = document.querySelectorAll('.rating-btn[data-rating]:not([data-rating="0"])');
-    const allBtn = document.querySelector('.rating-btn.all-btn[data-rating="0"]');
-    
-    console.log(`updateStarDisplay called with rating: ${rating}, isHover: ${isHover}`);
-    console.log(`Found ${starElements.length} star elements`);
-    
-    starElements.forEach((star, index) => {
-      const starRating = index + 1;
-      // Remove any existing hover class
-      star.classList.remove('hover');
-      
-      if (starRating <= rating) {
-        star.textContent = '⭐️';
-        if (isHover) {
-          star.classList.add('hover');
-        }
-      } else {
-        star.textContent = '★';
-      }
-    });
-    
-    // Update all button state
-    if (allBtn) {
-      if (rating === 0 && !isHover) {
-        allBtn.classList.add('active');
-        console.log("updateStarDisplay - All button set to active");
-      } else {
-        allBtn.classList.remove('active');
-        console.log("updateStarDisplay - All button set to inactive");
-      }
-    } else {
-      console.log("updateStarDisplay - All button not found");
-    }
-  }
-  
-  setRatingFilter(rating) {
-    console.log("setRatingFilter called with:", rating);
-    this.currentFilter.rating = rating;
-    
-    // Update visual state
-    const allBtn = document.querySelector('.rating-btn.all-btn[data-rating="0"]');
-    if (allBtn) {
-      if (rating === 0) {
-        allBtn.classList.add('active');
-      } else {
-        allBtn.classList.remove('active');
-      }
-    }
-    
-    // Update star display
-    this.updateStarDisplay(rating, false);
-    
-    console.log("setRatingFilter - calling saveFilterState, enabled:", this.saveFilterStateEnabled);
-    this.saveFilterState(); // フィルター状態を保存
-    this.applyFiltersAndSort();
-  }
-
-  // Placeholder methods for features not yet fully implemented
-  showDetails(video) {
-    this.currentVideo = video;
-    const detailsPanel = document.getElementById("detailsPanel");
-
-    // Update title
-    document.getElementById("detailsTitle").textContent = video.title;
-
-    // Update thumbnails
-    const mainThumbnail = document.getElementById("detailsMainThumbnail");
-    if (video.thumbnail_path) {
-      mainThumbnail.src = `file://${video.thumbnail_path}`;
-      mainThumbnail.style.cursor = "pointer";
-      mainThumbnail.onclick = () => this.showThumbnailModal(video, 0); // Start with main thumbnail
-    } else {
-      mainThumbnail.src =
-        "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIwIiBoZWlnaHQ9IjE4MCIgdmlld0JveD0iMCAwIDMyMCAxODAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMjAiIGhlaWdodD0iMTgwIiBmaWxsPSIjRjVGNUY3Ii8+CjxwYXRoIGQ9Ik0xMjggNzJMMTkyIDEwOEwxMjggMTQ0VjcyWiIgZmlsbD0iIzk5OTk5OSIvPgo8L3N2Zz4K";
-      mainThumbnail.style.cursor = "default";
-      mainThumbnail.onclick = null;
-    }
-
-    // Update chapter thumbnails
-    const chapterContainer = document.getElementById(
-      "detailsChapterThumbnails"
-    );
-    chapterContainer.innerHTML = "";
-
-    if (video.chapterThumbnails && video.chapterThumbnails.length > 0) {
-      video.chapterThumbnails.forEach((chapter, index) => {
-        const chapterDiv = document.createElement("div");
-        chapterDiv.className = "chapter-thumbnail";
-        chapterDiv.addEventListener("click", () =>
-          this.showThumbnailModal(video, index + 1)
-        ); // +1 to account for main thumbnail
-        chapterDiv.innerHTML = `
-                    <img src="file://${chapter.path}" alt="Chapter ${
-          index + 1
-        }">
-                `;
-        chapterContainer.appendChild(chapterDiv);
-      });
-    }
-
-    // Update form fields
-    document.getElementById("detailsTitleInput").value = video.title || "";
-    document.getElementById("detailsDescriptionInput").value =
-      video.description || "";
-
-    // Update rating
-    this.updateRatingDisplay(video.rating || 0);
-
-    // Update tags
-    this.updateTagsDisplay(video.tags || []);
-
-    // Update file info
-    document.getElementById("detailsFilePath").textContent = video.path;
-    document.getElementById("detailsFileSize").textContent =
-      this.formatFileSize(video.size);
-    document.getElementById("detailsDuration").textContent =
-      this.formatDuration(video.duration);
-    document.getElementById(
-      "detailsResolution"
-    ).textContent = `${video.width}x${video.height}`;
-    document.getElementById("detailsFps").textContent = `${
-      Math.round(video.fps * 100) / 100
-    } fps`;
-    document.getElementById("detailsCodec").textContent =
-      video.codec || "Unknown";
-
-    detailsPanel.style.display = "flex";
-  }
-
-  hideDetails() {
-    document.getElementById("detailsPanel").style.display = "none";
-    this.currentVideo = null;
-  }
-
-  updateRatingDisplay(rating) {
-    document.querySelectorAll(".star").forEach((star, index) => {
-      star.classList.toggle("active", index < rating);
-    });
-  }
-
-  setRating(rating) {
-    if (this.currentVideo) {
-      this.currentVideo.rating = rating;
-      this.updateRatingDisplay(rating);
-    }
-  }
-
-  updateTagsDisplay(tags) {
-    const container = document.getElementById("detailsTagsList");
-    container.innerHTML = "";
-
-    tags.forEach((tag) => {
-      const tagElement = document.createElement("div");
-      tagElement.className = "details-tag";
-
-      const tagText = document.createElement("span");
-      tagText.textContent = tag;
-
-      const removeBtn = document.createElement("button");
-      removeBtn.className = "remove-tag-btn";
-      removeBtn.textContent = "×";
-      removeBtn.onclick = () => this.removeTagFromCurrentVideo(tag);
-
-      tagElement.appendChild(tagText);
-      tagElement.appendChild(removeBtn);
-      container.appendChild(tagElement);
-    });
-  }
-
-  async addTagToCurrentVideo(tagName) {
-    if (!tagName || !this.currentVideo) return;
-
-    try {
-      await window.electronAPI.addTagToVideo(this.currentVideo.id, tagName);
-      if (!this.currentVideo.tags) this.currentVideo.tags = [];
-      if (!this.currentVideo.tags.includes(tagName)) {
-        this.currentVideo.tags.push(tagName);
-
-        // Update the video in main videos array
-        const videoIndex = this.videos.findIndex(
-          (v) => v.id === this.currentVideo.id
-        );
-        if (videoIndex !== -1) {
-          if (!this.videos[videoIndex].tags) this.videos[videoIndex].tags = [];
-          if (!this.videos[videoIndex].tags.includes(tagName)) {
-            this.videos[videoIndex].tags.push(tagName);
-          }
-        }
-
-        // Update filtered videos array
-        const filteredVideoIndex = this.filteredVideos.findIndex(
-          (v) => v.id === this.currentVideo.id
-        );
-        if (filteredVideoIndex !== -1) {
-          if (!this.filteredVideos[filteredVideoIndex].tags)
-            this.filteredVideos[filteredVideoIndex].tags = [];
-          if (!this.filteredVideos[filteredVideoIndex].tags.includes(tagName)) {
-            this.filteredVideos[filteredVideoIndex].tags.push(tagName);
-          }
-        }
-
-        this.updateTagsDisplay(this.currentVideo.tags);
-        await this.loadTags();
-        this.renderSidebar();
-        this.renderVideoList(); // Re-render video list to show updated tags
-      }
     } catch (error) {
-      console.error("Error adding tag:", error);
-      this.showErrorDialog("タグの追加に失敗しました", error);
+      console.error("Error updating tag:", error);
+      this.showErrorDialog("タグの編集に失敗しました", error);
     }
   }
 
-  async removeTagFromCurrentVideo(tagName) {
-    if (!this.currentVideo) return;
-
+  // Video details and playback
+  async playVideo(video) {
     try {
-      await window.electronAPI.removeTagFromVideo(
-        this.currentVideo.id,
-        tagName
-      );
-      if (this.currentVideo.tags) {
-        this.currentVideo.tags = this.currentVideo.tags.filter(
-          (tag) => tag !== tagName
-        );
-
-        // Update the video in main videos array
-        const videoIndex = this.videos.findIndex(
-          (v) => v.id === this.currentVideo.id
-        );
-        if (videoIndex !== -1 && this.videos[videoIndex].tags) {
-          this.videos[videoIndex].tags = this.videos[videoIndex].tags.filter(
-            (tag) => tag !== tagName
-          );
-        }
-
-        // Update filtered videos array
-        const filteredVideoIndex = this.filteredVideos.findIndex(
-          (v) => v.id === this.currentVideo.id
-        );
-        if (
-          filteredVideoIndex !== -1 &&
-          this.filteredVideos[filteredVideoIndex].tags
-        ) {
-          this.filteredVideos[filteredVideoIndex].tags = this.filteredVideos[
-            filteredVideoIndex
-          ].tags.filter((tag) => tag !== tagName);
-        }
-
-        this.updateTagsDisplay(this.currentVideo.tags);
-
-        // Check if this tag is no longer used by any video
-        const tagStillUsed = this.videos.some(
-          (video) => video.tags && video.tags.includes(tagName)
-        );
-        if (!tagStillUsed) {
-          // Remove tag from tags list
-          this.tags = this.tags.filter((tag) => tag.name !== tagName);
-        }
-
-        this.renderSidebar(); // Update tag list
-        this.renderVideoList(); // Re-render video list to show updated tags
-      }
+      await this.videoManager.playVideo(video.path);
     } catch (error) {
-      console.error("Error removing tag:", error);
-      this.showErrorDialog("タグの削除に失敗しました", error);
-    }
-  }
-
-  async saveVideoDetails() {
-    if (!this.currentVideo) return;
-
-    try {
-      const updatedData = {
-        title: document.getElementById("detailsTitleInput").value,
-        description: document.getElementById("detailsDescriptionInput").value,
-        rating: this.currentVideo.rating,
-      };
-
-      await window.electronAPI.updateVideo(this.currentVideo.id, updatedData);
-      Object.assign(this.currentVideo, updatedData);
-
-      // Update videos array
-      const videoIndex = this.videos.findIndex(
-        (v) => v.id === this.currentVideo.id
-      );
-      if (videoIndex !== -1) {
-        Object.assign(this.videos[videoIndex], updatedData);
-      }
-
-      this.renderVideoList();
-      this.showNotification("動画情報を保存しました", "success");
-    } catch (error) {
-      console.error("Error saving video details:", error);
-      this.showErrorDialog("保存に失敗しました", error);
+      console.error("Error playing video:", error);
+      this.showErrorDialog("動画の再生に失敗しました", error);
     }
   }
 
@@ -1788,517 +1267,968 @@ class MovieLibraryApp {
     }
   }
 
-  async playVideo(video) {
-    try {
-      await window.electronAPI.openVideo(video.path);
-    } catch (error) {
-      console.error("Error playing video:", error);
-      this.showErrorDialog("動画の再生に失敗しました", error);
+  // Video details panel methods
+  showDetails(video) {
+    console.log("showDetails: Starting for video:", video?.id, video?.title || video?.filename);
+    
+    // VideoManagerから最新のビデオデータを取得
+    const latestVideo = this.videoManager.getVideoById(video.id);
+    if (latestVideo) {
+      this.currentVideo = latestVideo;
+      console.log("showDetails: Using latest video data from VideoManager");
+    } else {
+      this.currentVideo = video;
+      console.log("showDetails: Using provided video data");
+    }
+    
+    this.uiRenderer.renderVideoDetails(this.currentVideo);
+    
+    // タグオートコンプリート候補を更新
+    const allTags = this.videoManager.getTags();
+    console.log("showDetails: Updating tag suggestions with", allTags.length, "tags");
+    this.uiRenderer.updateTagSuggestions(allTags);
+    
+    // ビデオ詳細パネルを表示
+    const detailsPanel = DOMUtils.getElementById("detailsPanel");
+    if (detailsPanel) {
+      detailsPanel.style.display = "block";
+      console.log("showDetails: Details panel displayed");
+    } else {
+      console.error("showDetails: Details panel not found");
+    }
+    
+    // 詳細パネルのイベントリスナーを設定
+    console.log("showDetails: Setting up video details listeners");
+    this.setupVideoDetailsListeners();
+    
+    // 評価星の表示を初期化
+    this.updateRatingDisplay(this.currentVideo.rating || 0, false);
+    
+    // プレースホルダー色を確実に適用
+    this.themeManager.updatePlaceholderColors();
+    
+    console.log("showDetails: Complete");
+  }
+
+  hideDetails() {
+    this.currentVideo = null;
+    const detailsPanel = DOMUtils.getElementById("detailsPanel");
+    if (detailsPanel) {
+      detailsPanel.style.display = "none";
     }
   }
 
-  showThumbnailModal(video, startIndex = 0) {
-    this.currentVideo = video;
+  setupVideoDetailsListeners() {
+    if (!this.currentVideo) return;
 
-    // Create combined thumbnails array: main thumbnail + chapter thumbnails
-    this.currentThumbnails = [];
+    console.log("Setting up video details listeners for video:", this.currentVideo.id);
 
-    // Add main thumbnail as first item
-    if (video.thumbnail_path) {
-      this.currentThumbnails.push({
-        path: video.thumbnail_path,
-        timestamp: 0,
-        isMain: true,
+    // レーティング星の設定
+    const stars = document.querySelectorAll('#detailsPanel .rating-input .star');
+    console.log("Found rating stars:", stars.length);
+    
+    stars.forEach((star, index) => {
+      // 既存のイベントリスナーを削除（cloneNodeを使わない方法）
+      star.replaceWith(star.cloneNode(true));
+    });
+    
+    // 再取得（cloneNodeで置き換わった要素を取得）
+    const newStars = document.querySelectorAll('#detailsPanel .rating-input .star');
+    
+    newStars.forEach((star, index) => {
+      const rating = index + 1;
+      console.log("Setting up star", rating);
+      
+      star.addEventListener('click', async () => {
+        console.log("Star clicked:", rating, "Current rating:", this.currentVideo.rating);
+        // 同じ評価をクリックした場合は評価を解除（0にする）
+        if (this.currentVideo.rating === rating) {
+          console.log("Removing rating");
+          await this.setRating(0);
+        } else {
+          console.log("Setting rating to:", rating);
+          await this.setRating(rating);
+        }
       });
+      
+      star.addEventListener('mouseenter', () => {
+        console.log("Star hovered:", rating);
+        this.updateRatingDisplay(rating, true);
+      });
+      
+      star.addEventListener('mouseleave', () => {
+        console.log("Star unhovered, restoring rating:", this.currentVideo.rating || 0);
+        this.updateRatingDisplay(this.currentVideo.rating || 0, false);
+      });
+    });
+
+    // 評価解除エリアを追加（星の前に配置）
+    const ratingContainer = document.querySelector('#detailsPanel .rating-input');
+    if (ratingContainer) {
+      // 既存の解除エリアがあれば削除
+      const existingClearArea = ratingContainer.querySelector('.rating-clear-area');
+      if (existingClearArea) {
+        existingClearArea.remove();
+      }
+      
+      // 評価解除エリアを作成
+      const clearArea = document.createElement('span');
+      clearArea.className = 'rating-clear-area';
+      clearArea.textContent = '✕';
+      clearArea.title = '評価を解除';
+      clearArea.style.cssText = `
+        font-size: 16px;
+        cursor: pointer;
+        opacity: 0.5;
+        margin-right: 8px;
+        padding: 2px 4px;
+        border-radius: 4px;
+        transition: all 0.2s ease;
+        user-select: none;
+      `;
+      
+      // 評価解除エリアのイベント
+      clearArea.addEventListener('click', async () => {
+        console.log("Clear area clicked");
+        await this.setRating(0);
+      });
+      
+      clearArea.addEventListener('mouseenter', () => {
+        clearArea.style.opacity = '1';
+        clearArea.style.backgroundColor = 'rgba(255, 0, 0, 0.1)';
+        clearArea.style.color = '#ff4444';
+      });
+      
+      clearArea.addEventListener('mouseleave', () => {
+        clearArea.style.opacity = '0.5';
+        clearArea.style.backgroundColor = 'transparent';
+        clearArea.style.color = 'inherit';
+      });
+      
+      // 最初の星の前に挿入
+      const firstStar = ratingContainer.querySelector('.star');
+      if (firstStar) {
+        ratingContainer.insertBefore(clearArea, firstStar);
+      }
     }
 
-    // Add chapter thumbnails
-    if (video.chapterThumbnails && video.chapterThumbnails.length > 0) {
-      this.currentThumbnails.push(
-        ...video.chapterThumbnails.map((chapter) => ({
-          ...chapter,
-          isMain: false,
-        }))
-      );
+    // タグ追加
+    const tagInput = document.getElementById("tagInput");
+
+    if (tagInput) {
+      console.log("setupVideoDetailsListeners: Setting up tag input for video:", this.currentVideo.id);
+      
+      // 既存のイベントリスナーを削除してからクリーンアップ
+      const newTagInput = tagInput.cloneNode(true);
+      tagInput.parentNode.replaceChild(newTagInput, tagInput);
+      
+      // IME変換状態を追跡する変数
+      let isComposing = false;
+      let lastInputValue = '';
+      
+      // IME変換開始
+      newTagInput.addEventListener('compositionstart', (e) => {
+        console.log("setupVideoDetailsListeners: compositionstart event");
+        isComposing = true;
+      });
+      
+      // IME変換終了
+      newTagInput.addEventListener('compositionend', (e) => {
+        console.log("setupVideoDetailsListeners: compositionend event, value:", e.target.value);
+        isComposing = false;
+        lastInputValue = e.target.value;
+        
+        // 変換確定のEnterの場合、少し待ってからkeydownイベントを無視するフラグをリセット
+        setTimeout(() => {
+          console.log("setupVideoDetailsListeners: composition settled");
+        }, 10);
+      });
+      
+      // 入力値の変化を追跡
+      newTagInput.addEventListener('input', (e) => {
+        console.log("setupVideoDetailsListeners: input event triggered, value:", e.target.value, "isComposing:", isComposing);
+        if (!isComposing) {
+          lastInputValue = e.target.value;
+        }
+      });
+      
+      // キーダウンイベント（メインのEnter処理）
+      newTagInput.addEventListener('keydown', (e) => {
+        console.log("setupVideoDetailsListeners: keydown event triggered, key:", e.key, "isComposing:", isComposing);
+        
+        if (e.key === "Enter") {
+          // IME変換中のEnterは無視
+          if (isComposing) {
+            console.log("setupVideoDetailsListeners: Ignoring Enter during IME composition");
+            return;
+          }
+          
+          // datalist候補選択時のEnterを検出
+          // 候補選択の場合、inputイベントが発火された直後にkeydownが来る
+          const currentValue = newTagInput.value.trim();
+          
+          // 値が変わったばかり（候補選択など）の場合は一度無視
+          if (currentValue !== lastInputValue.trim()) {
+            console.log("setupVideoDetailsListeners: Value changed from candidate selection, ignoring Enter");
+            lastInputValue = currentValue;
+            return;
+          }
+          
+          e.preventDefault();
+          e.stopPropagation();
+          
+          console.log("setupVideoDetailsListeners: Processing Enter for tag addition, value:", currentValue);
+          if (currentValue) {
+            console.log("setupVideoDetailsListeners: Calling addTagToCurrentVideo");
+            this.addTagToCurrentVideo(currentValue);
+            newTagInput.value = "";
+            lastInputValue = "";
+          }
+        }
+      });
+      
+      // フォーカス時の初期化
+      newTagInput.addEventListener('focus', (e) => {
+        console.log("setupVideoDetailsListeners: focus event triggered");
+        lastInputValue = e.target.value;
+        isComposing = false;
+      });
+      
+      console.log("setupVideoDetailsListeners: Tag input event listeners attached successfully");
+    } else {
+      console.warn("setupVideoDetailsListeners: tagInput element not found");
+    }
+  }
+
+  async setRating(rating) {
+    console.log("setRating called with:", rating);
+    if (this.currentVideo) {
+      console.log("Setting rating for video:", this.currentVideo.id, "from", this.currentVideo.rating, "to", rating);
+      this.currentVideo.rating = rating;
+      this.updateRatingDisplay(rating, false);
+      
+      // データベースに評価を保存
+      try {
+        await this.videoManager.updateVideo(this.currentVideo.id, { rating: rating });
+        console.log("Rating saved to database successfully");
+      } catch (error) {
+        console.error("Failed to save rating to database:", error);
+      }
+    } else {
+      console.log("No current video available");
+    }
+  }
+
+  updateRatingDisplay(rating, isHover = false) {
+    console.log("updateRatingDisplay called with rating:", rating, "isHover:", isHover);
+    const stars = document.querySelectorAll('#detailsPanel .rating-input .star');
+    const clearArea = document.querySelector('#detailsPanel .rating-clear-area');
+    
+    console.log("Found stars for update:", stars.length);
+    
+    stars.forEach((star, index) => {
+      const starRating = index + 1;
+      // Remove existing classes
+      star.classList.remove('active', 'hover');
+      
+      if (starRating <= rating) {
+        star.textContent = '⭐';
+        if (isHover) {
+          star.classList.add('hover');
+        } else {
+          star.classList.add('active');
+        }
+      } else {
+        star.textContent = '☆';
+      }
+    });
+    
+    // 評価解除エリアの状態更新
+    if (clearArea) {
+      if (rating === 0 && !isHover) {
+        clearArea.style.opacity = '1';
+        clearArea.style.backgroundColor = 'rgba(255, 0, 0, 0.1)';
+        clearArea.style.color = '#ff4444';
+      } else if (rating > 0) {
+        clearArea.style.opacity = '0.5';
+        clearArea.style.backgroundColor = 'transparent';
+        clearArea.style.color = 'inherit';
+      }
+    }
+    
+    console.log("Rating display updated");
+  }
+
+  updateTagsDisplay(tags) {
+    if (!this.currentVideo) return;
+    
+    const tagsContainer = DOMUtils.getElementById("videoTagsList");
+    if (tagsContainer) {
+      tagsContainer.innerHTML = "";
+      
+      tags.forEach(tag => {
+        const tagElement = document.createElement("span");
+        tagElement.className = "tag-item";
+        tagElement.innerHTML = `
+          ${Utils.escapeHtml(tag)}
+          <button class="remove-tag" data-tag="${Utils.escapeHtml(tag)}">×</button>
+        `;
+        tagsContainer.appendChild(tagElement);
+      });
+      
+      // 削除ボタンのイベントリスナーを再設定
+      this.setupVideoDetailsListeners();
+    }
+  }
+
+  // 特定の動画のタグ表示を即座に更新する関数
+  updateVideoTagsDisplay(videoId) {
+    console.log("updateVideoTagsDisplay: Starting update for video:", videoId);
+    
+    // 現在表示されている動画アイテムを検索
+    const videoItems = document.querySelectorAll('.video-item');
+    
+    videoItems.forEach((item, index) => {
+      const video = this.filteredVideos[index];
+      if (video && video.id === videoId) {
+        console.log("updateVideoTagsDisplay: Found video item at index", index);
+        
+        // タグコンテナを取得
+        const tagsContainer = item.querySelector('.video-tags');
+        if (tagsContainer) {
+          console.log("updateVideoTagsDisplay: Updating tags for video", video.title || video.filename);
+          
+          // タグコンテナをクリア
+          tagsContainer.innerHTML = "";
+          
+          // タグを再描画
+          if (video.tags && video.tags.length > 0) {
+            const currentView = this.uiRenderer.getCurrentView();
+            
+            if (currentView === 'grid') {
+              // Grid view: show up to 3 tags plus overflow indicator
+              const maxVisibleTags = 3;
+              const visibleTags = video.tags.slice(0, maxVisibleTags);
+              const hiddenTags = video.tags.slice(maxVisibleTags);
+              
+              // Add visible tags
+              visibleTags.forEach((tag) => {
+                const tagSpan = document.createElement("span");
+                tagSpan.className = "video-tag";
+                tagSpan.textContent = tag;
+                tagsContainer.appendChild(tagSpan);
+              });
+              
+              // Add overflow indicator if there are hidden tags
+              if (hiddenTags.length > 0) {
+                const overflowSpan = document.createElement("span");
+                overflowSpan.className = "video-tag tag-overflow";
+                overflowSpan.textContent = `+${hiddenTags.length}`;
+                overflowSpan.title = `他のタグ: ${hiddenTags.join(", ")}`;
+                tagsContainer.appendChild(overflowSpan);
+              }
+            } else {
+              // List view: show all tags
+              video.tags.forEach((tag) => {
+                const tagSpan = document.createElement("span");
+                tagSpan.className = "video-tag";
+                tagSpan.textContent = tag;
+                tagsContainer.appendChild(tagSpan);
+              });
+            }
+            
+            console.log("updateVideoTagsDisplay: Tags updated to:", video.tags);
+          } else {
+            console.log("updateVideoTagsDisplay: No tags to display");
+          }
+        } else {
+          console.warn("updateVideoTagsDisplay: Tags container not found for video item");
+        }
+        
+        return; // 見つかったので終了
+      }
+    });
+    
+    console.log("updateVideoTagsDisplay: Complete for video:", videoId);
+  }
+
+  async addTagToCurrentVideo(tagName) {
+    if (!tagName || !this.currentVideo) {
+      console.log("addTagToCurrentVideo: invalid input", { tagName, currentVideo: !!this.currentVideo });
+      return;
     }
 
-    this.currentThumbnailIndex = startIndex;
+    console.log("addTagToCurrentVideo: Starting tag addition", { tagName, videoId: this.currentVideo.id });
 
-    if (this.currentThumbnails.length > 0) {
-      this.updateThumbnailDisplay();
-      document.getElementById("thumbnailModal").style.display = "flex";
+    // 先にローカルでの重複チェックを行う
+    if (!this.currentVideo.tags) {
+      this.currentVideo.tags = [];
+      console.log("addTagToCurrentVideo: Initialized currentVideo.tags array");
+    }
+    
+    if (this.currentVideo.tags.includes(tagName)) {
+      console.log("addTagToCurrentVideo: Tag already exists locally, skipping:", tagName);
+      return;
+    }
+
+    try {
+      // データベースに追加（重複チェックはデータベース側でも実行される）
+      console.log("addTagToCurrentVideo: Calling videoManager.addTagToVideo");
+      await this.videoManager.addTagToVideo(this.currentVideo.id, tagName);
+      console.log("addTagToCurrentVideo: Tag added to database successfully");
+      
+      // ローカルデータの更新：currentVideoとfilteredVideosの両方を更新
+      this.currentVideo.tags.push(tagName);
+      console.log("addTagToCurrentVideo: Tag added to currentVideo.tags", this.currentVideo.tags);
+      
+      // filteredVideosの該当ビデオも更新
+      const filteredIndex = this.filteredVideos.findIndex(video => video.id === this.currentVideo.id);
+      if (filteredIndex !== -1) {
+        if (!this.filteredVideos[filteredIndex].tags) {
+          this.filteredVideos[filteredIndex].tags = [];
+        }
+        if (!this.filteredVideos[filteredIndex].tags.includes(tagName)) {
+          this.filteredVideos[filteredIndex].tags.push(tagName);
+          console.log("addTagToCurrentVideo: Tag added to filteredVideos", this.filteredVideos[filteredIndex].tags);
+        }
+      }
+      
+      // VideoManagerのローカルデータも更新
+      console.log("addTagToCurrentVideo: Updating VideoManager local data");
+      this.videoManager.updateLocalVideoData(this.currentVideo);
+      
+      // UI更新
+      this.uiRenderer.updateDetailsTagsDisplay(this.currentVideo.tags);
+      this.updateVideoTagsDisplay(this.currentVideo.id);
+      
+      // オートコンプリート候補を更新
+      const allTags = this.videoManager.getTags();
+      this.uiRenderer.updateTagSuggestions(allTags);
+      
+      // サイドバーを更新
+      this.renderSidebar();
+      
+      console.log("addTagToCurrentVideo: Tag added and UI updated successfully:", tagName);
+    } catch (error) {
+      console.error("addTagToCurrentVideo: Error adding tag:", error);
+      
+      // エラーが「すでに存在する」場合は、ローカルデータを同期
+      if (error.message && error.message.includes('already exists')) {
+        console.log("addTagToCurrentVideo: Tag already exists in database, syncing local data");
+        if (!this.currentVideo.tags.includes(tagName)) {
+          this.currentVideo.tags.push(tagName);
+          this.uiRenderer.updateDetailsTagsDisplay(this.currentVideo.tags);
+          this.updateVideoTagsDisplay(this.currentVideo.id);
+        }
+      } else {
+        this.showErrorDialog("タグの追加に失敗しました", error);
+      }
+    }
+  }
+
+  async removeTagFromCurrentVideo(tagName) {
+    if (!this.currentVideo) {
+      console.log("removeTagFromCurrentVideo: No current video");
+      return;
+    }
+
+    console.log("removeTagFromCurrentVideo: Starting tag removal", { tagName, videoId: this.currentVideo.id });
+
+    try {
+      // データベースから削除
+      await this.videoManager.removeTagFromVideo(this.currentVideo.id, tagName);
+      console.log("removeTagFromCurrentVideo: Tag removed from database successfully");
+      
+      // ローカルデータを更新
+      if (this.currentVideo.tags) {
+        this.currentVideo.tags = this.currentVideo.tags.filter(tag => tag !== tagName);
+        console.log("removeTagFromCurrentVideo: Tag removed from currentVideo", this.currentVideo.tags);
+        
+        // filteredVideosも更新
+        const filteredIndex = this.filteredVideos.findIndex(video => video.id === this.currentVideo.id);
+        if (filteredIndex !== -1 && this.filteredVideos[filteredIndex].tags) {
+          this.filteredVideos[filteredIndex].tags = this.filteredVideos[filteredIndex].tags.filter(tag => tag !== tagName);
+          console.log("removeTagFromCurrentVideo: Tag removed from filteredVideos", this.filteredVideos[filteredIndex].tags);
+        }
+        
+        // VideoManagerのローカルデータも更新
+        this.videoManager.updateLocalVideoData(this.currentVideo);
+        
+        // UI更新
+        this.uiRenderer.updateDetailsTagsDisplay(this.currentVideo.tags);
+        this.updateVideoTagsDisplay(this.currentVideo.id);
+        
+        // オートコンプリート候補を更新
+        const allTags = this.videoManager.getTags();
+        this.uiRenderer.updateTagSuggestions(allTags);
+        
+        // サイドバーを更新
+        this.renderSidebar();
+        
+        console.log("removeTagFromCurrentVideo: Tag removed and UI updated successfully:", tagName);
+      }
+    } catch (error) {
+      console.error("removeTagFromCurrentVideo: Error removing tag:", error);
+      this.showErrorDialog("タグの削除に失敗しました", error);
+    }
+  }
+
+  async saveVideoDetails() {
+    if (!this.currentVideo) return;
+
+    try {
+      const titleInput = DOMUtils.getElementById("detailsTitleInput");
+      const descriptionInput = DOMUtils.getElementById("detailsDescriptionInput");
+      
+      const updatedData = {
+        title: titleInput?.value || this.currentVideo.title,
+        description: descriptionInput?.value || this.currentVideo.description,
+        rating: this.currentVideo.rating || 0,
+      };
+
+      console.log("Saving video details:", updatedData); // デバッグ用
+
+      await this.videoManager.updateVideo(this.currentVideo.id, updatedData);
+      Object.assign(this.currentVideo, updatedData);
+
+      this.renderVideoList(); // ビデオリストの評価表示を更新
+      this.notificationManager.show("動画情報を保存しました", "success");
+    } catch (error) {
+      console.error("Error saving video details:", error);
+      this.showErrorDialog("保存に失敗しました", error);
+    }
+  }
+
+  // Thumbnail modal methods
+  async showThumbnailModal(video, startIndex = 0) {
+    this.currentThumbnails = [];
+    this.currentThumbnailIndex = 0;
+    
+    try {
+      console.log("showThumbnailModal - video object:", video);
+      console.log("showThumbnailModal - chapter_thumbnails:", video.chapter_thumbnails);
+      
+      // Always include main thumbnail as the first item
+      if (video && video.thumbnail_path) {
+        this.currentThumbnails.push({
+          path: video.thumbnail_path,
+          timestamp: 0,
+          isMain: true
+        });
+      }
+      
+      // Use chapter thumbnails if available
+      if (video && video.chapter_thumbnails) {
+        let chapters = [];
+        
+        if (Array.isArray(video.chapter_thumbnails)) {
+          chapters = video.chapter_thumbnails;
+        } else if (typeof video.chapter_thumbnails === 'string') {
+          try {
+            const parsed = JSON.parse(video.chapter_thumbnails);
+            if (Array.isArray(parsed)) {
+              chapters = parsed;
+            } else if (typeof parsed === 'object' && parsed !== null) {
+              chapters = Object.values(parsed).filter(item => 
+                item && typeof item === 'object' && item.path && item.timestamp !== undefined
+              );
+            }
+          } catch (error) {
+            console.warn("Failed to parse chapter_thumbnails:", error);
+          }
+        } else if (typeof video.chapter_thumbnails === 'object' && video.chapter_thumbnails !== null) {
+          chapters = Object.values(video.chapter_thumbnails).filter(item => 
+            item && typeof item === 'object' && item.path && item.timestamp !== undefined
+          );
+        }
+        
+        const validChapters = chapters.filter(item => 
+          item && typeof item === 'object' && item.path && item.timestamp !== undefined
+        );
+        
+        // Add chapter thumbnails after main thumbnail
+        this.currentThumbnails.push(...validChapters);
+        
+        console.log("showThumbnailModal - processed thumbnails:", this.currentThumbnails);
+      }
+      
+      if (this.currentThumbnails.length === 0) {
+        console.warn("No valid thumbnails found for video:", video?.title || video?.filename);
+        this.notificationManager.show("サムネイルが見つかりません", "warning");
+        return;
+      }
+      
+      // Set the correct starting index
+      if (startIndex === 0) {
+        // Start with main thumbnail (index 0)
+        this.currentThumbnailIndex = 0;
+      } else {
+        // startIndex refers to chapter index, so add 1 for main thumbnail
+        this.currentThumbnailIndex = startIndex + 1;
+        // Ensure the index is within bounds
+        if (this.currentThumbnailIndex >= this.currentThumbnails.length) {
+          this.currentThumbnailIndex = 0;
+        }
+      }
+      
+      // モーダルを表示
+      const modal = DOMUtils.getElementById("thumbnailModal");
+      if (modal) {
+        modal.style.display = "flex";
+        this.updateThumbnailModalContent();
+        this.setupThumbnailModalKeyboardListeners();
+      }
+    } catch (error) {
+      console.error("Error loading thumbnails:", error);
+      this.showErrorDialog("サムネイルの読み込みに失敗しました", error);
     }
   }
 
   hideThumbnailModal() {
-    document.getElementById("thumbnailModal").style.display = "none";
+    const modal = DOMUtils.getElementById("thumbnailModal");
+    if (modal) {
+      modal.style.display = "none";
+    }
+    
+    // Remove keyboard listener
+    if (this.thumbnailModalKeyboardHandler) {
+      document.removeEventListener('keydown', this.thumbnailModalKeyboardHandler);
+      this.thumbnailModalKeyboardHandler = null;
+    }
+    
     this.currentThumbnails = [];
     this.currentThumbnailIndex = 0;
   }
 
-  showPreviousThumbnail() {
-    if (this.currentThumbnails.length > 0) {
-      this.currentThumbnailIndex =
-        (this.currentThumbnailIndex - 1 + this.currentThumbnails.length) %
-        this.currentThumbnails.length;
-      this.updateThumbnailDisplay();
+  updateThumbnailModalContent() {
+    if (this.currentThumbnails.length === 0) return;
+    
+    const thumbnail = this.currentThumbnails[this.currentThumbnailIndex];
+    const img = DOMUtils.getElementById("modalThumbnailImage");
+    const info = DOMUtils.getElementById("thumbnailInfo");
+    
+    if (img && thumbnail.path) {
+      img.src = `file://${thumbnail.path}`;
     }
+    
+    if (info) {
+      const timestamp = DOMUtils.getElementById("thumbnailTimestamp");
+      const index = DOMUtils.getElementById("thumbnailIndex");
+      
+      if (timestamp) {
+        if (thumbnail.isMain) {
+          timestamp.textContent = "メインサムネイル";
+        } else {
+          timestamp.textContent = FormatUtils.formatDuration(thumbnail.timestamp || 0);
+        }
+      }
+      
+      if (index) {
+        if (thumbnail.isMain) {
+          index.textContent = `メインサムネイル (1 / ${this.currentThumbnails.length})`;
+        } else {
+          const chapterNumber = this.currentThumbnailIndex; // Since main is at index 0
+          index.textContent = `チャプター ${chapterNumber} (${this.currentThumbnailIndex + 1} / ${this.currentThumbnails.length})`;
+        }
+      }
+    }
+  }
+
+  setupThumbnailModalListeners() {
+    const modal = DOMUtils.getElementById("thumbnailModal");
+    const prevBtn = DOMUtils.getElementById("modalPrevBtn");
+    const nextBtn = DOMUtils.getElementById("modalNextBtn");
+    const closeBtn = DOMUtils.getElementById("modalCloseBtn");
+    const setMainBtn = DOMUtils.getElementById("setMainThumbnailBtn");
+
+    // モーダル外クリックで閉じる
+    if (modal) {
+      DOMUtils.removeAllEventListeners(modal);
+      DOMUtils.addEventListeners(modal, {
+        click: (e) => {
+          if (e.target === modal) {
+            this.hideThumbnailModal();
+          }
+        }
+      });
+    }
+
+    // ナビゲーションボタン
+    if (prevBtn) {
+      DOMUtils.removeAllEventListeners(prevBtn);
+      DOMUtils.addEventListeners(prevBtn, {
+        click: () => this.showPreviousThumbnail()
+      });
+    }
+
+    if (nextBtn) {
+      DOMUtils.removeAllEventListeners(nextBtn);
+      DOMUtils.addEventListeners(nextBtn, {
+        click: () => this.showNextThumbnail()
+      });
+    }
+
+    if (closeBtn) {
+      DOMUtils.removeAllEventListeners(closeBtn);
+      DOMUtils.addEventListeners(closeBtn, {
+        click: () => this.hideThumbnailModal()
+      });
+    }
+
+    if (setMainBtn) {
+      DOMUtils.removeAllEventListeners(setMainBtn);
+      DOMUtils.addEventListeners(setMainBtn, {
+        click: () => this.setMainThumbnail()
+      });
+    }
+  }
+
+  showPreviousThumbnail() {
+    if (this.currentThumbnails.length === 0) return;
+    
+    this.currentThumbnailIndex = 
+      (this.currentThumbnailIndex - 1 + this.currentThumbnails.length) % this.currentThumbnails.length;
+    this.updateThumbnailModalContent();
   }
 
   showNextThumbnail() {
-    if (this.currentThumbnails.length > 0) {
-      this.currentThumbnailIndex =
-        (this.currentThumbnailIndex + 1) % this.currentThumbnails.length;
-      this.updateThumbnailDisplay();
-    }
-  }
-
-  updateThumbnailDisplay() {
     if (this.currentThumbnails.length === 0) return;
-
-    const thumbnail = this.currentThumbnails[this.currentThumbnailIndex];
-    const modalImage = document.getElementById("modalThumbnailImage");
-    const modalTitle = document.getElementById("thumbnailModalTitle");
-    const modalTimestamp = document.getElementById("thumbnailTimestamp");
-    const modalIndex = document.getElementById("thumbnailIndex");
-
-    if (modalImage) modalImage.src = `file://${thumbnail.path}`;
-    if (modalTitle) modalTitle.textContent = this.currentVideo.title;
-
-    // Show different text for main thumbnail vs chapter thumbnails
-    if (thumbnail.isMain) {
-      if (modalTimestamp) modalTimestamp.textContent = "メインサムネイル";
-    } else {
-      if (modalTimestamp)
-        modalTimestamp.textContent = this.formatDuration(thumbnail.timestamp);
-    }
-
-    if (modalIndex)
-      modalIndex.textContent = `${this.currentThumbnailIndex + 1} / ${
-        this.currentThumbnails.length
-      }`;
-  }
-
-  handleKeyboardNavigation(e) {
-    // Don't handle keyboard navigation if an input field is focused
-    const activeElement = document.activeElement;
-    if (
-      activeElement &&
-      (activeElement.tagName === "INPUT" ||
-        activeElement.tagName === "TEXTAREA" ||
-        activeElement.tagName === "SELECT")
-    ) {
-      return;
-    }
-
-    // Handle thumbnail modal navigation
-    if (document.getElementById("thumbnailModal").style.display === "flex") {
-      switch (e.key) {
-        case "ArrowLeft":
-          e.preventDefault();
-          this.showPreviousThumbnail();
-          break;
-        case "ArrowRight":
-          e.preventDefault();
-          this.showNextThumbnail();
-          break;
-        case "Escape":
-          e.preventDefault();
-          this.hideThumbnailModal();
-          break;
-      }
-      return;
-    }
-
-    // Don't handle video navigation if any modal is open
-    if (
-      document.getElementById("settingsModal").style.display === "flex" ||
-      document.getElementById("tagEditDialog").style.display === "flex" ||
-      document.getElementById("errorDialog").style.display === "flex"
-    ) {
-      return;
-    }
-
-    // Handle video list navigation
-    if (this.filteredVideos.length === 0) return;
-
-    if (this.currentView === 'grid') {
-      // Grid view: 2D navigation (上下左右で2次元移動)
-      switch (e.key) {
-        case "ArrowUp":
-          e.preventDefault();
-          this.navigateVideoGrid('up');
-          break;
-        case "ArrowDown":
-          e.preventDefault();
-          this.navigateVideoGrid('down');
-          break;
-        case "ArrowLeft":
-          e.preventDefault();
-          this.navigateVideoGrid('left');
-          break;
-        case "ArrowRight":
-          e.preventDefault();
-          this.navigateVideoGrid('right');
-          break;
-        case "Enter":
-          e.preventDefault();
-          if (this.selectedVideoIndex >= 0) {
-            this.playVideo(this.filteredVideos[this.selectedVideoIndex]);
-          }
-          break;
-        case "Escape":
-          e.preventDefault();
-          this.hideDetails();
-          break;
-      }
-    } else {
-      // List view: 1D navigation (上下と左右両方で上下移動)
-      switch (e.key) {
-        case "ArrowUp":
-          e.preventDefault();
-          this.navigateVideo(-1);
-          break;
-        case "ArrowDown":
-          e.preventDefault();
-          this.navigateVideo(1);
-          break;
-        case "ArrowLeft":
-          e.preventDefault();
-          // 左キー = 上に移動
-          this.navigateVideo(-1);
-          break;
-        case "ArrowRight":
-          e.preventDefault();
-          // 右キー = 下に移動
-          this.navigateVideo(1);
-          break;
-        case "Enter":
-          e.preventDefault();
-          if (this.selectedVideoIndex >= 0) {
-            this.playVideo(this.filteredVideos[this.selectedVideoIndex]);
-          }
-          break;
-        case "Escape":
-          e.preventDefault();
-          this.hideDetails();
-          break;
-      }
-    }
-  }
-
-  navigateVideo(direction) {
-    if (this.filteredVideos.length === 0) return;
-
-    if (this.selectedVideoIndex === -1) {
-      this.selectedVideoIndex = 0;
-    } else {
-      this.selectedVideoIndex += direction;
-      if (this.selectedVideoIndex < 0) {
-        this.selectedVideoIndex = this.filteredVideos.length - 1;
-      } else if (this.selectedVideoIndex >= this.filteredVideos.length) {
-        this.selectedVideoIndex = 0;
-      }
-    }
-
-    const video = this.filteredVideos[this.selectedVideoIndex];
-    this.showDetails(video);
-    this.highlightSelectedVideo();
-    this.scrollToSelectedVideo();
-  }
-
-  highlightSelectedVideo() {
-    // Remove previous highlights
-    document.querySelectorAll(".video-item.selected").forEach((item) => {
-      item.classList.remove("selected");
-    });
-
-    // Add highlight to current selection
-    if (this.selectedVideoIndex >= 0) {
-      const videoItems = document.querySelectorAll(".video-item");
-      if (videoItems[this.selectedVideoIndex]) {
-        videoItems[this.selectedVideoIndex].classList.add("selected");
-      }
-    }
-  }
-
-  scrollToSelectedVideo() {
-    if (this.selectedVideoIndex >= 0) {
-      const videoItems = document.querySelectorAll(".video-item");
-      if (videoItems[this.selectedVideoIndex]) {
-        videoItems[this.selectedVideoIndex].scrollIntoView({
-          behavior: "smooth",
-          block: "center",
-        });
-      }
-    }
-  }
-
-  initializeTheme() {
-    console.log("Initializing theme...");
-    // Get saved theme or use system preference
-    const savedTheme = localStorage.getItem("theme") || "system";
-    console.log("Saved theme:", savedTheme);
     
-    this.applyTheme(savedTheme);
-
-    // Set the select value in settings
-    const themeSelect = document.getElementById("themeSelect");
-    if (themeSelect) {
-      themeSelect.value = savedTheme;
-      console.log("Theme select set to:", savedTheme);
-    } else {
-      console.warn("Theme select element not found");
-    }
-
-    // Listen for system theme changes
-    if (window.matchMedia) {
-      const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-      mediaQuery.addListener(() => {
-        if (localStorage.getItem("theme") === "system") {
-          this.applyTheme("system");
-        }
-      });
-      console.log("System theme listener added");
-    }
+    this.currentThumbnailIndex = 
+      (this.currentThumbnailIndex + 1) % this.currentThumbnails.length;
+    this.updateThumbnailModalContent();
   }
 
-  applyTheme(theme) {
-    console.log("Applying theme:", theme);
-    const body = document.body;
-
-    switch (theme) {
-      case "dark":
-        body.setAttribute("data-theme", "dark");
-        console.log("Dark theme applied");
-        break;
-      case "light":
-        body.removeAttribute("data-theme");
-        console.log("Light theme applied");
-        break;
-      case "system":
-      default:
-        if (
-          window.matchMedia &&
-          window.matchMedia("(prefers-color-scheme: dark)").matches
-        ) {
-          body.setAttribute("data-theme", "dark");
-          console.log("System dark theme applied");
-        } else {
-          body.removeAttribute("data-theme");
-          console.log("System light theme applied");
-        }
-        break;
+  async setMainThumbnail() {
+    if (!this.currentVideo || this.currentThumbnails.length === 0) return;
+    
+    try {
+      const thumbnail = this.currentThumbnails[this.currentThumbnailIndex];
+      await window.electronAPI.setMainThumbnail(this.currentVideo.filePath, thumbnail.timestamp);
+      
+      this.notificationManager.show("メインサムネイルを設定しました", "success");
+      this.hideThumbnailModal();
+      
+      // ビデオリストを更新してサムネイルの変更を反映
+      setTimeout(() => {
+        this.renderVideoList();
+      }, 500);
+    } catch (error) {
+      console.error("Error setting main thumbnail:", error);
+      this.showErrorDialog("サムネイルの設定に失敗しました", error);
     }
-
-    localStorage.setItem("theme", theme);
-    console.log("Theme saved to localStorage:", theme);
   }
 
   async refreshMainThumbnail() {
-    if (!this.currentVideo) {
-      this.showNotification("動画が選択されていません", "error");
-      return;
-    }
-
-    const refreshBtn = document.getElementById("refreshMainThumbnailBtn");
-    const mainThumbnail = document.getElementById("detailsMainThumbnail");
-
+    if (!this.currentVideo) return;
+    
     try {
-      // Show loading state
-      refreshBtn.classList.add("loading");
-      refreshBtn.disabled = true;
-
-      this.showNotification("メインサムネイルを更新中...", "info");
-
-      // Request main thumbnail regeneration from backend
       const updatedVideo = await window.electronAPI.regenerateMainThumbnail(this.currentVideo.id);
-
-      if (updatedVideo && updatedVideo.thumbnail_path) {
-        // Update current video data
-        this.currentVideo.thumbnail_path = updatedVideo.thumbnail_path;
-
-        // Update main thumbnail in details panel with cache busting
-        const cacheBreaker = Date.now();
-        mainThumbnail.src = `file://${updatedVideo.thumbnail_path}?t=${cacheBreaker}`;
-
-        // Update videos in main array
-        const videoIndex = this.videos.findIndex(v => v.id === this.currentVideo.id);
-        if (videoIndex !== -1) {
-          this.videos[videoIndex].thumbnail_path = updatedVideo.thumbnail_path;
-        }
-
-        // Update videos in filtered array
-        const filteredVideoIndex = this.filteredVideos.findIndex(v => v.id === this.currentVideo.id);
-        if (filteredVideoIndex !== -1) {
-          this.filteredVideos[filteredVideoIndex].thumbnail_path = updatedVideo.thumbnail_path;
-        }
-
-        // Update video list view if this video is visible
-        this.refreshVideoInList(updatedVideo, cacheBreaker);
-
-        // Update thumbnail modal if it's open and showing this video
-        if (document.getElementById("thumbnailModal").style.display === "flex" &&
-            this.currentThumbnails.length > 0 && this.currentThumbnails[0].isMain) {
-          this.currentThumbnails[0].path = updatedVideo.thumbnail_path;
-          if (this.currentThumbnailIndex === 0) {
-            const modalImage = document.getElementById("modalThumbnailImage");
-            if (modalImage) {
-              modalImage.src = `file://${updatedVideo.thumbnail_path}?t=${cacheBreaker}`;
-            }
-          }
-        }
-
-        this.showNotification("メインサムネイルを更新しました", "success");
+      this.notificationManager.show("サムネイルを更新しました", "success");
+      
+      // 現在のビデオを更新し、ローカルデータも更新
+      this.currentVideo = updatedVideo;
+      const updatedLocalVideo = this.videoManager.updateLocalVideoData(updatedVideo);
+      
+      // filteredVideosも更新
+      const filteredIndex = this.filteredVideos.findIndex(video => video.id === updatedVideo.id);
+      if (filteredIndex !== -1) {
+        this.filteredVideos[filteredIndex] = { ...this.filteredVideos[filteredIndex], ...updatedVideo };
+        console.log("Updated filteredVideos entry:", this.filteredVideos[filteredIndex]);
+        console.log("Updated thumbnail_path:", this.filteredVideos[filteredIndex].thumbnail_path);
       } else {
-        throw new Error("サムネイルの更新に失敗しました");
+        console.warn("Video not found in filteredVideos:", updatedVideo.id);
       }
+      
+      // キャッシュをクリアしてサムネイルを強制的に更新
+      const timestamp = Date.now();
+      
+      // 即座にサムネイルを強制更新
+      this.forceUpdateThumbnails(updatedVideo, timestamp);
+      
+      // ビデオリストとサイドバーを再描画
+      setTimeout(() => {
+        this.renderVideoList();
+        this.renderSidebar();
+        
+        // レンダリング後に再度サムネイル更新を確実に実行
+        setTimeout(() => {
+          this.forceUpdateThumbnails(updatedVideo, timestamp);
+        }, 50);
+        
+        // 詳細パネルが開いている場合は更新
+        const detailsPanel = document.getElementById("detailsPanel");
+        if (detailsPanel && detailsPanel.style.display !== "none" && this.currentVideo) {
+          // 詳細パネルを再描画
+          this.showDetails(this.currentVideo);
+        }
+      }, 100);
     } catch (error) {
-      console.error("Error refreshing main thumbnail:", error);
-      this.showNotification("メインサムネイルの更新に失敗しました", "error");
-    } finally {
-      // Remove loading state
-      refreshBtn.classList.remove("loading");
-      refreshBtn.disabled = false;
+      console.error("Error refreshing thumbnail:", error);
+      this.showErrorDialog("サムネイルの更新に失敗しました", error);
     }
   }
 
-  refreshVideoInList(updatedVideo, cacheBreaker = Date.now()) {
-    // Find and update the video item in the list view
+  // グリッド/リスト表示のサムネイルを強制更新
+  forceUpdateThumbnails(updatedVideo, timestamp) {
+    console.log("forceUpdateThumbnails called for video:", updatedVideo?.id, "timestamp:", timestamp);
+    
+    // 現在表示されている動画アイテムのサムネイルを更新
     const videoItems = document.querySelectorAll('.video-item');
     videoItems.forEach(item => {
-      if (item.dataset.videoId === updatedVideo.id.toString()) {
-        const thumbnail = item.querySelector('.video-thumbnail img');
-        if (thumbnail) {
-          thumbnail.src = `file://${updatedVideo.thumbnail_path}?t=${cacheBreaker}`;
+      const videoIndex = parseInt(item.dataset.index);
+      const video = this.filteredVideos[videoIndex];
+      
+      if (video && video.id === updatedVideo?.id) {
+        // .video-thumbnail div内のimg要素を取得
+        const thumbnailImg = item.querySelector('.video-thumbnail img');
+        if (thumbnailImg) {
+          const newSrc = `file://${updatedVideo.thumbnail_path}?t=${timestamp}`;
+          console.log("Updating thumbnail img src from:", thumbnailImg.src, "to:", newSrc);
+          thumbnailImg.src = newSrc;
+          
+          // 画像の読み込みを強制
+          thumbnailImg.onload = () => {
+            console.log("Thumbnail successfully updated for video:", video.id);
+          };
+          thumbnailImg.onerror = () => {
+            console.error("Failed to load updated thumbnail for video:", video.id);
+          };
+        } else {
+          console.warn("Thumbnail img element not found for video:", video.id);
         }
       }
     });
   }
 
-  getGridColumns() {
-    if (this.currentView !== 'grid') return 1;
-
-    const videoList = document.getElementById('videoList');
-    if (!videoList) return 1;
-
-    const videoItems = videoList.querySelectorAll('.video-item');
-    if (videoItems.length === 0) return 1;
-
-    // Get the computed style to find the actual grid columns
-    const computedStyle = window.getComputedStyle(videoList);
-    const gridTemplateColumns = computedStyle.getPropertyValue('grid-template-columns');
-
-    if (gridTemplateColumns && gridTemplateColumns !== 'none') {
-      // Count the number of columns from grid-template-columns
-      const columns = gridTemplateColumns.split(' ').length;
-      return columns;
+  // Tooltip methods
+  showTooltip(e, video) {
+    this.hideTooltip(); // 既存のツールチップを隠す
+    
+    const tooltip = DOMUtils.getElementById("videoTooltip");
+    if (!tooltip) return;
+    
+    // ツールチップの内容を設定
+    const titleElement = tooltip.querySelector(".tooltip-title");
+    const infoElement = tooltip.querySelector(".tooltip-info");
+    const tagsElement = tooltip.querySelector(".tooltip-tags");
+    
+    if (titleElement) {
+      titleElement.textContent = video.title || video.filename;
     }
-
-    // Fallback: calculate based on item positions
-    const firstItem = videoItems[0];
-    const firstItemRect = firstItem.getBoundingClientRect();
-    let columns = 1;
-
-    for (let i = 1; i < videoItems.length; i++) {
-      const itemRect = videoItems[i].getBoundingClientRect();
-      if (Math.abs(itemRect.top - firstItemRect.top) < 10) {
-        columns++;
+    
+    if (infoElement) {
+      const info = [];
+      if (video.duration) {
+        info.push(`時間: ${FormatUtils.formatDuration(video.duration)}`);
+      }
+      if (video.fileSize) {
+        info.push(`サイズ: ${FormatUtils.formatFileSize(video.fileSize)}`);
+      }
+      if (video.rating > 0) {
+        info.push(`評価: ${"★".repeat(video.rating)}${"☆".repeat(5 - video.rating)}`);
+      }
+      infoElement.textContent = info.join(" | ");
+    }
+    
+    if (tagsElement) {
+      if (video.tags && video.tags.length > 0) {
+        tagsElement.textContent = `タグ: ${video.tags.join(", ")}`;
+        tagsElement.style.display = "block";
       } else {
-        break;
+        tagsElement.style.display = "none";
       }
     }
-
-    return columns;
+    
+    // ツールチップの位置を調整
+    this.positionTooltip(e, tooltip);
+    
+    // ツールチップを表示
+    tooltip.style.display = "block";
+    
+    // 一定時間後に自動で隠す
+    this.tooltipTimeout = setTimeout(() => {
+      this.hideTooltip();
+    }, 3000);
   }
 
-  navigateVideoGrid(direction) {
-    if (this.filteredVideos.length === 0) return;
+  positionTooltip(e, tooltip) {
+    const rect = e.target.getBoundingClientRect();
+    const tooltipRect = tooltip.getBoundingClientRect();
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    
+    let left = rect.left + rect.width / 2 - tooltipRect.width / 2;
+    let top = rect.top - tooltipRect.height - 10;
+    
+    // 画面端の調整
+    if (left < 10) left = 10;
+    if (left + tooltipRect.width > viewportWidth - 10) {
+      left = viewportWidth - tooltipRect.width - 10;
+    }
+    
+    if (top < 10) {
+      top = rect.bottom + 10;
+    }
+    
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${top}px`;
+  }
 
-    const columns = this.getGridColumns();
-    let newIndex = this.selectedVideoIndex;
+  hideTooltip() {
+    const tooltip = DOMUtils.getElementById("videoTooltip");
+    if (tooltip) {
+      tooltip.style.display = "none";
+    }
+    
+    if (this.tooltipTimeout) {
+      clearTimeout(this.tooltipTimeout);
+      this.tooltipTimeout = null;
+    }
+    
+    if (this.tooltipInterval) {
+      clearInterval(this.tooltipInterval);
+      this.tooltipInterval = null;
+    }
+  }
 
-    if (this.selectedVideoIndex === -1) {
-      newIndex = 0;
+  safeAddEventListener(elementId, event, handler) {
+    const element = DOMUtils.getElementById(elementId);
+    if (element) {
+      element.addEventListener(event, handler);
     } else {
-      switch (direction) {
-        case 'up':
-          newIndex = this.selectedVideoIndex - columns;
-          if (newIndex < 0) {
-            // Wrap to bottom of the same column
-            const column = this.selectedVideoIndex % columns;
-            const totalRows = Math.ceil(this.filteredVideos.length / columns);
-            newIndex = (totalRows - 1) * columns + column;
-            if (newIndex >= this.filteredVideos.length) {
-              newIndex -= columns;
-            }
-          }
-          break;
-        case 'down':
-          newIndex = this.selectedVideoIndex + columns;
-          if (newIndex >= this.filteredVideos.length) {
-            // Wrap to top of the same column
-            newIndex = this.selectedVideoIndex % columns;
-          }
-          break;
-        case 'left':
-          if (this.selectedVideoIndex % columns === 0) {
-            // Move to rightmost item of the same row
-            const row = Math.floor(this.selectedVideoIndex / columns);
-            newIndex = Math.min((row + 1) * columns - 1, this.filteredVideos.length - 1);
-          } else {
-            newIndex = this.selectedVideoIndex - 1;
-          }
-          break;
-        case 'right':
-          if ((this.selectedVideoIndex + 1) % columns === 0 || this.selectedVideoIndex === this.filteredVideos.length - 1) {
-            // Move to leftmost item of the same row
-            const row = Math.floor(this.selectedVideoIndex / columns);
-            newIndex = row * columns;
-          } else {
-            newIndex = this.selectedVideoIndex + 1;
-            if (newIndex >= this.filteredVideos.length) {
-              const row = Math.floor(this.selectedVideoIndex / columns);
-              newIndex = row * columns;
-            }
-          }
-          break;
-      }
+      console.warn(`Element not found for event listener: ${elementId}`);
     }
-
-    this.selectedVideoIndex = newIndex;
-    const video = this.filteredVideos[this.selectedVideoIndex];
-    this.showDetails(video);
-    this.highlightSelectedVideo();
-    this.scrollToSelectedVideo();
   }
 
-  // 全タグフィルターを解除
-  clearAllTags() {
-    this.currentFilter.tags = [];
-    this.saveFilterState(); // フィルター状態を保存
-    this.renderSidebar();
-    this.applyFiltersAndSort();
+  setupThumbnailModalKeyboardListeners() {
+    // Remove any existing keyboard listener
+    if (this.thumbnailModalKeyboardHandler) {
+      document.removeEventListener('keydown', this.thumbnailModalKeyboardHandler);
+    }
+    
+    // Create new keyboard handler
+    this.thumbnailModalKeyboardHandler = (e) => {
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        this.showPreviousThumbnail();
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        this.showNextThumbnail();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        this.hideThumbnailModal();
+      }
+    };
+    
+    // Add keyboard listener
+    document.addEventListener('keydown', this.thumbnailModalKeyboardHandler);
   }
 }
 
-// Global error handlers for debugging
-window.addEventListener('error', function(e) {
-  console.error('Global error:', e.error, e);
+// Initialize the app when DOM is loaded
+document.addEventListener('DOMContentLoaded', () => {
+  window.movieApp = new MovieLibraryApp();
 });
 
-window.addEventListener('unhandledrejection', function(e) {
-  console.error('Unhandled promise rejection:', e.reason, e);
-});
-
-// Initialize the app when DOM is ready
-document.addEventListener('DOMContentLoaded', function() {
-  const movieApp = new MovieLibraryApp();
-  window.movieApp = movieApp; // For debugging
-});
-
-// Also check if DOM is already ready (in case script loads after DOMContentLoaded)
-if (document.readyState !== 'loading') {
-  const movieApp = new MovieLibraryApp();
-  window.movieApp = movieApp; // For debugging
-}
+export default MovieLibraryApp;
