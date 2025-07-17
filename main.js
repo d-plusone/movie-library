@@ -22,8 +22,6 @@ class MovieLibraryApp {
 
   createWindow() {
     this.mainWindow = new BrowserWindow({
-      width: 1400,
-      height: 900,
       minWidth: 1000,
       minHeight: 600,
       webPreferences: {
@@ -34,7 +32,12 @@ class MovieLibraryApp {
       titleBarStyle: "hiddenInset",
       vibrancy: "under-window",
       transparent: false,
+      show: false, // 初期状態では非表示にして最大化後に表示
     });
+
+    // ウィンドウを最大化してから表示
+    this.mainWindow.maximize();
+    this.mainWindow.show();
 
     this.mainWindow.loadFile("src/renderer/index.html");
 
