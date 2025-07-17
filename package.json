@@ -66,6 +66,10 @@
         "mac": {
             "icon": "assets/icon.icns",
             "category": "public.app-category.video",
+            "darkModeSupport": true,
+            "hardenedRuntime": true,
+            "entitlements": "build/entitlements.mac.plist",
+            "entitlementsInherit": "build/entitlements.mac.plist",
             "target": [
                 {
                     "target": "dmg",

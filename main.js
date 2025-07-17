@@ -21,9 +21,20 @@ class MovieLibraryApp {
   }
 
   createWindow() {
+    // プラットフォーム別のアイコンパス
+    let iconPath;
+    if (process.platform === "darwin") {
+      iconPath = path.join(__dirname, "assets", "icon.icns");
+    } else if (process.platform === "win32") {
+      iconPath = path.join(__dirname, "assets", "icon.ico");
+    } else {
+      iconPath = path.join(__dirname, "assets", "icon.png");
+    }
+
     this.mainWindow = new BrowserWindow({
       minWidth: 1000,
       minHeight: 600,
+      icon: iconPath,
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,
@@ -400,6 +411,19 @@ class MovieLibraryApp {
 const movieApp = new MovieLibraryApp();
 
 app.whenReady().then(async () => {
+  // macOS固有の設定
+  if (process.platform === "darwin") {
+    app.setName("Movie Library");
+    
+    // Dockアイコンの設定
+    const iconPath = path.join(__dirname, "assets", "icon.icns");
+    try {
+      app.dock.setIcon(iconPath);
+    } catch (error) {
+      console.warn("Failed to set dock icon:", error);
+    }
+  }
+
   await movieApp.initialize();
   movieApp.createWindow();
   await movieApp.startWatchingAllDirectories();
