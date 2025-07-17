@@ -7,6 +7,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   updateVideo: (id, data) => ipcRenderer.invoke("update-video", id, data),
   searchVideos: (query) => ipcRenderer.invoke("search-videos", query),
   openVideo: (filePath) => ipcRenderer.invoke("open-video", filePath),
+  hasVideoUpdates: (lastCheckTime) =>
+    ipcRenderer.invoke("has-video-updates", lastCheckTime),
 
   // Directory operations
   getDirectories: () => ipcRenderer.invoke("get-directories"),

@@ -439,6 +439,35 @@ class DatabaseManager {
     });
   }
 
+  // 指定時刻以降にビデオが更新されているかチェック
+  async hasVideoUpdates(lastCheckTime) {
+    const sql = `
+      SELECT COUNT(*) as count
+      FROM videos
+      WHERE datetime(updated_at) > datetime(?, 'unixepoch')
+         OR datetime(added_at) > datetime(?, 'unixepoch')
+    `;
+
+    const checkTimeSeconds = Math.floor(lastCheckTime / 1000);
+
+    return new Promise((resolve, reject) => {
+      this.db.get(sql, [checkTimeSeconds, checkTimeSeconds], (err, row) => {
+        if (err) {
+          console.error("Error checking video updates:", err);
+          reject(err);
+        } else {
+          console.log("hasVideoUpdates check:", {
+            lastCheckTime: new Date(lastCheckTime).toISOString(),
+            checkTimeSeconds,
+            hasUpdates: row.count > 0,
+            updateCount: row.count,
+          });
+          resolve(row.count > 0);
+        }
+      });
+    });
+  }
+
   close() {
     if (this.db) {
       this.db.close();

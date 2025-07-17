@@ -94,9 +94,21 @@ class MovieLibraryApp {
         );
       }
 
-      await this.videoManager.loadVideos();
-      await this.videoManager.loadTags();
-      await this.videoManager.loadDirectories();
+      console.log("Starting initial data load...");
+
+      // データ読み込み（差分チェック付き）
+      const videosPromise = this.videoManager.loadVideos();
+      const tagsPromise = this.videoManager.loadTags();
+      const directoriesPromise = this.videoManager.loadDirectories();
+
+      await Promise.all([videosPromise, tagsPromise, directoriesPromise]);
+
+      // データに変更があった場合のみ通知を表示
+      if (this.videoManager.hasDataChanges()) {
+        console.log("Data changes detected, showing notification");
+      } else {
+        console.log("No data changes detected, skipping notification");
+      }
 
       // Initialize directories in filter manager
       this.filterManager.initializeDirectories(
@@ -146,6 +158,9 @@ class MovieLibraryApp {
 
         // タグとディレクトリフィルタを適用
         this.applyFiltersAndSort();
+
+        // 変更フラグをリセット
+        this.videoManager.resetChangeFlag();
       }, 100); // 100ms後に実行
     } catch (error) {
       console.error("Error loading initial data:", error);
@@ -805,6 +820,9 @@ class MovieLibraryApp {
     try {
       this.progressManager.showProgress("ディレクトリをスキャン中...", 0);
       await this.videoManager.scanDirectories();
+      // スキャン完了後は強制リロード
+      await this.videoManager.loadVideos(true);
+      this.applyFiltersAndSort();
     } catch (error) {
       console.error("Error scanning directories:", error);
       this.showErrorDialog("スキャンに失敗しました", error);
@@ -836,11 +854,11 @@ class MovieLibraryApp {
 
     try {
       await this.videoManager.updateThumbnailSettings(settings);
-      
+
       // Save thumbnail settings to localStorage
       localStorage.setItem("thumbnailQuality", quality.toString());
       localStorage.setItem("thumbnailSize", size);
-      
+
       this.notificationManager.show("サムネイル設定を更新しました", "success");
     } catch (error) {
       console.error("Error updating thumbnail settings:", error);
@@ -886,14 +904,35 @@ class MovieLibraryApp {
         );
         this.loadVideosAndRefresh();
         break;
+      case "single-video-start":
+        this.notificationManager.show(
+          `サムネイル生成中: ${data.videoTitle}`,
+          "info"
+        );
+        break;
+      case "single-video-complete":
+        this.notificationManager.show(
+          `サムネイル生成完了: ${data.videoTitle}`,
+          "success"
+        );
+        // 単一動画のサムネイル生成完了時は強制リロードして最新状態を表示
+        this.loadVideosAndRefresh();
+        break;
+      case "single-video-error":
+        this.notificationManager.show(
+          `サムネイル生成エラー: ${data.videoTitle} - ${data.error}`,
+          "error"
+        );
+        break;
     }
     return result;
   }
 
   async handleVideoAdded(filePath) {
     await this.videoManager.handleVideoAdded(filePath);
+    const filename = filePath.split('/').pop() || filePath.split('\\').pop() || filePath;
     this.notificationManager.show(
-      `新しい動画が追加されました: ${filePath}`,
+      `新しい動画が追加されました: ${filename}`,
       "info"
     );
     this.applyFiltersAndSort();
@@ -906,7 +945,8 @@ class MovieLibraryApp {
   }
 
   async loadVideosAndRefresh() {
-    await this.videoManager.loadVideos();
+    // 明示的なリフレッシュの場合は強制リロード
+    await this.videoManager.loadVideos(true);
     this.applyFiltersAndSort();
   }
 
@@ -1063,16 +1103,16 @@ class MovieLibraryApp {
       if (settingsStr) {
         settings = JSON.parse(settingsStr);
       }
-      
+
       // Update only filter state setting
       const saveFilterCheckbox = DOMUtils.getElementById("saveFilterState");
       if (saveFilterCheckbox) {
         settings.saveFilterState = saveFilterCheckbox.checked;
       }
-      
+
       // Save back to localStorage
       localStorage.setItem("movieLibrarySettings", JSON.stringify(settings));
-      
+
       console.log("Filter state setting saved:", settings.saveFilterState);
     } catch (error) {
       console.error("Error saving filter state setting:", error);
@@ -2335,7 +2375,7 @@ class MovieLibraryApp {
     if (!this.currentVideo || this.currentThumbnails.length === 0) return;
 
     try {
-           const thumbnail = this.currentThumbnails[this.currentThumbnailIndex];
+      const thumbnail = this.currentThumbnails[this.currentThumbnailIndex];
       await window.electronAPI.setMainThumbnail(
         this.currentVideo.filePath,
         thumbnail.timestamp

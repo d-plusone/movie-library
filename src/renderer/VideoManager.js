@@ -7,24 +7,70 @@ export class VideoManager {
     this.videos = [];
     this.tags = [];
     this.directories = [];
+    this.lastLoadTime = null; // 最後にデータを読み込んだ時刻
+    this.hasChanges = false; // データに変更があったかどうか
   }
 
-  // 動画データを読み込み
-  async loadVideos() {
-    this.videos = await window.electronAPI.getVideos();
-    return [...this.videos];
+  // 動画データを読み込み（差分取得対応）
+  async loadVideos(forceReload = false) {
+    try {
+      // 強制リロードでない場合は、変更チェックを行う
+      if (!forceReload && this.lastLoadTime) {
+        const hasUpdates = await window.electronAPI.hasVideoUpdates(
+          this.lastLoadTime
+        );
+        if (!hasUpdates) {
+          console.log(
+            "VideoManager: No video updates detected, using cached data"
+          );
+          this.hasChanges = false;
+          return [...this.videos];
+        }
+      }
+
+      console.log("VideoManager: Loading videos from database");
+      this.videos = await window.electronAPI.getVideos();
+      this.lastLoadTime = Date.now();
+      this.hasChanges = true;
+      return [...this.videos];
+    } catch (error) {
+      console.error("VideoManager: Error loading videos:", error);
+      // フォールバック: エラーの場合は既存のデータを返す
+      this.hasChanges = false;
+      return [...this.videos];
+    }
   }
 
-  // タグデータを読み込み
-  async loadTags() {
-    this.tags = await window.electronAPI.getTags();
-    return [...this.tags];
+  // タグデータを読み込み（差分取得対応）
+  async loadTags(forceReload = false) {
+    try {
+      if (!forceReload && this.lastLoadTime) {
+        // タグの場合は簡単な差分チェック（実装を簡素化するため、現在は全件取得）
+        console.log("VideoManager: Loading tags from database");
+      }
+
+      this.tags = await window.electronAPI.getTags();
+      return [...this.tags];
+    } catch (error) {
+      console.error("VideoManager: Error loading tags:", error);
+      return [...this.tags];
+    }
   }
 
-  // ディレクトリデータを読み込み
-  async loadDirectories() {
-    this.directories = await window.electronAPI.getDirectories();
-    return [...this.directories];
+  // ディレクトリデータを読み込み（差分取得対応）
+  async loadDirectories(forceReload = false) {
+    try {
+      if (!forceReload && this.lastLoadTime) {
+        // ディレクトリの場合は簡単な差分チェック（実装を簡素化するため、現在は全件取得）
+        console.log("VideoManager: Loading directories from database");
+      }
+
+      this.directories = await window.electronAPI.getDirectories();
+      return [...this.directories];
+    } catch (error) {
+      console.error("VideoManager: Error loading directories:", error);
+      return [...this.directories];
+    }
   }
 
   // ディレクトリを追加
@@ -232,13 +278,15 @@ export class VideoManager {
 
   // 動画追加イベントハンドラ
   async handleVideoAdded(filePath) {
-    await this.loadVideos();
+    // 新しい動画が追加された場合は強制リロード
+    await this.loadVideos(true);
     return filePath;
   }
 
   // 動画削除イベントハンドラ
   async handleVideoRemoved(filePath) {
-    await this.loadVideos();
+    // 動画が削除された場合は強制リロード
+    await this.loadVideos(true);
     return filePath;
   }
 
@@ -300,5 +348,21 @@ export class VideoManager {
     }
     console.warn("VideoManager - Video not found for update:", updatedVideo.id);
     return false;
+  }
+
+  // データに変更があったかどうかを確認
+  hasDataChanges() {
+    return this.hasChanges;
+  }
+
+  // 変更フラグをリセット
+  resetChangeFlag() {
+    this.hasChanges = false;
+  }
+
+  // キャッシュをクリア（強制リロード用）
+  clearCache() {
+    this.lastLoadTime = null;
+    this.hasChanges = true;
   }
 }

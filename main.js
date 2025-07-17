@@ -132,10 +132,11 @@ class MovieLibraryApp {
         if (!video) {
           throw new Error("Video not found");
         }
-        
+
         // Generate a new main thumbnail at a random position
-        const thumbnailResult = await this.thumbnailGenerator.regenerateMainThumbnail(video);
-        
+        const thumbnailResult =
+          await this.thumbnailGenerator.regenerateMainThumbnail(video);
+
         // Return the updated video data with new thumbnail path
         const updatedVideo = await this.db.getVideo(videoId);
         return {
@@ -143,8 +144,8 @@ class MovieLibraryApp {
           thumbnail_path: thumbnailResult.thumbnailPath,
           regeneration_info: {
             timestamp: thumbnailResult.timestamp,
-            formattedTimestamp: thumbnailResult.formattedTimestamp
-          }
+            formattedTimestamp: thumbnailResult.formattedTimestamp,
+          },
         };
       } catch (error) {
         console.error("Error regenerating main thumbnail:", error);
@@ -223,6 +224,11 @@ class MovieLibraryApp {
 
       return true;
     });
+
+    // Check if there are video updates since a specific time
+    ipcMain.handle("has-video-updates", async (event, lastCheckTime) => {
+      return await this.db.hasVideoUpdates(lastCheckTime);
+    });
   }
 
   async scanDirectory(directoryPath) {
@@ -264,20 +270,30 @@ class MovieLibraryApp {
   }
 
   async generateThumbnailsForVideos(videos) {
+    // 新規動画（サムネイル生成が必要な動画）のみフィルタリング
+    const newVideos = videos.filter(video => video.needsThumbnails);
+    
+    if (newVideos.length === 0) {
+      console.log("No new videos requiring thumbnail generation");
+      return;
+    }
+
+    console.log(`Generating thumbnails for ${newVideos.length} new videos`);
+    
     this.mainWindow.webContents.send("thumbnail-progress", {
       type: "thumbnail-start",
-      count: videos.length,
+      count: newVideos.length,
     });
 
     let completed = 0;
-    for (const video of videos) {
+    for (const video of newVideos) {
       try {
         await this.thumbnailGenerator.generateThumbnails(video);
         completed++;
         this.mainWindow.webContents.send("thumbnail-progress", {
           type: "thumbnail-progress",
           completed,
-          total: videos.length,
+          total: newVideos.length,
         });
       } catch (error) {
         console.error("Failed to generate thumbnail for:", video.path, error);
@@ -290,6 +306,40 @@ class MovieLibraryApp {
     });
   }
 
+  async generateThumbnailsForSingleVideo(video) {
+    try {
+      console.log("Generating thumbnails for single video:", video.path);
+
+      // サムネイル生成進行状況を通知
+      this.mainWindow.webContents.send("thumbnail-progress", {
+        type: "single-video-start",
+        videoPath: video.path,
+        videoTitle: video.title || video.filename,
+      });
+
+      await this.thumbnailGenerator.generateThumbnails(video);
+
+      // サムネイル生成完了を通知
+      this.mainWindow.webContents.send("thumbnail-progress", {
+        type: "single-video-complete",
+        videoPath: video.path,
+        videoTitle: video.title || video.filename,
+      });
+
+      console.log("Thumbnail generation completed for:", video.path);
+    } catch (error) {
+      console.error("Failed to generate thumbnails for single video:", video.path, error);
+
+      // エラーを通知
+      this.mainWindow.webContents.send("thumbnail-progress", {
+        type: "single-video-error",
+        videoPath: video.path,
+        videoTitle: video.title || video.filename,
+        error: error.message,
+      });
+    }
+  }
+
   startWatching(directoryPath) {
     if (this.watchers.has(directoryPath)) {
       return;
@@ -299,12 +349,22 @@ class MovieLibraryApp {
       ignored: /^\./,
       persistent: true,
       depth: 10,
-    });
-
-    watcher.on("add", async (filePath) => {
+    });    watcher.on("add", async (filePath) => {
       if (this.videoScanner.isVideoFile(filePath)) {
-        await this.videoScanner.processFile(filePath);
-        this.mainWindow.webContents.send("video-added", filePath);
+        try {
+          const video = await this.videoScanner.processFile(filePath);
+          this.mainWindow.webContents.send("video-added", filePath);
+          
+          // 新しく追加された動画で、サムネイル生成が必要な場合のみ実行
+          if (video && video.needsThumbnails) {
+            console.log("Auto-generating thumbnails for new video:", video.path);
+            await this.generateThumbnailsForSingleVideo(video);
+          } else if (video && !video.needsThumbnails) {
+            console.log("Video already has thumbnails, skipping generation:", video.path);
+          }
+        } catch (error) {
+          console.error("Error processing new video file:", filePath, error);
+        }
       }
     });
 

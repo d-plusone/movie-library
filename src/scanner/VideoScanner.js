@@ -100,7 +100,11 @@ class VideoScanner {
         existingVideo &&
         existingVideo.modified_at === stats.mtime.toISOString()
       ) {
-        return existingVideo;
+        return { 
+          ...existingVideo, 
+          isNewVideo: false,
+          needsThumbnails: false 
+        };
       }
 
       const metadata = await this.getVideoMetadata(filePath);
@@ -122,7 +126,14 @@ class VideoScanner {
       };
 
       const videoId = await this.db.addVideo(videoData);
-      return { id: videoId, ...videoData };
+      const isNewVideo = !existingVideo; // 既存動画がない場合は新規動画
+      
+      return { 
+        id: videoId, 
+        ...videoData, 
+        isNewVideo,
+        needsThumbnails: isNewVideo // 新規動画の場合はサムネイル生成が必要
+      };
     } catch (error) {
       console.error("Error processing video file:", filePath, error);
       throw error;
