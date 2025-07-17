@@ -2690,7 +2690,11 @@ class MovieLibraryApp {
     };
 
     // Add keyboard listener with high priority (capture phase)
-    document.addEventListener("keydown", this.thumbnailModalKeyboardHandler, true);
+    document.addEventListener(
+      "keydown",
+      this.thumbnailModalKeyboardHandler,
+      true
+    );
   }
 
   // Bulk Tag Apply Dialog methods
@@ -2748,10 +2752,10 @@ class MovieLibraryApp {
       headerContent.className = "tag-header-content";
 
       // タグ名
-      const tagNameDiv = document.createElement("div");
-      tagNameDiv.className = "tag-name-text";
-      tagNameDiv.textContent = tag.name;
-      headerContent.appendChild(tagNameDiv);
+      const tagNameSpan = document.createElement("span");
+      tagNameSpan.className = "video-tag";
+      tagNameSpan.textContent = tag.name;
+      headerContent.appendChild(tagNameSpan);
 
       // 全選択チェックボックスコンテナ
       const checkboxContainer = document.createElement("div");
@@ -2767,12 +2771,12 @@ class MovieLibraryApp {
       checkbox.addEventListener("change", (e) => {
         const isChecked = e.target.checked;
         const tagName = e.target.dataset.tagName;
-        
+
         // このタグの全てのチェックボックスを更新
         const tagCheckboxes = bulkTagApplyTable.querySelectorAll(
           `.tag-checkbox[data-tag-name="${tagName}"]`
         );
-        
+
         tagCheckboxes.forEach((cb) => {
           cb.checked = isChecked;
         });
@@ -2782,7 +2786,7 @@ class MovieLibraryApp {
       });
 
       checkboxContainer.appendChild(checkbox);
-      
+
       const label = document.createElement("span");
       label.textContent = "全選択";
       checkboxContainer.appendChild(label);
@@ -2806,14 +2810,15 @@ class MovieLibraryApp {
       const thumbnail = document.createElement("img");
       thumbnail.className = "bulk-dialog-thumbnail";
       thumbnail.alt = "サムネイル";
-      
+
       // サムネイルパスの設定（thumbnailPath と thumbnail_path の両方をチェック）
       const thumbPath = video.thumbnailPath || video.thumbnail_path;
       if (thumbPath && thumbPath !== "N/A") {
         thumbnail.src = `file://${thumbPath}`;
       } else {
         // デフォルト画像またはプレースホルダー
-        thumbnail.style.background = "linear-gradient(135deg, var(--bg-tertiary), var(--bg-primary))";
+        thumbnail.style.background =
+          "linear-gradient(135deg, var(--bg-tertiary), var(--bg-primary))";
         thumbnail.style.display = "flex";
         thumbnail.style.alignItems = "center";
         thumbnail.style.justifyContent = "center";
@@ -2825,7 +2830,8 @@ class MovieLibraryApp {
 
       // エラー時のフォールバック
       thumbnail.onerror = () => {
-        thumbnail.style.background = "linear-gradient(135deg, var(--bg-tertiary), var(--bg-primary))";
+        thumbnail.style.background =
+          "linear-gradient(135deg, var(--bg-tertiary), var(--bg-primary))";
         thumbnail.style.display = "flex";
         thumbnail.style.alignItems = "center";
         thumbnail.style.justifyContent = "center";
@@ -2896,7 +2902,9 @@ class MovieLibraryApp {
 
     if (!selectAllCheckbox || tagCheckboxes.length === 0) return;
 
-    const checkedCount = Array.from(tagCheckboxes).filter(cb => cb.checked).length;
+    const checkedCount = Array.from(tagCheckboxes).filter(
+      (cb) => cb.checked
+    ).length;
     const totalCount = tagCheckboxes.length;
 
     if (checkedCount === 0) {

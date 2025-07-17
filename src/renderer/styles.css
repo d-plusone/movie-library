@@ -2831,6 +2831,7 @@ list-view .video-thumbnail .thumbnail-indicator {
     font-weight: 600;
     text-align: center;
     line-height: 1.2;
+    color: var(--accent-color);
 }
 
 .select-all-checkbox-container {
@@ -2852,6 +2853,8 @@ list-view .video-thumbnail .thumbnail-indicator {
     height: 18px;
     cursor: pointer;
     transform: scale(1.2);
+    display: block;
+    margin: 0 auto;
 }
 
 /* 全選択チェックボックス用スタイル */
@@ -2860,6 +2863,8 @@ list-view .video-thumbnail .thumbnail-indicator {
     height: 16px;
     cursor: pointer;
     transform: scale(1.1);
+    display: block;
+    margin: 0 auto;
 }
 
 .bulk-tag-apply-btn {

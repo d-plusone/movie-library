@@ -55,6 +55,24 @@ class MovieLibraryApp {
 
     this.mainWindow.loadFile("src/renderer/index.html");
 
+    // 開発モードでのみキーボードショートカットで開発者ツールを開く
+    if (process.env.NODE_ENV === "development" || !app.isPackaged) {
+      this.mainWindow.webContents.on('before-input-event', (event, input) => {
+        // macOS: Cmd+Option+I または F12
+        if (process.platform === 'darwin' && 
+            ((input.meta && input.alt && input.key.toLowerCase() === 'i') || 
+             input.key === 'F12')) {
+          this.mainWindow.webContents.toggleDevTools();
+        }
+        // Windows/Linux: Ctrl+Shift+I または F12
+        else if (process.platform !== 'darwin' && 
+                 ((input.control && input.shift && input.key.toLowerCase() === 'i') || 
+                  input.key === 'F12')) {
+          this.mainWindow.webContents.toggleDevTools();
+        }
+      });
+    }
+
     // Development mode
     if (process.env.NODE_ENV === "development") {
       this.mainWindow.webContents.openDevTools();
@@ -98,26 +116,50 @@ class MovieLibraryApp {
             },
           ],
         },
-        {
-          label: "ウィンドウ",
+      ];
+
+      // 開発モードでのみ表示メニューを追加
+      if (process.env.NODE_ENV === "development" || !app.isPackaged) {
+        menuTemplate.push({
+          label: "表示",
           submenu: [
             {
-              label: "最小化",
-              accelerator: "Cmd+M",
+              label: "リロード",
+              accelerator: "Cmd+R",
               click: () => {
-                this.mainWindow.minimize();
+                this.mainWindow.webContents.reload();
               },
             },
             {
-              label: "閉じる",
-              accelerator: "Cmd+W",
+              label: "開発者ツール",
+              accelerator: "Cmd+Option+I",
               click: () => {
-                this.mainWindow.close();
+                this.mainWindow.webContents.toggleDevTools();
               },
             },
           ],
-        },
-      ];
+        });
+      }
+
+      menuTemplate.push({
+        label: "ウィンドウ",
+        submenu: [
+          {
+            label: "最小化",
+            accelerator: "Cmd+M",
+            click: () => {
+              this.mainWindow.minimize();
+            },
+          },
+          {
+            label: "閉じる",
+            accelerator: "Cmd+W",
+            click: () => {
+              this.mainWindow.close();
+            },
+          },
+        ],
+      });
 
       const menu = Menu.buildFromTemplate(menuTemplate);
       Menu.setApplicationMenu(menu);
@@ -145,6 +187,29 @@ class MovieLibraryApp {
           ],
         },
       ];
+
+      // 開発モードでのみ表示メニューを追加
+      if (process.env.NODE_ENV === "development" || !app.isPackaged) {
+        menuTemplate.push({
+          label: "表示",
+          submenu: [
+            {
+              label: "リロード",
+              accelerator: "Ctrl+R",
+              click: () => {
+                this.mainWindow.webContents.reload();
+              },
+            },
+            {
+              label: "開発者ツール",
+              accelerator: "Ctrl+Shift+I",
+              click: () => {
+                this.mainWindow.webContents.toggleDevTools();
+              },
+            },
+          ],
+        });
+      }
 
       const menu = Menu.buildFromTemplate(menuTemplate);
       Menu.setApplicationMenu(menu);
