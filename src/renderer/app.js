@@ -1210,6 +1210,25 @@ class MovieLibraryApp {
   }
 
   handleArrowKeys(e) {
+    // モーダルやダイアログが開いている場合は、グリッド/リストナビゲーションを無効にする
+    const thumbnailModal = document.getElementById("thumbnailModal");
+    const settingsModal = document.getElementById("settingsModal");
+    const tagEditDialog = document.getElementById("tagEditDialog");
+    const bulkTagApplyDialog = document.getElementById("bulkTagApplyDialog");
+    const errorDialog = document.getElementById("errorDialog");
+
+    if (
+      (thumbnailModal && thumbnailModal.style.display === "flex") ||
+      (settingsModal && settingsModal.style.display === "flex") ||
+      (tagEditDialog && tagEditDialog.style.display === "flex") ||
+      (bulkTagApplyDialog && bulkTagApplyDialog.style.display === "flex") ||
+      (errorDialog && errorDialog.style.display === "flex")
+    ) {
+      // 何らかのモーダル/ダイアログが開いている場合は何もしない
+      // 各モーダル/ダイアログ側のキーボードハンドラーが処理する
+      return;
+    }
+
     // Navigate through video grid
     const selectedIndex = this.uiRenderer.getSelectedVideoIndex();
     const totalVideos = this.filteredVideos.length;
@@ -2287,7 +2306,8 @@ class MovieLibraryApp {
     if (this.thumbnailModalKeyboardHandler) {
       document.removeEventListener(
         "keydown",
-        this.thumbnailModalKeyboardHandler
+        this.thumbnailModalKeyboardHandler,
+        true
       );
       this.thumbnailModalKeyboardHandler = null;
     }
@@ -2646,7 +2666,8 @@ class MovieLibraryApp {
     if (this.thumbnailModalKeyboardHandler) {
       document.removeEventListener(
         "keydown",
-        this.thumbnailModalKeyboardHandler
+        this.thumbnailModalKeyboardHandler,
+        true
       );
     }
 
@@ -2654,18 +2675,21 @@ class MovieLibraryApp {
     this.thumbnailModalKeyboardHandler = (e) => {
       if (e.key === "ArrowLeft") {
         e.preventDefault();
+        e.stopPropagation();
         this.showPreviousThumbnail();
       } else if (e.key === "ArrowRight") {
         e.preventDefault();
+        e.stopPropagation();
         this.showNextThumbnail();
       } else if (e.key === "Escape") {
         e.preventDefault();
+        e.stopPropagation();
         this.hideThumbnailModal();
       }
     };
 
-    // Add keyboard listener
-    document.addEventListener("keydown", this.thumbnailModalKeyboardHandler);
+    // Add keyboard listener with high priority (capture phase)
+    document.addEventListener("keydown", this.thumbnailModalKeyboardHandler, true);
   }
 
   // Bulk Tag Apply Dialog methods

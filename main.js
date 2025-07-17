@@ -417,10 +417,16 @@ app.whenReady().then(async () => {
     
     // Dockアイコンの設定
     const iconPath = path.join(__dirname, "assets", "icon.icns");
-    try {
-      app.dock.setIcon(iconPath);
-    } catch (error) {
-      console.warn("Failed to set dock icon:", error);
+    const fs = require("fs");
+    if (fs.existsSync(iconPath)) {
+      try {
+        app.dock.setIcon(iconPath);
+        console.log("Dock icon set successfully");
+      } catch (error) {
+        console.warn("Failed to set dock icon:", error);
+      }
+    } else {
+      console.warn("Icon file not found:", iconPath);
     }
   }
 
