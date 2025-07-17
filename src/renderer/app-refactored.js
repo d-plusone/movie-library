@@ -250,24 +250,26 @@ class MovieLibraryApp {
   initializeDialogEventListeners() {
     // Settings modal
     this.safeAddEventListener("closeSettingsBtn", "click", () => this.hideSettings());
+    this.safeAddEventListener("saveSettingsBtn", "click", () => this.saveSettings());
+    this.safeAddEventListener("cancelSettingsBtn", "click", () => this.hideSettings());
     this.safeAddEventListener("addDirectorySettingsBtn", "click", () => this.addDirectory());
     this.safeAddEventListener("rescanAllBtn", "click", () => this.rescanAll());
     this.safeAddEventListener("regenerateThumbnailsBtn", "click", () => this.regenerateThumbnails());
     this.safeAddEventListener("cleanupThumbnailsBtn", "click", () => this.cleanupThumbnails());
 
-    // Theme settings
-    this.safeAddEventListener("themeSelect", "change", (e) => {
-      this.themeManager.applyTheme(e.target.value);
-    });
+    // Theme settings (removed auto-save)
+    // this.safeAddEventListener("themeSelect", "change", (e) => {
+    //   this.themeManager.applyTheme(e.target.value);
+    // });
 
-    // Filter settings
-    this.safeAddEventListener("saveFilterState", "change", (e) => {
-      this.filterManager.setSaveFilterStateEnabled(e.target.checked);
-    });
+    // Filter settings (removed auto-save)
+    // this.safeAddEventListener("saveFilterState", "change", (e) => {
+    //   this.filterManager.setSaveFilterStateEnabled(e.target.checked);
+    // });
 
-    // Thumbnail settings
-    this.safeAddEventListener("thumbnailQuality", "change", () => this.updateThumbnailSettings());
-    this.safeAddEventListener("thumbnailSize", "change", () => this.updateThumbnailSettings());
+    // Thumbnail settings (removed auto-save)
+    // this.safeAddEventListener("thumbnailQuality", "change", () => this.updateThumbnailSettings());
+    // this.safeAddEventListener("thumbnailSize", "change", () => this.updateThumbnailSettings());
 
     // Modal backdrop clicks
     const settingsModal = document.getElementById("settingsModal");
@@ -421,7 +423,10 @@ class MovieLibraryApp {
           const index = parseInt(videoItem.dataset.index);
           const video = this.filteredVideos[index];
           if (video) {
-            this.uiRenderer.showVideoTooltip(e, video);
+            // Only show tooltip in list view
+            if (this.uiRenderer.getCurrentView() === 'list') {
+              this.uiRenderer.showVideoTooltip(e, video);
+            }
           }
         }
       }, true);
@@ -429,7 +434,10 @@ class MovieLibraryApp {
       videoList.addEventListener("mouseleave", (e) => {
         const videoItem = e.target.closest('.video-item');
         if (videoItem) {
-          this.uiRenderer.hideTooltip();
+          // Only hide tooltip in list view
+          if (this.uiRenderer.getCurrentView() === 'list') {
+            this.uiRenderer.hideTooltip();
+          }
         }
       }, true);
     }
@@ -807,6 +815,13 @@ class MovieLibraryApp {
       console.log("showSettings - checkbox element not found");
     }
     
+    // テーマ設定の状態を復元
+    const themeSelect = DOMUtils.getElementById("themeSelect");
+    if (themeSelect) {
+      themeSelect.value = this.themeManager.getCurrentTheme() || 'system';
+      console.log("showSettings - theme select updated to:", themeSelect.value);
+    }
+    
     const modal = DOMUtils.getElementById("settingsModal");
     console.log("Settings modal element found:", !!modal);
     if (modal) {
@@ -850,6 +865,11 @@ class MovieLibraryApp {
       if (settingsStr) {
         const settings = JSON.parse(settingsStr);
         this.filterManager.setSaveFilterStateEnabled(settings.saveFilterState !== false);
+        
+        // テーマ設定の復元
+        if (settings.theme) {
+          this.themeManager.applyTheme(settings.theme);
+        }
       }
     } catch (error) {
       console.error("Error loading settings:", error);
@@ -858,19 +878,31 @@ class MovieLibraryApp {
 
   saveSettings() {
     try {
+      // フィルター設定の保存
       const saveFilterCheckbox = DOMUtils.getElementById("saveFilterState");
       if (saveFilterCheckbox) {
         const enabled = saveFilterCheckbox.checked;
         this.filterManager.setSaveFilterStateEnabled(enabled);
-        
-        // 設定をlocalStorageに保存
-        localStorage.setItem('movieLibrarySettings', JSON.stringify({
-          saveFilterState: enabled
-        }));
-        
-        this.notificationManager.show("設定を保存しました", "success");
       }
       
+      // テーマ設定の保存
+      const themeSelect = DOMUtils.getElementById("themeSelect");
+      if (themeSelect) {
+        this.themeManager.applyTheme(themeSelect.value);
+      }
+      
+      // サムネイル設定は自動保存されているが、確認のため一度実行
+      this.updateThumbnailSettings();
+      
+      // すべての設定をlocalStorageに保存
+      const settings = {
+        saveFilterState: saveFilterCheckbox?.checked !== false,
+        theme: themeSelect?.value || 'system'
+      };
+      
+      localStorage.setItem('movieLibrarySettings', JSON.stringify(settings));
+      
+      this.notificationManager.show("設定を保存しました", "success");
       this.hideSettings();
     } catch (error) {
       console.error("Error saving settings:", error);

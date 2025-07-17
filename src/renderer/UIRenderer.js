@@ -189,16 +189,143 @@ export class UIRenderer {
     const thumbnailDiv = document.createElement("div");
     thumbnailDiv.className = "video-thumbnail";
 
-    const thumbnailImg = document.createElement("img");
-    thumbnailImg.src = thumbnailSrc;
-    thumbnailImg.alt = video.title;
-    thumbnailImg.loading = "lazy";
+    // Check if current view is grid view
+    const isGridView = this.currentView === "grid";
+    
+    if (isGridView) {
+      // Create thumbnail cycling container for grid view
+      const cycleContainer = document.createElement("div");
+      cycleContainer.className = "thumbnail-cycle";
+      
+      // Prepare thumbnail images (main + chapters)
+      const thumbnails = [
+        { src: thumbnailSrc, label: "メイン" }
+      ];
+      
+      // Add chapter thumbnails if available (up to 5)
+      if (video.chapter_thumbnails) {
+        let chapters = [];
+        
+        if (Array.isArray(video.chapter_thumbnails)) {
+          chapters = video.chapter_thumbnails;
+        } else if (typeof video.chapter_thumbnails === 'string') {
+          try {
+            const parsed = JSON.parse(video.chapter_thumbnails);
+            if (Array.isArray(parsed)) {
+              chapters = parsed;
+            } else if (typeof parsed === 'object' && parsed !== null) {
+              chapters = Object.values(parsed).filter(item => 
+                item && typeof item === 'object' && (item.path || item.thumbnail_path)
+              );
+            }
+          } catch (error) {
+            console.warn("Failed to parse chapter_thumbnails:", error);
+          }
+        } else if (typeof video.chapter_thumbnails === 'object' && video.chapter_thumbnails !== null) {
+          chapters = Object.values(video.chapter_thumbnails).filter(item => 
+            item && typeof item === 'object' && (item.path || item.thumbnail_path)
+          );
+        }
+        
+        // Add valid chapter thumbnails (up to 5)
+        const validChapters = chapters.filter(item => 
+          item && typeof item === 'object' && (item.path || item.thumbnail_path)
+        ).slice(0, 5);
+        
+        validChapters.forEach((chapter, index) => {
+          const chapterPath = chapter.path || chapter.thumbnail_path;
+          if (chapterPath) {
+            thumbnails.push({
+              src: `file://${chapterPath}?t=${Date.now()}`,
+              label: `チャプター ${index + 1}`
+            });
+          }
+        });
+      }
+      
+      // Create thumbnail images
+      thumbnails.forEach((thumb, index) => {
+        const img = document.createElement("img");
+        img.src = thumb.src;
+        img.alt = `${video.title} - ${thumb.label}`;
+        img.loading = "lazy";
+        img.className = `thumbnail-image ${index === 0 ? 'active' : ''}`;
+        img.dataset.index = index;
+        cycleContainer.appendChild(img);
+      });
+      
+      // Create indicator dots if more than one thumbnail
+      if (thumbnails.length > 1) {
+        const indicatorContainer = document.createElement("div");
+        indicatorContainer.className = "thumbnail-indicator";
+        
+        thumbnails.forEach((_, index) => {
+          const dot = document.createElement("div");
+          dot.className = `indicator-dot ${index === 0 ? 'active' : ''}`;
+          dot.dataset.index = index;
+          indicatorContainer.appendChild(dot);
+        });
+        
+        thumbnailDiv.appendChild(indicatorContainer);
+        
+        // Add cycling functionality
+        let currentIndex = 0;
+        let cycleInterval = null;
+        
+        // Auto-cycle on hover
+        thumbnailDiv.addEventListener('mouseenter', () => {
+          if (thumbnails.length > 1) {
+            cycleInterval = setInterval(() => {
+              currentIndex = (currentIndex + 1) % thumbnails.length;
+              this.updateThumbnailDisplay(cycleContainer, indicatorContainer, currentIndex);
+            }, 800);
+          }
+        });
+        
+        // Stop cycling on mouse leave
+        thumbnailDiv.addEventListener('mouseleave', () => {
+          if (cycleInterval) {
+            clearInterval(cycleInterval);
+            cycleInterval = null;
+          }
+          // Reset to main thumbnail
+          currentIndex = 0;
+          this.updateThumbnailDisplay(cycleContainer, indicatorContainer, 0);
+        });
+        
+        // Click on dots to manually select
+        indicatorContainer.addEventListener('click', (e) => {
+          if (e.target.classList.contains('indicator-dot')) {
+            e.stopPropagation();
+            currentIndex = parseInt(e.target.dataset.index);
+            this.updateThumbnailDisplay(cycleContainer, indicatorContainer, currentIndex);
+            
+            // Reset auto-cycle
+            if (cycleInterval) {
+              clearInterval(cycleInterval);
+              cycleInterval = setInterval(() => {
+                currentIndex = (currentIndex + 1) % thumbnails.length;
+                this.updateThumbnailDisplay(cycleContainer, indicatorContainer, currentIndex);
+              }, 800);
+            }
+          }
+        });
+      }
+      
+      thumbnailDiv.appendChild(cycleContainer);
+    } else {
+      // List view - use simple thumbnail
+      const thumbnailImg = document.createElement("img");
+      thumbnailImg.src = thumbnailSrc;
+      thumbnailImg.alt = video.title;
+      thumbnailImg.loading = "lazy";
+      thumbnailDiv.appendChild(thumbnailImg);
+    }
 
     const durationDiv = document.createElement("div");
     durationDiv.className = "video-duration";
     durationDiv.textContent = duration;
 
-    thumbnailDiv.appendChild(thumbnailImg);
     thumbnailDiv.appendChild(durationDiv);
 
     // Assemble the complete video element
@@ -609,14 +736,16 @@ export class UIRenderer {
     const img = document.createElement("img");
     img.src = video.thumbnail_path ? `file://${video.thumbnail_path}` : "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIwIiBoZWlnaHQ9IjE4MCIgdmlld0JveD0iMCAwIDMyMCAxODAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMjAiIGhlaWdodD0iMTgwIiBmaWxsPSIjRjVGNUY3Ii8+CjxwYXRoIGQ9Ik0xMjggNzJMMTkyIDEwOEwxMjggMTQ0VjcyWiIgZmlsbD0iIzk5OTk5OSIvPgo8L3N2Zz4K";
     img.alt = video.title || video.filename;
-    img.style.maxWidth = "200px";
-    img.style.maxHeight = "120px";
+    img.style.width = "100%";
+    img.style.maxWidth = "248px";
+    img.style.height = "auto";
+    img.style.aspectRatio = "16/9";
     img.style.objectFit = "cover";
-    img.style.borderRadius = "4px";
+    img.style.borderRadius = "6px";
     img.style.display = "block";
     img.style.marginBottom = "8px";
     
-    // 情報（時間、サイズ、評価のみ）
+    // 情報（時間、サイズ、評価を縦に配置）
     const infoDiv = document.createElement("div");
     const info = [];
     if (video.duration) {
@@ -628,9 +757,11 @@ export class UIRenderer {
     if (video.rating > 0) {
       info.push(`評価: ${"★".repeat(video.rating)}${"☆".repeat(5 - video.rating)}`);
     }
-    infoDiv.textContent = info.join(" | ");
-    infoDiv.style.fontSize = "12px";
+    infoDiv.innerHTML = info.join("<br>");
+    infoDiv.style.fontSize = "11px";
     infoDiv.style.textAlign = "center";
+    infoDiv.style.lineHeight = "1.4";
+    infoDiv.style.color = "#ccc";
     
     // ツールチップに追加
     tooltip.appendChild(img);
@@ -689,24 +820,27 @@ export class UIRenderer {
       
       // チャプター番号表示
       const chapterInfo = document.createElement("div");
-      chapterInfo.style.fontSize = "10px";
+      chapterInfo.style.fontSize = "11px";
       chapterInfo.style.textAlign = "center";
-      chapterInfo.style.marginBottom = "4px";
+      chapterInfo.style.marginBottom = "6px";
       chapterInfo.style.color = "#ccc";
+      chapterInfo.style.fontWeight = "500";
       chapterInfo.textContent = thumbnail.label;
       
       // サムネイル画像を作成
       const img = document.createElement("img");
       img.src = `file://${thumbnail.path}`;
       img.alt = thumbnail.label;
-      img.style.maxWidth = "200px";
-      img.style.maxHeight = "120px";
+      img.style.width = "100%";
+      img.style.maxWidth = "248px";
+      img.style.height = "auto";
+      img.style.aspectRatio = "16/9";
       img.style.objectFit = "cover";
-      img.style.borderRadius = "4px";
+      img.style.borderRadius = "6px";
       img.style.display = "block";
       img.style.marginBottom = "8px";
       
-      // 情報（時間、サイズ、評価のみ）
+      // 情報（時間、サイズ、評価を縦に配置）
       const infoDiv = document.createElement("div");
       const info = [];
       if (video.duration) {
@@ -718,9 +852,11 @@ export class UIRenderer {
       if (video.rating > 0) {
         info.push(`評価: ${"★".repeat(video.rating)}${"☆".repeat(5 - video.rating)}`);
       }
-      infoDiv.textContent = info.join(" | ");
-      infoDiv.style.fontSize = "12px";
+      infoDiv.innerHTML = info.join("<br>");
+      infoDiv.style.fontSize = "11px";
       infoDiv.style.textAlign = "center";
+      infoDiv.style.lineHeight = "1.4";
+      infoDiv.style.color = "#ccc";
       
       // ツールチップに追加
       tooltip.appendChild(chapterInfo);
@@ -743,199 +879,58 @@ export class UIRenderer {
     this.setupTooltipDisplay(tooltip, event);
   }
 
-  // ツールチップの表示設定と位置調整
-  setupTooltipDisplay(tooltip, event) {
-    // ツールチップのスタイルを設定
-    tooltip.style.display = "block";
-    tooltip.style.position = "fixed";
-    tooltip.style.zIndex = "9999";
-    tooltip.style.backgroundColor = "rgba(0, 0, 0, 0.9)";
-    tooltip.style.color = "white";
-    tooltip.style.padding = "12px";
-    tooltip.style.borderRadius = "8px";
-    tooltip.style.fontSize = "12px";
-    tooltip.style.pointerEvents = "none";
-    tooltip.style.maxWidth = "220px";
-    
-    // マウス位置に追従
-    const updatePosition = (e) => {
-      const tooltipRect = tooltip.getBoundingClientRect();
-      const viewportWidth = window.innerWidth;
-      const viewportHeight = window.innerHeight;
-      
-      let left = e.clientX + 15;
-      let top = e.clientY - tooltipRect.height - 15;
-      
-      // 右端チェック
-      if (left + tooltipRect.width > viewportWidth) {
-        left = e.clientX - tooltipRect.width - 15;
-      }
-      
-      // 下端チェック（上に表示できない場合は下に）
-      if (top < 0) {
-        top = e.clientY + 15;
-      }
-      
-      // 左端チェック
-      if (left < 0) {
-        left = 10;
-      }
-      
-      // 下端チェック（下に表示した場合）
-      if (top + tooltipRect.height > viewportHeight) {
-        top = viewportHeight - tooltipRect.height - 10;
-      }
-      
-      tooltip.style.left = left + "px";
-      tooltip.style.top = top + "px";
-    };
-    
-    updatePosition(event);
-    
-    // Store the update function for later removal
-    tooltip._updatePosition = updatePosition;
-    document.addEventListener("mousemove", updatePosition);
-  }
-
-  // チャプターサムネイル用のツールチップ表示メソッド（切り替え可能）
-
-
-  // ツールチップ表示メソッド
-  showTooltip(event, text) {
-    const tooltip = document.getElementById("videoTooltip");
-    if (!tooltip) return;
-
-    tooltip.textContent = text;
-    tooltip.style.display = "block";
-    tooltip.style.position = "fixed";
-    tooltip.style.zIndex = "9999";
-    tooltip.style.backgroundColor = "rgba(0, 0, 0, 0.9)";
-    tooltip.style.color = "white";
-    tooltip.style.padding = "8px 12px";
-    tooltip.style.borderRadius = "4px";
-    tooltip.style.fontSize = "12px";
-    tooltip.style.whiteSpace = "nowrap";
-    tooltip.style.pointerEvents = "none";
-    
-    // マウス位置に追従
-    const updatePosition = (e) => {
-      const tooltipRect = tooltip.getBoundingClientRect();
-      const viewportWidth = window.innerWidth;
-      const viewportHeight = window.innerHeight;
-      
-      let left = e.clientX + 10;
-      let top = e.clientY - tooltipRect.height - 10;
-      
-      // 右端チェック
-      if (left + tooltipRect.width > viewportWidth) {
-        left = e.clientX - tooltipRect.width - 10;
-      }
-      
-      // 下端チェック（上に表示できない場合は下に）
-      if (top < 0) {
-        top = e.clientY + 10;
-      }
-      
-      // 左端チェック
-      if (left < 0) {
-        left = 10;
-      }
-      
-      // 下端チェック（下に表示した場合）
-      if (top + tooltipRect.height > viewportHeight) {
-        top = viewportHeight - tooltipRect.height - 10;
-      }
-      
-      tooltip.style.left = left + "px";
-      tooltip.style.top = top + "px";
-    };
-    
-    updatePosition(event);
-    
-    // Store the update function for later removal
-    tooltip._updatePosition = updatePosition;
-    document.addEventListener("mousemove", updatePosition);
-  }
-
+  // ツールチップを非表示にする
   hideTooltip() {
     const tooltip = document.getElementById("videoTooltip");
     if (!tooltip) return;
 
-    tooltip.style.display = "none";
-    tooltip.style.pointerEvents = "none"; // ツールチップを非表示時にクリック不可にする
-    
-    // Remove the mousemove listener if it exists
-    if (tooltip._updatePosition) {
-      document.removeEventListener("mousemove", tooltip._updatePosition);
-      tooltip._updatePosition = null;
-    }
-    
-    // Clear auto-switch interval if it exists
+    // インターバルをクリア
     if (tooltip._autoSwitchInterval) {
       clearInterval(tooltip._autoSwitchInterval);
       tooltip._autoSwitchInterval = null;
     }
-    
-    // Clear current video ID
-    tooltip._currentVideoId = null;
+
+    // マウス移動イベントリスナーを削除
+    if (tooltip._updatePosition) {
+      document.removeEventListener("mousemove", tooltip._updatePosition);
+      tooltip._updatePosition = null;
+    }
+
+    // ツールチップを非表示
+    tooltip.style.display = "none";
+    tooltip.innerHTML = "";
   }
 
-  // ビデオ数を更新
-  updateVideoCount(count) {
-    const countElement = document.getElementById("videoCount");
-    if (countElement) {
-      countElement.textContent = `${count}件の動画`;
-    }
-  }
-
-  // 詳細パネルのタグ表示を更新
-  updateDetailsTagsDisplay(tags) {
-    console.log("updateDetailsTagsDisplay called with tags:", tags);
-    const tagsContainer = document.getElementById("detailsTagsList");
-    if (!tagsContainer) {
-      console.warn("updateDetailsTagsDisplay: detailsTagsList container not found");
-      return;
-    }
+  // サムネイル表示を更新する（グリッドビュー用）
+  updateThumbnailDisplay(cycleContainer, indicatorContainer, activeIndex) {
+    // Update thumbnail images
+    const images = cycleContainer.querySelectorAll('.thumbnail-image');
+    images.forEach((img, index) => {
+      img.classList.toggle('active', index === activeIndex);
+    });
     
-    console.log("updateDetailsTagsDisplay: Clearing existing tags");
-    tagsContainer.innerHTML = "";
-    
-    if (tags && tags.length > 0) {
-      console.log("updateDetailsTagsDisplay: Rendering", tags.length, "tags");
-      tags.forEach(tag => {
-        const tagElement = document.createElement("span");
-        tagElement.className = "video-tag details-tag";
-        tagElement.innerHTML = `
-          ${FormatUtils.escapeHtml(tag)}
-          <button class="remove-tag-btn" data-tag="${FormatUtils.escapeHtml(tag)}" title="タグを削除">×</button>
-        `;
-        tagsContainer.appendChild(tagElement);
-        console.log("updateDetailsTagsDisplay: Added tag element for:", tag);
+    // Update indicator dots
+    if (indicatorContainer) {
+      const dots = indicatorContainer.querySelectorAll('.indicator-dot');
+      dots.forEach((dot, index) => {
+        dot.classList.toggle('active', index === activeIndex);
       });
-    } else {
-      console.log("updateDetailsTagsDisplay: No tags to display");
     }
-    console.log("updateDetailsTagsDisplay: Complete");
   }
 
-  // タグのオートコンプリート候補を更新
+  // タグサジェスチョンを更新
   updateTagSuggestions(allTags) {
-    console.log("updateTagSuggestions: Updating with", allTags.length, "tags");
-    console.log("updateTagSuggestions: Tags data:", allTags);
-    
     const datalist = document.getElementById("tagSuggestions");
     if (!datalist) {
-      console.warn("updateTagSuggestions: tagSuggestions datalist not found");
+      console.log("updateTagSuggestions: datalist element not found");
       return;
     }
     
-    console.log("updateTagSuggestions: Found datalist element");
-    
-    // 既存のオプションをクリア
+    // Clear existing options
     datalist.innerHTML = "";
     console.log("updateTagSuggestions: Cleared existing options");
     
-    // 全てのタグをオプションとして追加
+    // Add new options
     allTags.forEach((tag, index) => {
       const option = document.createElement("option");
       option.value = tag.name;
@@ -945,5 +940,55 @@ export class UIRenderer {
     });
     
     console.log("updateTagSuggestions: Updated autocomplete with", allTags.length, "suggestions");
+  }
+
+  // ツールチップの表示設定を行う
+  setupTooltipDisplay(tooltip, event) {
+    // ツールチップを一時的に表示してサイズを測定
+    tooltip.style.display = "block";
+    tooltip.style.visibility = "hidden";
+    tooltip.style.left = "0px";
+    tooltip.style.top = "0px";
+    
+    // ツールチップの位置を設定
+    const updatePosition = (e) => {
+      const mouseX = e.clientX;
+      const mouseY = e.clientY;
+      const tooltipRect = tooltip.getBoundingClientRect();
+      const windowWidth = window.innerWidth;
+      const windowHeight = window.innerHeight;
+      
+      // 画面端からの距離を考慮して位置を調整
+      let left = mouseX + 15;
+      let top = mouseY - tooltipRect.height / 2;
+      
+      // 右端チェック
+      if (left + tooltipRect.width > windowWidth - 20) {
+        left = mouseX - tooltipRect.width - 15;
+      }
+      
+      // 上端チェック
+      if (top < 20) {
+        top = 20;
+      }
+      
+      // 下端チェック
+      if (top + tooltipRect.height > windowHeight - 20) {
+        top = windowHeight - tooltipRect.height - 20;
+      }
+      
+      tooltip.style.left = `${left}px`;
+      tooltip.style.top = `${top}px`;
+    };
+    
+    // 初回位置設定
+    updatePosition(event);
+    
+    // ツールチップを表示（visibility を visible に戻す）
+    tooltip.style.visibility = "visible";
+    
+    // マウス移動時の位置更新
+    tooltip._updatePosition = updatePosition;
+    document.addEventListener("mousemove", updatePosition);
   }
 }
