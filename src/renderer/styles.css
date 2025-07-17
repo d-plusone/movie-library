@@ -2275,3 +2275,40 @@ list-view .video-thumbnail .thumbnail-indicator {
 [data-theme="dark"] .grid-view .video-thumbnail .indicator-dot:hover {
     background: rgba(255, 255, 255, 0.7);
 }
+
+/* Setting button groups */
+.setting-button-group {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+    flex-wrap: wrap;
+}
+
+.setting-button-group .btn {
+    flex: 1;
+    min-width: 150px;
+    font-size: 13px;
+    padding: 8px 12px;
+    justify-content: center;
+}
+
+/* Better spacing for setting items with buttons */
+.setting-item:has(button) {
+    margin-bottom: 20px;
+}
+
+.setting-item button:not(.setting-button-group .btn) {
+    width: 100%;
+    margin-top: 8px;
+    font-size: 13px;
+    padding: 10px 16px;
+    justify-content: center;
+}
+
+.setting-item label:not(:has(.setting-checkbox)) {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 6px;
+    text-transform: none;
+}

@@ -327,19 +327,35 @@
                     </div>
 
                     <div class="settings-section">
-                        <h3>データベース</h3>
-                        <button id="rescanAllBtn" class="btn btn-secondary">
-                            <span class="icon">🔄</span>
-                            全ての動画を再スキャン
-                        </button>
-                        <button id="regenerateThumbnailsBtn" class="btn btn-secondary">
-                            <span class="icon">🖼️</span>
-                            全てのサムネイルを再生成
-                        </button>
-                        <button id="cleanupThumbnailsBtn" class="btn btn-secondary">
-                            <span class="icon">🗑️</span>
-                            不要なサムネイルを削除
-                        </button>
+                        <h3>データベース操作</h3>
+                        
+                        <div class="setting-item">
+                            <label>スキャン操作</label>
+                            <div class="setting-description">
+                                動画ファイルの情報を再読み込みします
+                            </div>
+                            <button id="rescanAllBtn" class="btn btn-secondary">
+                                <span class="icon">🔄</span>
+                                全ての動画を再スキャン
+                            </button>
+                        </div>
+
+                        <div class="setting-item">
+                            <label>サムネイル操作</label>
+                            <div class="setting-description">
+                                サムネイル画像の生成と管理を行います
+                            </div>
+                            <div class="setting-button-group">
+                                <button id="regenerateThumbnailsBtn" class="btn btn-secondary">
+                                    <span class="icon">🖼️</span>
+                                    全て再生成
+                                </button>
+                                <button id="cleanupThumbnailsBtn" class="btn btn-secondary">
+                                    <span class="icon">🗑️</span>
+                                    不要な画像を削除
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
                 <div class="modal-actions">
