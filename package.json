@@ -16,6 +16,9 @@
         "dist": "electron-builder --publish=never",
         "release": "electron-builder --publish=always",
         "clean": "rimraf dist node_modules/.cache",
+        "version:patch": "npm version patch && git push --follow-tags",
+        "version:minor": "npm version minor && git push --follow-tags",
+        "version:major": "npm version major && git push --follow-tags",
         "postinstall": "electron-builder install-app-deps",
         "rebuild": "npm rebuild sqlite3 --build-from-source",
         "rebuild:electron": "npx electron-rebuild -f -w sqlite3"
@@ -111,6 +114,7 @@
             "hardenedRuntime": true,
             "entitlements": "build/entitlements.mac.plist",
             "entitlementsInherit": "build/entitlements.mac.plist",
+            "artifactName": "${productName}-${version}-${arch}.${ext}",
             "target": [
                 {
                     "target": "dmg",
@@ -123,6 +127,7 @@
         },
         "win": {
             "icon": "assets/icon.ico",
+            "artifactName": "${productName}-${version}-${arch}.${ext}",
             "target": [
                 {
                     "target": "nsis",

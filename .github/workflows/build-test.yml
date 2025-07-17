@@ -21,6 +21,24 @@ jobs:
       - name: Check out Git repository
         uses: actions/checkout@v4
 
+      - name: Extract version from tag (if exists)
+        id: get_version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            version=$(echo "$GITHUB_REF_NAME" | sed 's/^v//')
+            echo "VERSION=$version" >> $GITHUB_OUTPUT
+            echo "Tag version: $version"
+          else
+            echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+            echo "Tag version: ${GITHUB_REF_NAME#v}"
+          fi
+        shell: bash
+
+      - name: Update package.json version (if tag exists)
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: npm version ${{ steps.get_version.outputs.VERSION }} --no-git-tag-version
+
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:

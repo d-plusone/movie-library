@@ -20,6 +20,22 @@ jobs:
       - name: Check out Git repository
         uses: actions/checkout@v4
 
+      - name: Extract version from tag
+        id: get_version
+        run: |
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            version=$(echo "$GITHUB_REF_NAME" | sed 's/^v//')
+            echo "VERSION=$version" >> $GITHUB_OUTPUT
+            echo "Tag version: $version"
+          else
+            echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+            echo "Tag version: ${GITHUB_REF_NAME#v}"
+          fi
+        shell: bash
+
+      - name: Update package.json version
+        run: npm version ${{ steps.get_version.outputs.VERSION }} --no-git-tag-version
+
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
@@ -101,6 +117,13 @@ jobs:
       - name: Fallback manual sqlite3 rebuild
         run: npm run rebuild
         continue-on-error: true
+
+      - name: Verify version before build
+        shell: bash
+        run: |
+          echo "Building version: $(node -p "require('./package.json').version")"
+          echo "Git tag: ${{ github.ref }}"
+          echo "Extracted version: ${{ steps.get_version.outputs.VERSION }}"
 
       - name: Build/release Electron app (macOS)
         if: matrix.os == 'macos-latest'

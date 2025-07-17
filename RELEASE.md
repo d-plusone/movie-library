@@ -63,3 +63,50 @@ npm run build:all
 ### Windows用ビルドエラー
 - Visual Studio Build Toolsが必要
 - GitHub Actionsでは自動的にセットアップされます
+
+# バージョン管理とリリースプロセス
+
+## タグベースのバージョン管理
+
+GitHub Actionsはタグ名からバージョンを自動取得し、package.jsonを更新します。
+
+### 新しいリリースの作成方法
+
+#### 1. 自動バージョンアップとタグ作成（推奨）
+```bash
+# パッチバージョン (0.0.6 → 0.0.7)
+npm run version:patch
+
+# マイナーバージョン (0.0.6 → 0.1.0)
+npm run version:minor
+
+# メジャーバージョン (0.0.6 → 1.0.0)
+npm run version:major
+```
+
+#### 2. 手動でタグを作成
+```bash
+# package.jsonのバージョンを手動更新後
+git add package.json
+git commit -m "Bump version to 0.0.7"
+git tag v0.0.7
+git push origin main --tags
+```
+
+## GitHub Actionsでの自動処理
+
+1. **タグプッシュ検出**: `v*` パターンのタグがプッシュされると自動開始
+2. **バージョン抽出**: タグ名（`v0.0.7`）からバージョン（`0.0.7`）を抽出
+3. **package.json同期**: 抽出したバージョンでpackage.jsonを更新
+4. **ビルド実行**: 更新されたバージョンでアプリをビルド
+5. **アーティファクト生成**: バージョン付きファイル名で成果物を作成
+
+## 成果物の命名規則
+
+- **macOS**: `Movie Library-{version}-{arch}.dmg`
+- **Windows**: `Movie Library-{version}-{arch}.exe`
+
+例：
+- `Movie Library-0.0.7-arm64.dmg` (Apple Silicon)
+- `Movie Library-0.0.7-x64.dmg` (Intel Mac)
+- `Movie Library-0.0.7-x64.exe` (Windows)
