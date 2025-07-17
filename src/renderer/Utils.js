@@ -294,6 +294,39 @@ export class ThemeManager {
     // Save theme preference
     localStorage.setItem("theme", this.currentTheme);
     console.log("Theme saved to localStorage:", this.currentTheme);
+    
+    // プレースホルダー色の直接設定（CSSが効かない場合の対策）
+    this.updatePlaceholderColors();
+  }
+
+  updatePlaceholderColors() {
+    const tagInput = document.getElementById('tagInput');
+    if (tagInput) {
+      const isDark = document.body.getAttribute('data-theme') === 'dark';
+      if (isDark) {
+        // ダークモード時のプレースホルダー色を直接設定
+        tagInput.style.setProperty('--placeholder-color', 'rgba(136, 136, 136, 0.6)', 'important');
+        // インラインスタイルでも設定（確実性を高める）
+        tagInput.style.setProperty('color', 'var(--text-primary)', 'important');
+        console.log("Tag input placeholder color set for dark mode");
+      } else {
+        // ライトモード時のプレースホルダー色
+        tagInput.style.setProperty('--placeholder-color', 'var(--text-tertiary)', 'important');
+        tagInput.style.setProperty('color', 'var(--text-primary)', 'important');
+        console.log("Tag input placeholder color set for light mode");
+      }
+    }
+    
+    // 全ての入力要素にも適用
+    const allInputs = document.querySelectorAll('input[type="text"], textarea');
+    allInputs.forEach(input => {
+      const isDark = document.body.getAttribute('data-theme') === 'dark';
+      if (isDark) {
+        input.style.setProperty('--placeholder-color', 'rgba(136, 136, 136, 0.6)', 'important');
+      } else {
+        input.style.setProperty('--placeholder-color', 'var(--text-tertiary)', 'important');
+      }
+    });
   }
 
   applySystemTheme() {
@@ -307,6 +340,9 @@ export class ThemeManager {
       body.setAttribute('data-theme', 'light');
       console.log("System light theme applied");
     }
+    
+    // プレースホルダー色の更新
+    this.updatePlaceholderColors();
   }
 
   getCurrentTheme() {

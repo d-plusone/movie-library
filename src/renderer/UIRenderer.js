@@ -351,6 +351,25 @@ export class UIRenderer {
     });
   }
 
+  // サムネイル設定を読み込み・初期化
+  loadThumbnailSettings() {
+    // サムネイル品質設定の読み込み
+    const thumbnailQuality = localStorage.getItem('thumbnailQuality') || '3';
+    const qualitySelect = document.getElementById('thumbnailQuality');
+    if (qualitySelect) {
+      qualitySelect.value = thumbnailQuality;
+    }
+
+    // サムネイルサイズ設定の読み込み
+    const thumbnailSize = localStorage.getItem('thumbnailSize') || '1280x720';
+    const sizeSelect = document.getElementById('thumbnailSize');
+    if (sizeSelect) {
+      sizeSelect.value = thumbnailSize;
+    }
+
+    console.log('Thumbnail settings loaded:', { quality: thumbnailQuality, size: thumbnailSize });
+  }
+
   // 星評価表示を更新
   updateStarDisplay(rating, isHover = false) {
     const starElements = document.querySelectorAll('.rating-btn[data-rating]:not([data-rating="0"])');

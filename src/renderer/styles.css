@@ -184,6 +184,12 @@ body {
     border-radius: 50%;
     cursor: pointer;
     pointer-events: auto;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
 }
 
 .icon {
@@ -886,8 +892,100 @@ body {
     border: 1px solid var(--border-color);
     border-radius: 8px;
     font-size: 14px;
-    background: var(--bg-secondary);
+    background: var(--bg-secondary) !important;
+    color: var(--text-primary) !important;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    --placeholder-color: var(--text-tertiary);
+}
+
+.tag-input::placeholder {
+    color: var(--placeholder-color) !important;
+    opacity: 1 !important;
+}
+
+.tag-input::-webkit-input-placeholder {
+    color: var(--placeholder-color) !important;
+    opacity: 1 !important;
+}
+
+.tag-input::-moz-placeholder {
+    color: var(--placeholder-color) !important;
+    opacity: 1 !important;
+}
+
+.tag-input:focus {
+    outline: none;
+    border-color: var(--accent-color);
+    box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.1);
+}
+
+/* Force autofill background to match theme */
+.tag-input:-webkit-autofill,
+.tag-input:-webkit-autofill:hover,
+.tag-input:-webkit-autofill:focus {
+    -webkit-box-shadow: 0 0 0 1000px var(--bg-secondary) inset !important;
+    -webkit-text-fill-color: var(--text-primary) !important;
+    background-color: var(--bg-secondary) !important;
+    color: var(--text-primary) !important;
+    transition: background-color 5000s ease-in-out 0s;
+}
+
+[data-theme="dark"] .tag-input:-webkit-autofill,
+[data-theme="dark"] .tag-input:-webkit-autofill:hover,
+[data-theme="dark"] .tag-input:-webkit-autofill:focus {
+    -webkit-box-shadow: 0 0 0 1000px var(--bg-secondary) inset !important;
+    -webkit-text-fill-color: var(--text-primary) !important;
+    background-color: var(--bg-secondary) !important;
+    color: var(--text-primary) !important;
+}
+
+/* Datalist dropdown styling for dark mode */
+.tag-input::-webkit-list-button {
+    display: none;
+}
+
+/* ダークモード時のタグ入力プレースホルダー色設定 */
+[data-theme="dark"] .tag-input {
+    background-color: var(--bg-secondary) !important;
+    color: var(--text-primary) !important;
+    -webkit-text-fill-color: var(--text-primary) !important;
+    --placeholder-color: rgba(136, 136, 136, 0.5) !important;
+}
+
+[data-theme="dark"] .tag-input::placeholder {
+    color: rgba(136, 136, 136, 0.5) !important;
+    opacity: 1 !important;
+}
+
+[data-theme="dark"] .tag-input::-webkit-input-placeholder {
+    color: rgba(136, 136, 136, 0.5) !important;
+    opacity: 1 !important;
+}
+
+[data-theme="dark"] .tag-input::-moz-placeholder {
+    color: rgba(136, 136, 136, 0.5) !important;
+    opacity: 1 !important;
+}
+
+[data-theme="dark"] .tag-input:-ms-input-placeholder {
+    color: rgba(136, 136, 136, 0.5) !important;
+    opacity: 1 !important;
+}
+
+[data-theme="dark"] .tag-input::-ms-input-placeholder {
+    color: rgba(136, 136, 136, 0.5) !important;
+    opacity: 1 !important;
+}
+
+/* Style the datalist options */
+#tagSuggestions option {
+    background-color: var(--bg-secondary);
     color: var(--text-primary);
+}
+
+[data-theme="dark"] #tagSuggestions option {
+    background-color: var(--bg-secondary) !important;
+    color: var(--text-primary) !important;
 }
 
 .details-tags {
@@ -1123,13 +1221,14 @@ body {
     font-weight: bold;
     line-height: 1;
     padding: 4px;
-    border-radius: 4px;
+    border-radius: 50%;
     transition: all 0.2s ease;
-    min-width: 24px;
+    width: 24px;
     height: 24px;
     display: flex;
     align-items: center;
     justify-content: center;
+    flex-shrink: 0;
 }
 
 .notification-close:hover {
@@ -1849,7 +1948,7 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    border-radius: 4px;
+    border-radius: 50%;
 }
 
 .rating-btn.all-btn {
@@ -1912,7 +2011,7 @@ body {
 .sort-select:focus {
     outline: none;
     border-color: var(--accent-color);
-    box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.1);
+    box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.1);
 }
 
 /* Dark theme support for rating filter and sort */
@@ -1956,4 +2055,104 @@ body {
 /* Enhanced filter group spacing */
 .sidebar .filter-group:last-child {
     margin-bottom: 0;
+}
+
+/* Global input styling for consistent dark mode support */
+input, textarea, select {
+    background-color: var(--bg-secondary) !important;
+    color: var(--text-primary) !important;
+    border: 1px solid var(--border-color);
+}
+
+input:focus, textarea:focus, select:focus {
+    outline: none;
+    border-color: var(--accent-color);
+    box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.1);
+}
+
+/* Global placeholder styling */
+input::placeholder,
+textarea::placeholder {
+    color: var(--text-tertiary);
+    opacity: 1;
+}
+
+[data-theme="dark"] input::placeholder,
+[data-theme="dark"] textarea::placeholder {
+    color: rgba(136, 136, 136, 0.6) !important;
+    opacity: 1 !important;
+}
+
+/* WebKit系プレースホルダーの追加設定 */
+[data-theme="dark"] input::-webkit-input-placeholder,
+[data-theme="dark"] textarea::-webkit-input-placeholder {
+    color: rgba(136, 136, 136, 0.6) !important;
+    opacity: 1 !important;
+}
+
+[data-theme="dark"] input::-moz-placeholder,
+[data-theme="dark"] textarea::-moz-placeholder {
+    color: rgba(136, 136, 136, 0.6) !important;
+    opacity: 1 !important;
+}
+
+/* Dark mode specific input styling */
+[data-theme="dark"] input,
+[data-theme="dark"] textarea,
+[data-theme="dark"] select {
+    background-color: var(--bg-secondary) !important;
+    color: var(--text-primary) !important;
+    -webkit-text-fill-color: var(--text-primary) !important;
+}
+
+/* Prevent white flashes on input focus in dark mode */
+[data-theme="dark"] input:-webkit-autofill,
+[data-theme="dark"] input:-webkit-autofill:hover,
+[data-theme="dark"] input:-webkit-autofill:focus,
+[data-theme="dark"] textarea:-webkit-autofill,
+[data-theme="dark"] textarea:-webkit-autofill:hover,
+[data-theme="dark"] textarea:-webkit-autofill:focus {
+    -webkit-box-shadow: 0 0 0 1000px var(--bg-secondary) inset !important;
+    -webkit-text-fill-color: var(--text-primary) !important;
+    background-color: var(--bg-secondary) !important;
+    color: var(--text-primary) !important;
+    transition: background-color 5000s ease-in-out 0s;
+}
+
+/* 円形ボタンの統一的なアニメーション効果 */
+@keyframes rotate {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* 円形ボタンの共通ホバーエフェクト */
+.btn-icon:hover,
+.notification-close:hover,
+.rating-btn:hover {
+    transform: scale(1.1);
+}
+
+.btn-icon:active,
+.notification-close:active,
+.rating-btn:active {
+    transform: scale(0.95);
+}
+
+/* フォーカス時のアクセシビリティ向上 */
+.btn-icon:focus,
+.notification-close:focus,
+.rating-btn:focus {
+    outline: 2px solid var(--accent-color);
+    outline-offset: 2px;
+}
+
+/* ダークモード時のフォーカス色調整 */
+[data-theme="dark"] .btn-icon:focus,
+[data-theme="dark"] .notification-close:focus,
+[data-theme="dark"] .rating-btn:focus {
+    outline-color: var(--accent-color);
 }

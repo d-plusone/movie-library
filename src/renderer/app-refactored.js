@@ -64,7 +64,10 @@ class MovieLibraryApp {
     const element = document.getElementById(elementId);
     if (element && handler) {
       element.addEventListener(event, handler);
+      console.log(`Event listener added for ${elementId} - ${event}`);
       return true;
+    } else {
+      console.warn(`Failed to add event listener for ${elementId} - element found: ${!!element}, handler: ${!!handler}`);
     }
     return false;
   }
@@ -148,6 +151,19 @@ class MovieLibraryApp {
     this.safeAddEventListener("generateThumbnailsBtn", "click", () => this.regenerateThumbnails());
     this.safeAddEventListener("themeToggleBtn", "click", () => this.toggleTheme());
     this.safeAddEventListener("settingsBtn", "click", () => this.showSettings());
+    
+    // 設定ボタンを強制的に再設定（デバッグ用）
+    const settingsBtn = document.getElementById("settingsBtn");
+    if (settingsBtn) {
+      console.log("Settings button found, adding click listener manually");
+      settingsBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        console.log("Settings button clicked!");
+        this.showSettings();
+      });
+    } else {
+      console.error("Settings button not found in DOM!");
+    }
 
     // Search
     this.safeAddEventListener("searchInput", "input", (e) => this.handleSearch(e.target.value));
@@ -754,9 +770,33 @@ class MovieLibraryApp {
 
   // Settings and dialogs
   showSettings() {
+    console.log("showSettings called");
     const directories = this.videoManager.getDirectories();
     this.uiRenderer.renderSettingsDirectories(directories);
-    this.uiRenderer.loadThumbnailSettings();
+    
+    // サムネイル設定を読み込み（フォールバック付き）
+    if (typeof this.uiRenderer.loadThumbnailSettings === 'function') {
+      this.uiRenderer.loadThumbnailSettings();
+    } else {
+      console.warn("loadThumbnailSettings method not found, using fallback");
+      // フォールバック: 直接ローカルストレージから設定を読み込み
+      try {
+        const thumbnailQuality = localStorage.getItem('thumbnailQuality') || '3';
+        const qualitySelect = document.getElementById('thumbnailQuality');
+        if (qualitySelect) {
+          qualitySelect.value = thumbnailQuality;
+        }
+
+        const thumbnailSize = localStorage.getItem('thumbnailSize') || '1280x720';
+        const sizeSelect = document.getElementById('thumbnailSize');
+        if (sizeSelect) {
+          sizeSelect.value = thumbnailSize;
+        }
+        console.log('Fallback: Thumbnail settings loaded directly');
+      } catch (error) {
+        console.error('Error loading thumbnail settings:', error);
+      }
+    }
     
     // フィルター設定の状態を復元
     const saveFilterStateCheckbox = DOMUtils.getElementById("saveFilterState");
@@ -768,8 +808,10 @@ class MovieLibraryApp {
     }
     
     const modal = DOMUtils.getElementById("settingsModal");
+    console.log("Settings modal element found:", !!modal);
     if (modal) {
       modal.style.display = "flex";
+      console.log("Settings modal should now be visible");
     } else {
       console.error("Settings modal element not found");
     }
@@ -1229,6 +1271,9 @@ class MovieLibraryApp {
     
     // 評価星の表示を初期化
     this.updateRatingDisplay(this.currentVideo.rating || 0, false);
+    
+    // プレースホルダー色を確実に適用
+    this.themeManager.updatePlaceholderColors();
     
     console.log("showDetails: Complete");
   }
