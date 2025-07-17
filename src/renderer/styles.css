@@ -722,7 +722,8 @@ body {
 
 .main-thumbnail {
     width: 100%;
-    max-height: 400px; /* 最大高さを制限 */
+    max-height: 400px;
+    /* 最大高さを制限 */
     border-radius: 8px;
     overflow: hidden;
     margin-bottom: 12px;
@@ -730,7 +731,8 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    background: #000; /* 黒背景でレターボックス効果 */
+    background: #000;
+    /* 黒背景でレターボックス効果 */
 }
 
 .main-thumbnail img {
@@ -738,7 +740,8 @@ body {
     max-height: 100%;
     width: auto;
     height: auto;
-    object-fit: contain; /* アスペクト比を保持 */
+    object-fit: contain;
+    /* アスペクト比を保持 */
 }
 
 .refresh-thumbnail-btn {
@@ -799,8 +802,10 @@ body {
 }
 
 .chapter-thumbnail {
-    min-height: 60px; /* 最小高さを設定 */
-    max-height: 120px; /* 最大高さを制限 */
+    min-height: 60px;
+    /* 最小高さを設定 */
+    max-height: 120px;
+    /* 最大高さを制限 */
     border-radius: 4px;
     overflow: hidden;
     cursor: pointer;
@@ -808,7 +813,8 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    background: #000; /* 黒背景でレターボックス効果 */
+    background: #000;
+    /* 黒背景でレターボックス効果 */
 }
 
 .chapter-thumbnail:hover {
@@ -820,7 +826,8 @@ body {
     max-height: 100%;
     width: auto;
     height: auto;
-    object-fit: contain; /* アスペクト比を保持 */
+    object-fit: contain;
+    /* アスペクト比を保持 */
 }
 
 .info-group {
@@ -1433,7 +1440,8 @@ body {
 .tooltip-preview {
     position: relative;
     width: 100%;
-    max-height: 200px; /* 最大高さを制限 */
+    max-height: 200px;
+    /* 最大高さを制限 */
     border-radius: 8px;
     overflow: hidden;
     background: #000;
@@ -1448,7 +1456,8 @@ body {
     max-height: 100%;
     width: auto;
     height: auto;
-    object-fit: contain; /* アスペクト比を保持 */
+    object-fit: contain;
+    /* アスペクト比を保持 */
     transition: opacity 0.3s ease;
 }
 
@@ -1473,14 +1482,17 @@ body {
 
 .tooltip-chapter {
     position: relative;
-    min-height: 50px; /* 最小高さを設定 */
-    max-height: 100px; /* 最大高さを制限 */
+    min-height: 50px;
+    /* 最小高さを設定 */
+    max-height: 100px;
+    /* 最大高さを制限 */
     border-radius: 4px;
     overflow: hidden;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: #000; /* 黒背景でレターボックス効果 */
+    background: #000;
+    /* 黒背景でレターボックス効果 */
 }
 
 .tooltip-chapter img {
@@ -1488,7 +1500,8 @@ body {
     max-height: 100%;
     width: auto;
     height: auto;
-    object-fit: contain; /* アスペクト比を保持 */
+    object-fit: contain;
+    /* アスペクト比を保持 */
 }
 
 /* File extension display */
@@ -1940,7 +1953,8 @@ body {
 
 /* Rating Filter Styles */
 .filter-group {
-    margin-bottom: 20px;
+    margin-bottom: 28px;
+    /* より広いスペースを確保 */
 }
 
 .filter-group label {
@@ -2040,6 +2054,17 @@ body {
     outline: none;
     border-color: var(--accent-color);
     box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.1);
+}
+
+/* Sort-specific spacing improvements */
+.filter-group:has(.sort-select) {
+    margin-bottom: 32px;
+    /* ソートセクションに追加のスペース */
+}
+
+.filter-group .sort-select+.sort-select {
+    margin-top: 8px;
+    /* 連続するセレクトボックス間の距離 */
 }
 
 /* Dark theme support for rating filter and sort */
