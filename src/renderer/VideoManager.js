@@ -271,4 +271,18 @@ export class VideoManager {
   getDirectoryCount() {
     return this.directories.length;
   }
+
+  // ローカルの動画データを更新
+  updateLocalVideoData(updatedVideo) {
+    const index = this.videos.findIndex(video => video.id === updatedVideo.id);
+    if (index !== -1) {
+      // サムネイルパスが更新された場合、filteredVideosにも反映させるために完全に置換
+      this.videos[index] = { ...this.videos[index], ...updatedVideo };
+      console.log("VideoManager - Local video data updated for video:", updatedVideo.id);
+      console.log("VideoManager - Updated thumbnail_path:", updatedVideo.thumbnail_path);
+      return this.videos[index];
+    }
+    console.warn("VideoManager - Video not found for update:", updatedVideo.id);
+    return false;
+  }
 }

@@ -983,6 +983,16 @@ class MovieLibraryApp {
       this.uiRenderer.setSelectedVideoIndex(newIndex);
       this.uiRenderer.highlightSelectedVideo();
       this.scrollToSelectedVideo();
+      
+      // 詳細パネルが開いている場合は、選択された動画の詳細を更新
+      const detailsPanel = document.getElementById("detailsPanel");
+      if (detailsPanel && detailsPanel.style.display !== "none") {
+        const selectedVideo = this.filteredVideos[newIndex];
+        if (selectedVideo) {
+          this.showDetails(selectedVideo);
+        }
+      }
+      
       e.preventDefault();
     }
   }
@@ -1702,17 +1712,82 @@ class MovieLibraryApp {
     if (!this.currentVideo) return;
     
     try {
-      await window.electronAPI.regenerateThumbnail(this.currentVideo.filePath);
+      const updatedVideo = await window.electronAPI.regenerateMainThumbnail(this.currentVideo.id);
       this.notificationManager.show("サムネイルを更新しました", "success");
       
-      // ビデオリストを更新
+      // 現在のビデオを更新し、ローカルデータも更新
+      this.currentVideo = updatedVideo;
+      const updatedLocalVideo = this.videoManager.updateLocalVideoData(updatedVideo);
+      
+      // filteredVideosも更新
+      const filteredIndex = this.filteredVideos.findIndex(video => video.id === updatedVideo.id);
+      if (filteredIndex !== -1) {
+        this.filteredVideos[filteredIndex] = { ...this.filteredVideos[filteredIndex], ...updatedVideo };
+        console.log("Updated filteredVideos entry:", this.filteredVideos[filteredIndex]);
+        console.log("Updated thumbnail_path:", this.filteredVideos[filteredIndex].thumbnail_path);
+      } else {
+        console.warn("Video not found in filteredVideos:", updatedVideo.id);
+      }
+      
+      // キャッシュをクリアしてサムネイルを強制的に更新
+      const timestamp = Date.now();
+      
+      // 即座にサムネイルを強制更新
+      this.forceUpdateThumbnails(updatedVideo, timestamp);
+      
+      // ビデオリストとサイドバーを再描画
       setTimeout(() => {
         this.renderVideoList();
-      }, 500);
+        this.renderSidebar();
+        
+        // レンダリング後に再度サムネイル更新を確実に実行
+        setTimeout(() => {
+          this.forceUpdateThumbnails(updatedVideo, timestamp);
+        }, 50);
+        
+        // 詳細パネルが開いている場合は更新
+        const detailsPanel = document.getElementById("detailsPanel");
+        if (detailsPanel && detailsPanel.style.display !== "none" && this.currentVideo) {
+          // 詳細パネルを再描画
+          this.showDetails(this.currentVideo);
+        }
+      }, 100);
     } catch (error) {
       console.error("Error refreshing thumbnail:", error);
       this.showErrorDialog("サムネイルの更新に失敗しました", error);
     }
+  }
+
+  // グリッド/リスト表示のサムネイルを強制更新
+  forceUpdateThumbnails(updatedVideo, timestamp) {
+    console.log("forceUpdateThumbnails called for video:", updatedVideo?.id, "timestamp:", timestamp);
+    
+    // 現在表示されている動画アイテムのサムネイルを更新
+    const videoItems = document.querySelectorAll('.video-item');
+    videoItems.forEach(item => {
+      const videoIndex = parseInt(item.dataset.index);
+      const video = this.filteredVideos[videoIndex];
+      
+      if (video && video.id === updatedVideo?.id) {
+        // .video-thumbnail div内のimg要素を取得
+        const thumbnailImg = item.querySelector('.video-thumbnail img');
+        if (thumbnailImg) {
+          const newSrc = `file://${updatedVideo.thumbnail_path}?t=${timestamp}`;
+          console.log("Updating thumbnail img src from:", thumbnailImg.src, "to:", newSrc);
+          thumbnailImg.src = newSrc;
+          
+          // 画像の読み込みを強制
+          thumbnailImg.onload = () => {
+            console.log("Thumbnail successfully updated for video:", video.id);
+          };
+          thumbnailImg.onerror = () => {
+            console.error("Failed to load updated thumbnail for video:", video.id);
+          };
+        } else {
+          console.warn("Thumbnail img element not found for video:", video.id);
+        }
+      }
+    });
   }
 
   // Tooltip methods

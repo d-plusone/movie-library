@@ -104,7 +104,7 @@ export class UIRenderer {
     div.dataset.videoId = video.id;
 
     const thumbnailSrc = video.thumbnail_path
-      ? `file://${video.thumbnail_path}`
+      ? `file://${video.thumbnail_path}?t=${Date.now()}`
       : "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIwIiBoZWlnaHQ9IjE4MCIgdmlld0JveD0iMCAwIDMyMCAxODAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMjAiIGhlaWdodD0iMTgwIiBmaWxsPSIjRjVGNUY3Ii8+CjxwYXRoIGQ9Ik0xMjggNzJMMTkyIDEwOEwxMjggMTQ0VjcyWiIgZmlsbD0iIzk5OTk5OSIvPgo8L3N2Zz4K";
 
     const duration = FormatUtils.formatDuration(video.duration);
@@ -401,7 +401,9 @@ export class UIRenderer {
     // Main thumbnail
     const mainThumbnail = document.getElementById("detailsMainThumbnail");
     if (mainThumbnail && video.thumbnail_path) {
-      mainThumbnail.src = `file://${video.thumbnail_path}`;
+      // キャッシュバスティングを追加
+      const timestamp = Date.now();
+      mainThumbnail.src = `file://${video.thumbnail_path}?t=${timestamp}`;
       mainThumbnail.alt = video.title || video.filename;
     }
 
