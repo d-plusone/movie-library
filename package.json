@@ -10,9 +10,13 @@
         "build:mac": "electron-builder --mac",
         "build:win": "electron-builder --win",
         "build:all": "electron-builder --mac --win",
+        "build:mac-light": "electron-builder --mac --config.compression=store",
+        "build:optimized": "npm run clean && electron-builder --mac --config.compression=maximum",
+        "build:ultra-light": "npm run clean && electron-builder --mac --config.compression=maximum --config.nsis.oneClick=true",
         "dist": "electron-builder --publish=never",
         "release": "electron-builder --publish=always",
-        "postinstall": "electron-builder install-app-deps && npx electron-rebuild -f -w sqlite3",
+        "clean": "rimraf dist node_modules/.cache",
+        "postinstall": "electron-builder install-app-deps",
         "rebuild": "npm rebuild sqlite3 --build-from-source",
         "rebuild:electron": "npx electron-rebuild -f -w sqlite3"
     },
@@ -27,7 +31,8 @@
     "devDependencies": {
         "electron": "^27.0.0",
         "electron-builder": "^24.6.4",
-        "@electron/rebuild": "^3.6.0"
+        "@electron/rebuild": "^3.6.0",
+        "rimraf": "^5.0.10"
     },
     "dependencies": {
         "chokidar": "^3.5.3",
@@ -45,23 +50,59 @@
         "icon": "assets/icon",
         "npmRebuild": true,
         "buildDependenciesFromSource": true,
+        "compression": "maximum",
+        "removePackageScripts": true,
+        "removePackageKeywords": true,
         "asarUnpack": [
-            "node_modules/ffmpeg-static/**/*",
-            "node_modules/ffprobe-static/**/*"
+            "node_modules/ffmpeg-static/ffmpeg",
+            "node_modules/ffprobe-static/bin/ffprobe",
+            "node_modules/sqlite3/lib/binding/**/*"
         ],
         "files": [
-            "**/*",
-            "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}",
-            "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}",
+            "main.js",
+            "preload.js",
+            "src/**/*",
+            "assets/icon.*",
+            "package.json",
+            "node_modules/chokidar/index.js",
+            "node_modules/chokidar/lib/**/*",
+            "node_modules/ffmpeg-static/ffmpeg",
+            "node_modules/ffprobe-static/bin/ffprobe",
+            "node_modules/ffprobe-static/index.js",
+            "node_modules/fluent-ffmpeg/index.js",
+            "node_modules/fluent-ffmpeg/lib/**/*",
+            "node_modules/sqlite3/lib/**/*",
+            "!node_modules/sqlite3/deps/**/*",
+            "!node_modules/sqlite3/test/**/*",
+            "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme,HISTORY.md,CHANGES.md,AUTHORS,CONTRIBUTORS}",
+            "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples,spec,specs,doc,docs,documentation}/**/*",
+            "!**/node_modules/*/{.github,.vscode,.idea,coverage}/**/*",
             "!**/node_modules/*.d.ts",
-            "!**/node_modules/.bin",
+            "!**/node_modules/.bin/**/*",
+            "!**/node_modules/**/*.map",
+            "!**/node_modules/**/*.md",
+            "!**/LICENSE*",
+            "!**/COPYING*",
             "!**/*.{iml,o,hprof,orig,pyc,pyo,rbc,swp,csproj,sln,xproj}",
             "!.editorconfig",
             "!**/._*",
             "!**/{.DS_Store,.git,.hg,.svn,CVS,RCS,SCCS,.gitignore,.gitattributes}",
             "!**/{__pycache__,thumbs.db,.flowconfig,.idea,.vs,.nyc_output}",
             "!**/{appveyor.yml,.travis.yml,circle.yml}",
-            "!**/{npm-debug.log,yarn.lock,.yarn-integrity,.yarn-metadata.json}"
+            "!**/{npm-debug.log,yarn.lock,.yarn-integrity,.yarn-metadata.json}",
+            "!**/node_modules/*/docs/**/*",
+            "!**/node_modules/*/documentation/**/*",
+            "!**/node_modules/*/man/**/*",
+            "!**/node_modules/*/.travis.yml",
+            "!**/node_modules/*/.eslintrc*",
+            "!**/node_modules/*/tsconfig.json",
+            "!**/node_modules/*/webpack.config.js",
+            "!**/node_modules/*/rollup.config.js",
+            "!**/node_modules/*/gulpfile.js",
+            "!**/node_modules/*/Gruntfile.js",
+            "!**/node_modules/*/Makefile",
+            "!**/node_modules/*/*.coffee",
+            "!**/node_modules/*/*.flow"
         ],
         "mac": {
             "icon": "assets/icon.icns",
@@ -77,13 +118,6 @@
                         "arm64",
                         "x64"
                     ]
-                },
-                {
-                    "target": "zip",
-                    "arch": [
-                        "arm64",
-                        "x64"
-                    ]
                 }
             ]
         },
@@ -92,12 +126,6 @@
             "target": [
                 {
                     "target": "nsis",
-                    "arch": [
-                        "x64"
-                    ]
-                },
-                {
-                    "target": "zip",
                     "arch": [
                         "x64"
                     ]
