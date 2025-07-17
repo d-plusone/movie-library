@@ -2696,41 +2696,132 @@ class MovieLibraryApp {
     console.log("All tags:", allTags);
 
     // Clear existing table content
-    const thead = bulkTagApplyTable.querySelector("thead tr");
+    const thead = bulkTagApplyTable.querySelector("thead");
     const tbody = bulkTagApplyTable.querySelector("tbody");
 
-    // Clear existing headers (except video name)
-    const videoNameHeader = thead.querySelector(".video-name-header");
+    // Clear and rebuild header
     thead.innerHTML = "";
-    thead.appendChild(videoNameHeader);
-
-    // Clear existing rows
     tbody.innerHTML = "";
 
-    // Add tag column headers
+    // ヘッダー行を作成
+    const headerRow = document.createElement("tr");
+
+    // 動画名ヘッダー
+    const videoNameHeader = document.createElement("th");
+    videoNameHeader.className = "video-name-header sticky-header";
+    videoNameHeader.textContent = "動画名";
+    headerRow.appendChild(videoNameHeader);
+
+    // タグ列ヘッダー（タグ名 + 全選択チェックボックス）
     allTags.forEach((tag) => {
       const th = document.createElement("th");
-      th.className = "tag-column-header";
-      th.textContent = tag.name;
+      th.className = "tag-column-header sticky-header";
       th.title = `${tag.name} (${tag.count}個の動画で使用)`;
-      thead.appendChild(th);
+
+      // タグヘッダーのコンテンツコンテナ
+      const headerContent = document.createElement("div");
+      headerContent.className = "tag-header-content";
+
+      // タグ名
+      const tagNameDiv = document.createElement("div");
+      tagNameDiv.className = "tag-name-text";
+      tagNameDiv.textContent = tag.name;
+      headerContent.appendChild(tagNameDiv);
+
+      // 全選択チェックボックスコンテナ
+      const checkboxContainer = document.createElement("div");
+      checkboxContainer.className = "select-all-checkbox-container";
+
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.className = "select-all-checkbox";
+      checkbox.dataset.tagName = tag.name;
+      checkbox.title = `${tag.name}の全選択/全解除`;
+
+      // 全選択チェックボックスのイベントリスナー
+      checkbox.addEventListener("change", (e) => {
+        const isChecked = e.target.checked;
+        const tagName = e.target.dataset.tagName;
+        
+        // このタグの全てのチェックボックスを更新
+        const tagCheckboxes = bulkTagApplyTable.querySelectorAll(
+          `.tag-checkbox[data-tag-name="${tagName}"]`
+        );
+        
+        tagCheckboxes.forEach((cb) => {
+          cb.checked = isChecked;
+        });
+
+        // 全選択チェックボックスの状態を更新
+        this.updateSelectAllCheckboxState(tagName);
+      });
+
+      checkboxContainer.appendChild(checkbox);
+      
+      const label = document.createElement("span");
+      label.textContent = "全選択";
+      checkboxContainer.appendChild(label);
+
+      headerContent.appendChild(checkboxContainer);
+      th.appendChild(headerContent);
+      headerRow.appendChild(th);
     });
 
-    // Add video rows
+    thead.appendChild(headerRow);
+
+    // 動画行の追加
     currentVideos.forEach((video, index) => {
       const tr = document.createElement("tr");
 
-      // Video name cell
+      // 動画名セル（サムネイル + タイトル）
       const videoNameCell = document.createElement("td");
       videoNameCell.className = "video-name-cell";
+
+      // サムネイル画像
+      const thumbnail = document.createElement("img");
+      thumbnail.className = "bulk-dialog-thumbnail";
+      thumbnail.alt = "サムネイル";
+      
+      // サムネイルパスの設定（thumbnailPath と thumbnail_path の両方をチェック）
+      const thumbPath = video.thumbnailPath || video.thumbnail_path;
+      if (thumbPath && thumbPath !== "N/A") {
+        thumbnail.src = `file://${thumbPath}`;
+      } else {
+        // デフォルト画像またはプレースホルダー
+        thumbnail.style.background = "linear-gradient(135deg, var(--bg-tertiary), var(--bg-primary))";
+        thumbnail.style.display = "flex";
+        thumbnail.style.alignItems = "center";
+        thumbnail.style.justifyContent = "center";
+        thumbnail.style.fontSize = "10px";
+        thumbnail.style.color = "var(--text-secondary)";
+        thumbnail.innerHTML = "No Image";
+        thumbnail.alt = "No thumbnail";
+      }
+
+      // エラー時のフォールバック
+      thumbnail.onerror = () => {
+        thumbnail.style.background = "linear-gradient(135deg, var(--bg-tertiary), var(--bg-primary))";
+        thumbnail.style.display = "flex";
+        thumbnail.style.alignItems = "center";
+        thumbnail.style.justifyContent = "center";
+        thumbnail.style.fontSize = "10px";
+        thumbnail.style.color = "var(--text-secondary)";
+        thumbnail.innerHTML = "No Image";
+        thumbnail.alt = "No thumbnail";
+      };
+
+      videoNameCell.appendChild(thumbnail);
+
+      // タイトルテキスト
       const titleSpan = document.createElement("span");
       titleSpan.className = "video-title-text";
       titleSpan.textContent = video.title || video.filename;
       titleSpan.title = video.title || video.filename;
       videoNameCell.appendChild(titleSpan);
+
       tr.appendChild(videoNameCell);
 
-      // Tag checkbox cells
+      // タグチェックボックスセル
       allTags.forEach((tag) => {
         const td = document.createElement("td");
         td.className = "tag-checkbox-cell";
@@ -2741,10 +2832,15 @@ class MovieLibraryApp {
         checkbox.dataset.videoId = video.id;
         checkbox.dataset.tagName = tag.name;
 
-        // Check if video already has this tag
+        // 動画が既にこのタグを持っているかチェック
         if (video.tags && video.tags.includes(tag.name)) {
           checkbox.checked = true;
         }
+
+        // 個別チェックボックスの変更時に全選択状態を更新
+        checkbox.addEventListener("change", () => {
+          this.updateSelectAllCheckboxState(tag.name);
+        });
 
         td.appendChild(checkbox);
         tr.appendChild(td);
@@ -2753,7 +2849,44 @@ class MovieLibraryApp {
       tbody.appendChild(tr);
     });
 
+    // 初期状態で全選択チェックボックスの状態を設定
+    allTags.forEach((tag) => {
+      this.updateSelectAllCheckboxState(tag.name);
+    });
+
     bulkTagApplyDialog.style.display = "flex";
+  }
+
+  // 全選択チェックボックスの状態を更新するヘルパーメソッド
+  updateSelectAllCheckboxState(tagName) {
+    const bulkTagApplyTable = DOMUtils.getElementById("bulkTagApplyTable");
+    if (!bulkTagApplyTable) return;
+
+    const selectAllCheckbox = bulkTagApplyTable.querySelector(
+      `.select-all-checkbox[data-tag-name="${tagName}"]`
+    );
+    const tagCheckboxes = bulkTagApplyTable.querySelectorAll(
+      `.tag-checkbox[data-tag-name="${tagName}"]`
+    );
+
+    if (!selectAllCheckbox || tagCheckboxes.length === 0) return;
+
+    const checkedCount = Array.from(tagCheckboxes).filter(cb => cb.checked).length;
+    const totalCount = tagCheckboxes.length;
+
+    if (checkedCount === 0) {
+      // 全て未選択
+      selectAllCheckbox.checked = false;
+      selectAllCheckbox.indeterminate = false;
+    } else if (checkedCount === totalCount) {
+      // 全て選択
+      selectAllCheckbox.checked = true;
+      selectAllCheckbox.indeterminate = false;
+    } else {
+      // 部分選択
+      selectAllCheckbox.checked = false;
+      selectAllCheckbox.indeterminate = true;
+    }
   }
 
   hideBulkTagApplyDialog() {
@@ -2769,7 +2902,7 @@ class MovieLibraryApp {
     const bulkTagApplyDialog = DOMUtils.getElementById("bulkTagApplyDialog");
     if (!bulkTagApplyDialog) return;
 
-    // Get all checkboxes
+    // Get all checkboxes (excluding select-all checkboxes)
     const checkboxes = bulkTagApplyDialog.querySelectorAll(".tag-checkbox");
     const changes = [];
 
