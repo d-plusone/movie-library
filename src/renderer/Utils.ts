@@ -400,7 +400,9 @@ export class KeyboardManager {
     }
   }
 
-  updateCallbacks(newCallbacks: Record<string, (e: KeyboardEvent) => void>): void {
+  updateCallbacks(
+    newCallbacks: Record<string, (e: KeyboardEvent) => void>
+  ): void {
     this.callbacks = { ...this.callbacks, ...newCallbacks };
   }
 }

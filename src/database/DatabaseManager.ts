@@ -516,20 +516,24 @@ class DatabaseManager {
     const checkTimeSeconds = Math.floor(lastCheckTime / 1000);
 
     return new Promise((resolve, reject) => {
-      this.db!.get(sql, [checkTimeSeconds, checkTimeSeconds], (err, row: any) => {
-        if (err) {
-          console.error("Error checking video updates:", err);
-          reject(err);
-        } else {
-          console.log("hasVideoUpdates check:", {
-            lastCheckTime: new Date(lastCheckTime).toISOString(),
-            checkTimeSeconds,
-            hasUpdates: row.count > 0,
-            updateCount: row.count,
-          });
-          resolve(row.count > 0);
+      this.db!.get(
+        sql,
+        [checkTimeSeconds, checkTimeSeconds],
+        (err, row: any) => {
+          if (err) {
+            console.error("Error checking video updates:", err);
+            reject(err);
+          } else {
+            console.log("hasVideoUpdates check:", {
+              lastCheckTime: new Date(lastCheckTime).toISOString(),
+              checkTimeSeconds,
+              hasUpdates: row.count > 0,
+              updateCount: row.count,
+            });
+            resolve(row.count > 0);
+          }
         }
-      });
+      );
     });
   }
 

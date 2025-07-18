@@ -223,7 +223,11 @@ class MovieLibraryApp {
                   ],
                 },
               ]
-            : [{ role: "delete" as const }, { type: "separator" as const }, { role: "selectAll" as const }]),
+            : [
+                { role: "delete" as const },
+                { type: "separator" as const },
+                { role: "selectAll" as const },
+              ]),
         ],
       },
       // 表示メニュー
@@ -248,7 +252,12 @@ class MovieLibraryApp {
           { role: "minimize" },
           { role: "close" },
           ...(isMac
-            ? [{ type: "separator" as const }, { role: "front" as const }, { type: "separator" as const }, { role: "window" as const }]
+            ? [
+                { type: "separator" as const },
+                { role: "front" as const },
+                { type: "separator" as const },
+                { role: "window" as const },
+              ]
             : []),
         ],
       },
@@ -338,7 +347,9 @@ class MovieLibraryApp {
       for (const video of videos) {
         try {
           if (video.duration !== undefined) {
-            const result = await this.thumbnailGenerator.generateThumbnails(video as any);
+            const result = await this.thumbnailGenerator.generateThumbnails(
+              video as any
+            );
             results.push(result);
           }
         } catch (error) {
@@ -357,11 +368,17 @@ class MovieLibraryApp {
       for (const video of videos) {
         try {
           if (video.duration !== undefined) {
-            const result = await this.thumbnailGenerator.generateThumbnails(video as any);
+            const result = await this.thumbnailGenerator.generateThumbnails(
+              video as any
+            );
             results.push(result);
           }
         } catch (error) {
-          console.error("Error regenerating thumbnails for:", video.path, error);
+          console.error(
+            "Error regenerating thumbnails for:",
+            video.path,
+            error
+          );
         }
       }
 
@@ -380,19 +397,28 @@ class MovieLibraryApp {
     });
 
     // Add tag to video
-    ipcMain.handle("add-tag-to-video", async (event, videoId: number, tagName: string) => {
-      return await this.db.addTagToVideo(videoId, tagName);
-    });
+    ipcMain.handle(
+      "add-tag-to-video",
+      async (event, videoId: number, tagName: string) => {
+        return await this.db.addTagToVideo(videoId, tagName);
+      }
+    );
 
     // Remove tag from video
-    ipcMain.handle("remove-tag-from-video", async (event, videoId: number, tagName: string) => {
-      return await this.db.removeTagFromVideo(videoId, tagName);
-    });
+    ipcMain.handle(
+      "remove-tag-from-video",
+      async (event, videoId: number, tagName: string) => {
+        return await this.db.removeTagFromVideo(videoId, tagName);
+      }
+    );
 
     // Update tag
-    ipcMain.handle("update-tag", async (event, oldName: string, newName: string) => {
-      return await this.db.updateTag(oldName, newName);
-    });
+    ipcMain.handle(
+      "update-tag",
+      async (event, oldName: string, newName: string) => {
+        return await this.db.updateTag(oldName, newName);
+      }
+    );
 
     // Delete tag
     ipcMain.handle("delete-tag", async (event, tagName: string) => {
@@ -405,18 +431,26 @@ class MovieLibraryApp {
     });
 
     // Check for video updates
-    ipcMain.handle("has-video-updates", async (event, lastCheckTime: number) => {
-      return await this.db.hasVideoUpdates(lastCheckTime);
-    });
+    ipcMain.handle(
+      "has-video-updates",
+      async (event, lastCheckTime: number) => {
+        return await this.db.hasVideoUpdates(lastCheckTime);
+      }
+    );
 
     // Regenerate main thumbnail
-    ipcMain.handle("regenerate-main-thumbnail", async (event, videoId: number) => {
-      const video = await this.db.getVideo(videoId);
-      if (!video || video.duration === undefined) {
-        throw new Error("Video not found or invalid duration");
+    ipcMain.handle(
+      "regenerate-main-thumbnail",
+      async (event, videoId: number) => {
+        const video = await this.db.getVideo(videoId);
+        if (!video || video.duration === undefined) {
+          throw new Error("Video not found or invalid duration");
+        }
+        return await this.thumbnailGenerator.regenerateMainThumbnail(
+          video as any
+        );
       }
-      return await this.thumbnailGenerator.regenerateMainThumbnail(video as any);
-    });
+    );
   }
 
   async generateThumbnailsForSingleVideo(video: ProcessedVideo): Promise<void> {
@@ -507,7 +541,12 @@ app.whenReady().then(async () => {
 
     // Dockアイコンの設定
     const iconPath = path.join(__dirname, "assets", "icon.icns");
-    if (await fs.access(iconPath).then(() => true).catch(() => false)) {
+    if (
+      await fs
+        .access(iconPath)
+        .then(() => true)
+        .catch(() => false)
+    ) {
       try {
         app.dock.setIcon(iconPath);
         console.log("Dock icon set successfully");

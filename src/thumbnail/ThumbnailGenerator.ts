@@ -362,7 +362,11 @@ class ThumbnailGenerator {
     this.settings = { ...this.settings, ...newSettings };
   }
 
-  async generateHighQualityThumbnail(videoPath: string, outputPath: string, timestamp: number): Promise<string> {
+  async generateHighQualityThumbnail(
+    videoPath: string,
+    outputPath: string,
+    timestamp: number
+  ): Promise<string> {
     return this.generateSingleThumbnail(videoPath, outputPath, timestamp, {
       width: 640,
       height: 360,
@@ -434,7 +438,11 @@ class ThumbnailGenerator {
     }
   }
 
-  getThumbnailPath(videoId: number | string, type: string = "main", index: number = 0): string | null {
+  getThumbnailPath(
+    videoId: number | string,
+    type: string = "main",
+    index: number = 0
+  ): string | null {
     if (type === "main") {
       return path.join(this.thumbnailsDir, `${videoId}_main.jpg`);
     } else if (type === "chapter") {
@@ -481,7 +489,10 @@ class ThumbnailGenerator {
           await fs.unlink(mainThumbnailPath);
           console.log("Deleted old main thumbnail");
         } catch (error) {
-          console.warn("Could not delete old thumbnail:", (error as Error).message);
+          console.warn(
+            "Could not delete old thumbnail:",
+            (error as Error).message
+          );
         }
       }
 

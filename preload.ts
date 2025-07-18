@@ -59,7 +59,8 @@ const electronAPI: ElectronAPI = {
   // Video operations
   getVideos: () => ipcRenderer.invoke("get-videos"),
   getVideo: (id: number) => ipcRenderer.invoke("get-video", id),
-  updateVideo: (id: number, data: VideoUpdateData) => ipcRenderer.invoke("update-video", id, data),
+  updateVideo: (id: number, data: VideoUpdateData) =>
+    ipcRenderer.invoke("update-video", id, data),
   searchVideos: (query: string) => ipcRenderer.invoke("search-videos", query),
   openVideo: (filePath: string) => ipcRenderer.invoke("open-video", filePath),
   hasVideoUpdates: (lastCheckTime: number) =>
@@ -68,7 +69,8 @@ const electronAPI: ElectronAPI = {
   // Directory operations
   getDirectories: () => ipcRenderer.invoke("get-directories"),
   addDirectory: (path: string) => ipcRenderer.invoke("add-directory", path),
-  removeDirectory: (path: string) => ipcRenderer.invoke("remove-directory", path),
+  removeDirectory: (path: string) =>
+    ipcRenderer.invoke("remove-directory", path),
   chooseDirectory: () => ipcRenderer.invoke("choose-directory"),
   scanDirectories: () => ipcRenderer.invoke("scan-directories"),
 

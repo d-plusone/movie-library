@@ -97,12 +97,12 @@ export class VideoManager {
       console.log("VideoManager: Loading videos from database");
       const electronVideos = await window.electronAPI.getVideos();
       // electronAPIの型をVideoManager.tsの型にマッピング
-      this.videos = electronVideos.map(video => ({
+      this.videos = electronVideos.map((video) => ({
         ...video,
-        id: typeof video.id === 'string' ? parseInt(video.id) : video.id,
+        id: typeof video.id === "string" ? parseInt(video.id) : video.id,
         width: video.width || 0,
         height: video.height || 0,
-        chapter_thumbnails: video.chapter_thumbnails
+        chapter_thumbnails: video.chapter_thumbnails,
       }));
       this.lastLoadTime = Date.now();
       this.hasChanges = true;
@@ -139,11 +139,11 @@ export class VideoManager {
       }
 
       const electronDirectories = await window.electronAPI.getDirectories();
-      // electronAPIの型をVideoManager.tsの型にマッピング  
+      // electronAPIの型をVideoManager.tsの型にマッピング
       this.directories = electronDirectories.map((dir: any) => ({
         ...dir,
-        name: dir.name || dir.path.split('/').pop() || 'Unknown',
-        added_at: dir.added_at || new Date().toISOString()
+        name: dir.name || dir.path.split("/").pop() || "Unknown",
+        added_at: dir.added_at || new Date().toISOString(),
       }));
       return [...this.directories];
     } catch (error) {
@@ -231,7 +231,7 @@ export class VideoManager {
         quality: settings.quality || 1,
         width: settings.width || 320,
         height: settings.height || 180,
-        ...settings
+        ...settings,
       };
       await window.electronAPI.updateThumbnailSettings(electronSettings);
     } catch (error) {
@@ -485,7 +485,9 @@ export class VideoManager {
   // メイン動画サムネイルを再生成
   async regenerateMainThumbnail(videoId: number): Promise<any> {
     try {
-      const result = await window.electronAPI.regenerateMainThumbnail(videoId.toString());
+      const result = await window.electronAPI.regenerateMainThumbnail(
+        videoId.toString()
+      );
 
       // ローカルキャッシュを更新
       const video = this.videos.find((v) => v.id === videoId);

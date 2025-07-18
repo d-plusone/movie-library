@@ -478,8 +478,11 @@ export class UIRenderer {
     selectedDirectories: string[]
   ): void {
     console.log("renderDirectories - directories:", directories.length);
-    console.log("renderDirectories - selectedDirectories:", selectedDirectories);
-    
+    console.log(
+      "renderDirectories - selectedDirectories:",
+      selectedDirectories
+    );
+
     const directoriesList = document.getElementById("directoriesList");
 
     if (!directoriesList) {
@@ -495,7 +498,7 @@ export class UIRenderer {
       directoryElement.dataset.path = directory.path;
 
       const isSelected = selectedDirectories.includes(directory.path);
-      
+
       if (isSelected) {
         directoryElement.classList.add("selected");
       }
@@ -550,15 +553,20 @@ export class UIRenderer {
 
   // 星評価の表示を更新
   updateStarDisplay(rating: number, isHover: boolean = false): void {
-    console.log("updateStarDisplay called with rating:", rating, "isHover:", isHover);
-    
+    console.log(
+      "updateStarDisplay called with rating:",
+      rating,
+      "isHover:",
+      isHover
+    );
+
     // 星ボタンのみを対象（data-rating="0"の「全て」ボタンは除外）
     const starButtons = document.querySelectorAll(".rating-btn[data-rating]");
 
     starButtons.forEach((btn) => {
       const button = btn as HTMLElement;
       const btnRating = parseInt(button.dataset.rating || "0");
-      
+
       // data-rating="0"は「全て」ボタンなのでスキップ
       if (btnRating === 0) return;
 
@@ -606,12 +614,6 @@ export class UIRenderer {
 
     // パネルを表示
     detailsPanel.style.display = "block";
-
-    // タイトルを設定
-    const titleElement = document.getElementById("detailsTitle");
-    if (titleElement) {
-      titleElement.textContent = video.title;
-    }
 
     // メインサムネイルを設定
     const mainThumbnailImg = document.getElementById(
@@ -672,7 +674,9 @@ export class UIRenderer {
 
   // チャプターサムネイルを更新
   private updateChapterThumbnails(video: Video): void {
-    const chapterContainer = document.getElementById("detailsChapterThumbnails");
+    const chapterContainer = document.getElementById(
+      "detailsChapterThumbnails"
+    );
     if (!chapterContainer) return;
 
     chapterContainer.innerHTML = "";
@@ -688,13 +692,16 @@ export class UIRenderer {
         if (Array.isArray(parsed)) {
           chapters = parsed;
         } else if (typeof parsed === "object" && parsed !== null) {
-          chapters = Object.values(parsed).filter((item: any) => 
-            item && (item.path || item.thumbnail_path)
+          chapters = Object.values(parsed).filter(
+            (item: any) => item && (item.path || item.thumbnail_path)
           );
         }
-      } else if (typeof video.chapter_thumbnails === "object" && video.chapter_thumbnails !== null) {
-        chapters = Object.values(video.chapter_thumbnails).filter((item: any) => 
-          item && (item.path || item.thumbnail_path)
+      } else if (
+        typeof video.chapter_thumbnails === "object" &&
+        video.chapter_thumbnails !== null
+      ) {
+        chapters = Object.values(video.chapter_thumbnails).filter(
+          (item: any) => item && (item.path || item.thumbnail_path)
         );
       }
     } catch (error) {
@@ -732,7 +739,9 @@ export class UIRenderer {
       tagElement.className = "tag";
       tagElement.innerHTML = `
         ${FormatUtils.escapeHtml(tag)}
-        <button class="remove-tag" data-tag="${FormatUtils.escapeHtml(tag)}" title="タグを削除">×</button>
+        <button class="remove-tag" data-tag="${FormatUtils.escapeHtml(
+          tag
+        )}" title="タグを削除">×</button>
       `;
       tagsContainer.appendChild(tagElement);
     });
@@ -838,23 +847,29 @@ export class UIRenderer {
     }
 
     modal.style.display = "block";
-    
+
     // ビデオリストを更新
     const videosList = modal.querySelector("#selectedVideosList");
     if (videosList) {
       videosList.innerHTML = videos
-        .map((video) => 
-          `<label><input type="checkbox" name="selectedVideos" value="${video.id}"> ${FormatUtils.escapeHtml(video.title)}</label>`
+        .map(
+          (video) =>
+            `<label><input type="checkbox" name="selectedVideos" value="${
+              video.id
+            }"> ${FormatUtils.escapeHtml(video.title)}</label>`
         )
         .join("");
     }
-    
+
     // タグリストを更新
     const tagsList = modal.querySelector("#availableTagsList");
     if (tagsList) {
       tagsList.innerHTML = availableTags
-        .map((tag) =>
-          `<option value="${FormatUtils.escapeHtml(tag)}">${FormatUtils.escapeHtml(tag)}</option>`
+        .map(
+          (tag) =>
+            `<option value="${FormatUtils.escapeHtml(
+              tag
+            )}">${FormatUtils.escapeHtml(tag)}</option>`
         )
         .join("");
     }
@@ -902,25 +917,27 @@ export class UIRenderer {
         path: video.thumbnail_path,
         timestamp: 0,
         title: "メインサムネイル",
-        isMain: true
+        isMain: true,
       },
       ...chapters.map((chapter, index) => ({
         path: chapter.path || chapter.thumbnail_path,
         timestamp: chapter.timestamp || 0,
         title: `Chapter ${index + 1}`,
-        isMain: false
-      }))
+        isMain: false,
+      })),
     ];
 
     let currentIndex = 0; // 現在表示しているサムネイルのインデックス
 
     // ダイアログ要素を作成
-    const overlay = document.createElement('div');
-    overlay.className = 'chapter-dialog-overlay';
+    const overlay = document.createElement("div");
+    overlay.className = "chapter-dialog-overlay";
     overlay.innerHTML = `
       <div class="chapter-dialog">
         <div class="chapter-dialog-header">
-          <h3>${FormatUtils.escapeHtml(video.title)} - ${allThumbnails[0].title}</h3>
+          <h3>${FormatUtils.escapeHtml(video.title)} - ${
+      allThumbnails[0].title
+    }</h3>
           <button class="close-chapter-dialog" title="閉じる">×</button>
         </div>
         <div class="chapter-dialog-content">
@@ -929,10 +946,16 @@ export class UIRenderer {
               <button class="nav-btn prev-btn" title="前のサムネイル (←)">‹</button>
               <div class="current-chapter">
                 <div class="chapter-image-container">
-                  <img id="currentChapterImg" src="file://${allThumbnails[0].path}?t=${Date.now()}" alt="${allThumbnails[0].title}">
+                  <img id="currentChapterImg" src="file://${
+                    allThumbnails[0].path
+                  }?t=${Date.now()}" alt="${allThumbnails[0].title}">
                   <div class="chapter-overlay-info">
-                    <div class="chapter-counter" id="chapterCounter">1 / ${allThumbnails.length}</div>
-                    <div class="chapter-timestamp" id="currentChapterTimestamp">${FormatUtils.formatTimestamp(allThumbnails[0].timestamp)}</div>
+                    <div class="chapter-counter" id="chapterCounter">1 / ${
+                      allThumbnails.length
+                    }</div>
+                    <div class="chapter-timestamp" id="currentChapterTimestamp">${FormatUtils.formatTimestamp(
+                      allThumbnails[0].timestamp
+                    )}</div>
                   </div>
                 </div>
               </div>
@@ -947,79 +970,93 @@ export class UIRenderer {
     const updateCurrentThumbnail = (index: number) => {
       currentIndex = index;
       const thumbnail = allThumbnails[index];
-      
-      const img = overlay.querySelector('#currentChapterImg') as HTMLImageElement;
-      const title = overlay.querySelector('.chapter-dialog-header h3') as HTMLElement;
-      const timestamp = overlay.querySelector('#currentChapterTimestamp') as HTMLElement;
-      const counter = overlay.querySelector('#chapterCounter') as HTMLElement;
-      
+
+      const img = overlay.querySelector(
+        "#currentChapterImg"
+      ) as HTMLImageElement;
+      const title = overlay.querySelector(
+        ".chapter-dialog-header h3"
+      ) as HTMLElement;
+      const timestamp = overlay.querySelector(
+        "#currentChapterTimestamp"
+      ) as HTMLElement;
+      const counter = overlay.querySelector("#chapterCounter") as HTMLElement;
+
       if (img && title && timestamp && counter) {
         img.src = `file://${thumbnail.path}?t=${Date.now()}`;
         img.alt = thumbnail.title;
-        title.textContent = `${FormatUtils.escapeHtml(video.title)} - ${thumbnail.title}`;
-        timestamp.textContent = FormatUtils.formatTimestamp(thumbnail.timestamp);
+        title.textContent = `${FormatUtils.escapeHtml(video.title)} - ${
+          thumbnail.title
+        }`;
+        timestamp.textContent = FormatUtils.formatTimestamp(
+          thumbnail.timestamp
+        );
         counter.textContent = `${index + 1} / ${allThumbnails.length}`;
       }
     };
 
     // 前のサムネイルに移動
     const gotoPrevious = () => {
-      const newIndex = currentIndex > 0 ? currentIndex - 1 : allThumbnails.length - 1;
+      const newIndex =
+        currentIndex > 0 ? currentIndex - 1 : allThumbnails.length - 1;
       updateCurrentThumbnail(newIndex);
     };
 
     // 次のサムネイルに移動
     const gotoNext = () => {
-      const newIndex = currentIndex < allThumbnails.length - 1 ? currentIndex + 1 : 0;
+      const newIndex =
+        currentIndex < allThumbnails.length - 1 ? currentIndex + 1 : 0;
       updateCurrentThumbnail(newIndex);
     };
 
     // イベントリスナーを追加
-    const closeBtn = overlay.querySelector('.close-chapter-dialog') as HTMLButtonElement;
-    const prevBtn = overlay.querySelector('.prev-btn') as HTMLButtonElement;
-    const nextBtn = overlay.querySelector('.next-btn') as HTMLButtonElement;
+    const closeBtn = overlay.querySelector(
+      ".close-chapter-dialog"
+    ) as HTMLButtonElement;
+    const prevBtn = overlay.querySelector(".prev-btn") as HTMLButtonElement;
+    const nextBtn = overlay.querySelector(".next-btn") as HTMLButtonElement;
 
     if (closeBtn) {
-      closeBtn.addEventListener('click', () => {
+      closeBtn.addEventListener("click", () => {
         overlay.remove();
-        document.removeEventListener('keydown', handleKeydown);
+        document.removeEventListener("keydown", handleKeydown);
       });
     }
 
     if (prevBtn) {
-      prevBtn.addEventListener('click', gotoPrevious);
+      prevBtn.addEventListener("click", gotoPrevious);
     }
 
     if (nextBtn) {
-      nextBtn.addEventListener('click', gotoNext);
+      nextBtn.addEventListener("click", gotoNext);
     }
 
     // オーバーレイクリックで閉じる
-    overlay.addEventListener('click', (e) => {
+    overlay.addEventListener("click", (e) => {
       if (e.target === overlay) {
         overlay.remove();
-        document.removeEventListener('keydown', handleKeydown);
+        document.removeEventListener("keydown", handleKeydown);
       }
     });
 
     // キーボードイベントハンドラー
     const handleKeydown = (e: KeyboardEvent) => {
       switch (e.key) {
-        case 'Escape':
+        case "Escape":
           overlay.remove();
-          document.removeEventListener('keydown', handleKeydown);
+          document.removeEventListener("keydown", handleKeydown);
           break;
-        case 'ArrowLeft':
+        case "ArrowLeft":
           e.preventDefault();
           gotoPrevious();
           break;
-        case 'ArrowRight':
+        case "ArrowRight":
           e.preventDefault();
           gotoNext();
           break;
       }
     };
-    document.addEventListener('keydown', handleKeydown);
+    document.addEventListener("keydown", handleKeydown);
 
     // ダイアログを表示
     document.body.appendChild(overlay);

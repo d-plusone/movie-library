@@ -374,7 +374,13 @@ class MovieLibraryApp {
       "input",
       this.handleSearchInput.bind(this)
     );
-    // viewModeBtn functionality is handled by grid/list view buttons
+    // View controls
+    this.safeAddEventListener("gridViewBtn", "click", () =>
+      this.setView("grid")
+    );
+    this.safeAddEventListener("listViewBtn", "click", () =>
+      this.setView("list")
+    );
 
     // Settings-related event listeners
     this.safeAddEventListener(
@@ -804,6 +810,19 @@ class MovieLibraryApp {
     this.filterManager.updateSearch(target.value);
     // 検索入力時にフィルタリングを実行
     this.applyFiltersAndSort();
+  }
+
+  private setView(view) {
+    this.uiRenderer.setView(view);
+    this.renderVideoList();
+
+    // Maintain selected video highlighting after view change
+    const selectedIndex = this.uiRenderer.getSelectedVideoIndex();
+    if (selectedIndex >= 0) {
+      setTimeout(() => {
+        this.uiRenderer.highlightSelectedVideo();
+      }, 50); // Small delay to ensure DOM is updated
+    }
   }
 
   private toggleViewMode(): void {

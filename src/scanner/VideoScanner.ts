@@ -96,7 +96,10 @@ class VideoScanner {
     return this.supportedExtensions.includes(ext);
   }
 
-  async scanDirectory(directoryPath: string, progressCallback?: ProgressCallback | null): Promise<ProcessedVideo[]> {
+  async scanDirectory(
+    directoryPath: string,
+    progressCallback?: ProgressCallback | null
+  ): Promise<ProcessedVideo[]> {
     const videos: ProcessedVideo[] = [];
     const allFiles = await this.getAllFiles(directoryPath);
     const videoFiles = allFiles.filter((file) => this.isVideoFile(file));
@@ -169,8 +172,8 @@ class VideoScanner {
           height: existingVideo.height || 0,
           fps: existingVideo.fps || 0,
           bitrate: existingVideo.bitrate || 0,
-          createdAt: existingVideo.created_at || '',
-          modifiedAt: existingVideo.modified_at || '',
+          createdAt: existingVideo.created_at || "",
+          modifiedAt: existingVideo.modified_at || "",
           isNewVideo: false,
           needsThumbnails: false,
         };
@@ -188,7 +191,7 @@ class VideoScanner {
         fps: this.parseFps(metadata.streams[0]?.r_frame_rate),
         codec: metadata.streams[0]?.codec_name,
         bitrate: metadata.format.bit_rate
-          ? typeof metadata.format.bit_rate === 'string' 
+          ? typeof metadata.format.bit_rate === "string"
             ? parseInt(metadata.format.bit_rate)
             : metadata.format.bit_rate
           : 0,
