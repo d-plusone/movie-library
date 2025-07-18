@@ -305,9 +305,11 @@ export class FilterManager {
     ) as HTMLInputElement;
     const searchQuery = searchInput ? searchInput.value.trim() : "";
 
-    // ディレクトリフィルタが設定されているかを判定
-    // 選択されたディレクトリがある場合は常にフィルタを適用
-    const hasDirectoryFilter = this.selectedDirectories.length > 0;
+    // 利用可能なディレクトリが存在する場合は常にディレクトリフィルタを適用
+    const availableDirectories = JSON.parse(
+      localStorage.getItem("availableDirectories") || "[]"
+    );
+    const hasDirectoryFilter = availableDirectories.length > 0;
 
     return {
       selectedTags: [...this.currentFilter.tags],

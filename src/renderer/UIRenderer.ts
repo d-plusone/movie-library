@@ -59,6 +59,10 @@ export class UIRenderer {
 
   // 選択されたビデオをハイライト
   highlightSelectedVideo(): void {
+    console.log(
+      "Highlighting selected video at index:",
+      this.selectedVideoIndex
+    );
     // Remove existing highlights
     document.querySelectorAll(".video-item.selected").forEach((item) => {
       item.classList.remove("selected");
@@ -933,7 +937,7 @@ export class UIRenderer {
     const overlay = document.createElement("div");
     overlay.className = "chapter-dialog-overlay";
     overlay.innerHTML = `
-      <div class="chapter-dialog">
+      <div id="chapterDialog" class="chapter-dialog">
         <div class="chapter-dialog-header">
           <h3>${FormatUtils.escapeHtml(video.title)} - ${
       allThumbnails[0].title

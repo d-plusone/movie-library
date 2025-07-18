@@ -564,6 +564,10 @@ class MovieLibraryApp {
 
     if (!video) return;
 
+    const videoIndex = parseInt(videoItem.dataset.index || "-1");
+    this.uiRenderer.setSelectedVideoIndex(videoIndex);
+    this.uiRenderer.highlightSelectedVideo();
+
     if (target.classList.contains("play-btn")) {
       e.stopPropagation();
       this.playVideo(video.path);
@@ -1196,32 +1200,206 @@ class MovieLibraryApp {
   }
 
   private handleArrowKeys(e: KeyboardEvent): void {
-    // 動画リストのナビゲーション機能を実装
-    // 現在は空実装
+    // モーダルやダイアログが開いている場合は、グリッド/リストナビゲーションを無効にする
+
+    // 可視なモーダル/ダイアログをチェック
+    const activeModals = [
+      document.getElementById("settingsModal"),
+      document.getElementById("bulkTagApplyDialog"),
+      document.getElementById("chapterDialog"),
+      document.querySelector(".dialog-overlay") as HTMLElement, // カスタムダイアログ
+    ].filter((modal) => {
+      if (!modal) return false;
+      const htmlModal = modal as HTMLElement;
+
+      // より確実な可視性チェック
+      const computedStyle = window.getComputedStyle(htmlModal);
+      const isVisible =
+        computedStyle.display !== "none" &&
+        computedStyle.visibility !== "hidden" &&
+        htmlModal.offsetParent !== null &&
+        htmlModal.offsetWidth > 0 &&
+        htmlModal.offsetHeight > 0;
+
+      if (isVisible) {
+        console.log(
+          "Active modal detected:",
+          htmlModal.id || htmlModal.className
+        );
+      }
+
+      return isVisible;
+    });
+
+    // モーダルが開いている場合はナビゲーションを無効にする
+    if (activeModals.length > 0) {
+      console.log(
+        "Modal/dialog is open, disabling navigation. Count:",
+        activeModals.length
+      );
+      return;
+    }
+
+    // Navigate through video grid
+    const selectedIndex = this.uiRenderer.getSelectedVideoIndex();
+    const totalVideos = this.filteredVideos.length;
+
+    if (totalVideos === 0) return;
+
+    let newIndex = selectedIndex;
+    const currentView = this.uiRenderer.getCurrentView();
+
+    if (currentView === "grid") {
+      // Grid view navigation
+      const videosPerRow = this.calculateVideosPerRow();
+      const currentRow = Math.floor(selectedIndex / videosPerRow);
+      const currentCol = selectedIndex % videosPerRow;
+      const totalRows = Math.ceil(totalVideos / videosPerRow);
+
+      switch (e.key) {
+        case "ArrowUp":
+          if (currentRow > 0) {
+            // Move up within the same column
+            newIndex = selectedIndex - videosPerRow;
+          } else {
+            // Wrap to bottom row, same column
+            const bottomRowStartIndex = (totalRows - 1) * videosPerRow;
+            newIndex = Math.min(
+              bottomRowStartIndex + currentCol,
+              totalVideos - 1
+            );
+          }
+          break;
+        case "ArrowDown":
+          if (currentRow < totalRows - 1) {
+            // Move down within the same column
+            newIndex = Math.min(selectedIndex + videosPerRow, totalVideos - 1);
+          } else {
+            // Wrap to top row, same column
+            newIndex = currentCol < totalVideos ? currentCol : 0;
+          }
+          break;
+        case "ArrowLeft":
+          if (selectedIndex > 0) {
+            newIndex = selectedIndex - 1;
+          } else {
+            // Wrap to last video
+            newIndex = totalVideos - 1;
+          }
+          break;
+        case "ArrowRight":
+          if (selectedIndex < totalVideos - 1) {
+            newIndex = selectedIndex + 1;
+          } else {
+            // Wrap to first video
+            newIndex = 0;
+          }
+          break;
+      }
+    } else {
+      // List view navigation (1 item per row)
+      switch (e.key) {
+        case "ArrowUp":
+        case "ArrowLeft":
+          if (selectedIndex > 0) {
+            newIndex = selectedIndex - 1;
+          } else {
+            newIndex = totalVideos - 1; // Wrap to last video
+          }
+          break;
+        case "ArrowDown":
+        case "ArrowRight":
+          if (selectedIndex < totalVideos - 1) {
+            newIndex = selectedIndex + 1;
+          } else {
+            newIndex = 0; // Wrap to first video
+          }
+          break;
+      }
+    }
+
+    if (newIndex !== selectedIndex) {
+      this.uiRenderer.setSelectedVideoIndex(newIndex);
+      this.uiRenderer.highlightSelectedVideo();
+      this.scrollToSelectedVideo();
+
+      // 詳細パネルが開いている場合は、選択された動画の詳細を更新
+      const detailsPanel = document.getElementById("detailsPanel");
+      if (detailsPanel && detailsPanel.style.display !== "none") {
+        const selectedVideo = this.filteredVideos[newIndex];
+        if (selectedVideo) {
+          this.showVideoDetails(selectedVideo);
+        }
+      }
+
+      e.preventDefault();
+    }
   }
 
-  private handleEnterKey(e: KeyboardEvent): void {
-    // フォーカスされた動画を再生
-    const focusedElement = document.activeElement as HTMLElement;
-    if (focusedElement && focusedElement.classList.contains("video-item")) {
-      const videoId = parseInt(focusedElement.dataset.videoId!);
-      const video = this.filteredVideos.find((v) => v.id === videoId);
-      if (video) {
-        this.playVideo(video.path);
+  // Calculate videos per row for grid view
+  private calculateVideosPerRow(): number {
+    const videoList = document.getElementById("videoList");
+    if (!videoList) return 4; // Default fallback
+
+    const videoItems = videoList.querySelectorAll(".video-item");
+    if (videoItems.length === 0) return 4;
+
+    const firstVideoItem = videoItems[0] as HTMLElement;
+    const containerWidth = videoList.clientWidth;
+    const itemWidth = firstVideoItem.offsetWidth + 20; // Include margin
+
+    return Math.floor(containerWidth / itemWidth) || 1;
+  }
+
+  // Scroll to selected video if it's out of view
+  private scrollToSelectedVideo(): void {
+    const selectedIndex = this.uiRenderer.getSelectedVideoIndex();
+    const videoItems = document.querySelectorAll(".video-item");
+
+    if (selectedIndex >= 0 && videoItems[selectedIndex]) {
+      const selectedItem = videoItems[selectedIndex];
+      const container = document.getElementById("videoList");
+
+      if (container) {
+        const containerRect = container.getBoundingClientRect();
+        const itemRect = selectedItem.getBoundingClientRect();
+
+        if (
+          itemRect.top < containerRect.top ||
+          itemRect.bottom > containerRect.bottom
+        ) {
+          // コンテナ内でのスクロール位置を計算
+          const htmlSelectedItem = selectedItem as HTMLElement;
+          const itemOffsetTop = htmlSelectedItem.offsetTop;
+          const containerHeight = container.clientHeight;
+          const itemHeight = htmlSelectedItem.offsetHeight;
+
+          // アイテムを画面中央に配置するためのスクロール位置を計算
+          const targetScrollTop =
+            itemOffsetTop - containerHeight / 2 + itemHeight / 2;
+
+          // スムーズスクロール
+          // scrollIntoViewは画面全体がスクロールしてしまいヘッダーが埋もれてしまうので使用しない
+          container.scrollTo({
+            top: targetScrollTop,
+            behavior: "smooth",
+          });
+        }
       }
     }
   }
 
+  private handleEnterKey(e: KeyboardEvent): void {
+    const selectedIndex = this.uiRenderer.getSelectedVideoIndex();
+    if (selectedIndex >= 0 && this.filteredVideos[selectedIndex]) {
+      this.showVideoDetails(this.filteredVideos[selectedIndex]);
+    }
+  }
+
   private handleSpaceKey(e: KeyboardEvent): void {
-    // スペースキーでの詳細表示機能を実装
-    const focusedElement = document.activeElement as HTMLElement;
-    if (focusedElement && focusedElement.classList.contains("video-item")) {
-      e.preventDefault();
-      const videoId = parseInt(focusedElement.dataset.videoId!);
-      const video = this.filteredVideos.find((v) => v.id === videoId);
-      if (video) {
-        this.showVideoDetails(video);
-      }
+    const selectedIndex = this.uiRenderer.getSelectedVideoIndex();
+    if (selectedIndex >= 0 && this.filteredVideos[selectedIndex]) {
+      this.showVideoDetails(this.filteredVideos[selectedIndex]);
     }
   }
 
