@@ -1,0 +1,1 @@
+{"root":["./src/config/ffmpeg-light.ts","./src/config/optimization.ts","./src/renderer/filtermanager.ts","./src/renderer/utils.ts","./src/renderer/videomanager.ts","./src/types/electron.d.ts"],"version":"5.8.3"}

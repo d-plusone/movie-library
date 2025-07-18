@@ -1,15 +1,76 @@
-const fs = require("fs").promises;
-const path = require("path");
-const ffmpeg = require("fluent-ffmpeg");
-const ffmpegStatic = require("ffmpeg-static");
-const ffprobeStatic = require("ffprobe-static");
+import { promises as fs } from "fs";
+import path from "path";
+import ffmpeg from "fluent-ffmpeg";
+import ffmpegStatic from "ffmpeg-static";
+import ffprobeStatic from "ffprobe-static";
+import DatabaseManager from "../database/DatabaseManager";
 
 // Set ffmpeg and ffprobe paths
-ffmpeg.setFfmpegPath(ffmpegStatic);
+ffmpeg.setFfmpegPath(ffmpegStatic!);
 ffmpeg.setFfprobePath(ffprobeStatic.path);
 
+interface ProcessedVideo {
+  id?: number;
+  path: string;
+  filename: string;
+  title: string;
+  duration?: number;
+  size: number;
+  width: number;
+  height: number;
+  fps: number;
+  codec?: string;
+  bitrate: number;
+  createdAt: string;
+  modifiedAt: string;
+  isNewVideo: boolean;
+  needsThumbnails: boolean;
+}
+
+interface ExistingVideo {
+  id: number;
+  path: string;
+  filename: string;
+  title?: string;
+  duration?: number;
+  size?: number;
+  width?: number;
+  height?: number;
+  fps?: number;
+  codec?: string;
+  bitrate?: number;
+  created_at?: string;
+  modified_at?: string;
+  rating: number;
+  thumbnail_path?: string;
+  chapter_thumbnails: string;
+  description?: string;
+  added_at: string;
+  updated_at: string;
+}
+
+interface VideoMetadata {
+  format: {
+    duration?: number;
+    bit_rate?: number | string;
+  };
+  streams: Array<{
+    width?: number;
+    height?: number;
+    r_frame_rate?: string;
+    codec_name?: string;
+  }>;
+}
+
+interface ProgressCallback {
+  (progress: { current: number; total: number; file: string }): void;
+}
+
 class VideoScanner {
-  constructor(database) {
+  private db: DatabaseManager;
+  private supportedExtensions: string[];
+
+  constructor(database: DatabaseManager) {
     this.db = database;
     this.supportedExtensions = [
       ".mp4",
@@ -30,13 +91,13 @@ class VideoScanner {
     ];
   }
 
-  isVideoFile(filePath) {
+  isVideoFile(filePath: string): boolean {
     const ext = path.extname(filePath).toLowerCase();
     return this.supportedExtensions.includes(ext);
   }
 
-  async scanDirectory(directoryPath, progressCallback = null) {
-    const videos = [];
+  async scanDirectory(directoryPath: string, progressCallback?: ProgressCallback | null): Promise<ProcessedVideo[]> {
+    const videos: ProcessedVideo[] = [];
     const allFiles = await this.getAllFiles(directoryPath);
     const videoFiles = allFiles.filter((file) => this.isVideoFile(file));
 
@@ -64,10 +125,10 @@ class VideoScanner {
     return videos;
   }
 
-  async getAllFiles(directoryPath) {
-    const files = [];
+  async getAllFiles(directoryPath: string): Promise<string[]> {
+    const files: string[] = [];
 
-    async function scanDir(currentPath) {
+    async function scanDir(currentPath: string): Promise<void> {
       try {
         const entries = await fs.readdir(currentPath, { withFileTypes: true });
 
@@ -89,7 +150,7 @@ class VideoScanner {
     return files;
   }
 
-  async processFile(filePath) {
+  async processFile(filePath: string): Promise<ProcessedVideo | null> {
     try {
       // Check if file already exists in database
       const existingVideo = await this.checkExistingVideo(filePath);
@@ -100,10 +161,18 @@ class VideoScanner {
         existingVideo &&
         existingVideo.modified_at === stats.mtime.toISOString()
       ) {
-        return { 
-          ...existingVideo, 
+        return {
+          ...existingVideo,
+          title: existingVideo.title || existingVideo.filename,
+          size: existingVideo.size || 0,
+          width: existingVideo.width || 0,
+          height: existingVideo.height || 0,
+          fps: existingVideo.fps || 0,
+          bitrate: existingVideo.bitrate || 0,
+          createdAt: existingVideo.created_at || '',
+          modifiedAt: existingVideo.modified_at || '',
           isNewVideo: false,
-          needsThumbnails: false 
+          needsThumbnails: false,
         };
       }
 
@@ -119,7 +188,9 @@ class VideoScanner {
         fps: this.parseFps(metadata.streams[0]?.r_frame_rate),
         codec: metadata.streams[0]?.codec_name,
         bitrate: metadata.format.bit_rate
-          ? parseInt(metadata.format.bit_rate)
+          ? typeof metadata.format.bit_rate === 'string' 
+            ? parseInt(metadata.format.bit_rate)
+            : metadata.format.bit_rate
           : 0,
         createdAt: stats.birthtime.toISOString(),
         modifiedAt: stats.mtime.toISOString(),
@@ -127,12 +198,12 @@ class VideoScanner {
 
       const videoId = await this.db.addVideo(videoData);
       const isNewVideo = !existingVideo; // 既存動画がない場合は新規動画
-      
-      return { 
-        id: videoId, 
-        ...videoData, 
+
+      return {
+        id: videoId,
+        ...videoData,
         isNewVideo,
-        needsThumbnails: isNewVideo // 新規動画の場合はサムネイル生成が必要
+        needsThumbnails: isNewVideo, // 新規動画の場合はサムネイル生成が必要
       };
     } catch (error) {
       console.error("Error processing video file:", filePath, error);
@@ -140,35 +211,35 @@ class VideoScanner {
     }
   }
 
-  async checkExistingVideo(filePath) {
+  async checkExistingVideo(filePath: string): Promise<ExistingVideo | null> {
     return new Promise((resolve, reject) => {
-      this.db.db.get(
+      (this.db as any).db.get(
         "SELECT * FROM videos WHERE path = ?",
         [filePath],
-        (err, row) => {
+        (err: Error | null, row: ExistingVideo | undefined) => {
           if (err) {
             reject(err);
           } else {
-            resolve(row);
+            resolve(row || null);
           }
         }
       );
     });
   }
 
-  async getVideoMetadata(filePath) {
+  async getVideoMetadata(filePath: string): Promise<VideoMetadata> {
     return new Promise((resolve, reject) => {
       ffmpeg.ffprobe(filePath, (err, metadata) => {
         if (err) {
           reject(err);
         } else {
-          resolve(metadata);
+          resolve(metadata as unknown as VideoMetadata);
         }
       });
     });
   }
 
-  parseFps(frameRate) {
+  parseFps(frameRate?: string): number {
     if (!frameRate) return 0;
 
     if (frameRate.includes("/")) {
@@ -179,7 +250,7 @@ class VideoScanner {
     return parseFloat(frameRate) || 0;
   }
 
-  formatDuration(seconds) {
+  formatDuration(seconds?: number): string {
     if (!seconds) return "00:00:00";
 
     const hours = Math.floor(seconds / 3600);
@@ -191,7 +262,7 @@ class VideoScanner {
       .padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   }
 
-  formatFileSize(bytes) {
+  formatFileSize(bytes: number): string {
     if (bytes === 0) return "0 Bytes";
 
     const k = 1024;
@@ -202,4 +273,4 @@ class VideoScanner {
   }
 }
 
-module.exports = VideoScanner;
+export default VideoScanner;

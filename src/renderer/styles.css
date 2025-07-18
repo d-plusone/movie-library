@@ -422,34 +422,264 @@ body {
     gap: 6px;
 }
 
-.tag-item,
-.directory-item {
+/* Tag Filter Items */
+.tag-item {
     display: flex;
-    justify-content: space-between;
     align-items: center;
-    padding: 8px 12px;
-    background: var(--bg-tertiary) !important;
-    color: var(--text-primary) !important;
-    border-radius: 8px;
-    font-size: 12px;
-    transition: all 0.2s ease;
+    justify-content: space-between;
+    padding: 6px 10px;
+    /* より細く */
+    margin-bottom: 3px;
+    /* 間隔を狭く */
+    background: #2a2a2a;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    /* 角を少し丸く */
     cursor: pointer;
+    transition: all 0.2s ease;
+    user-select: none;
+    min-height: 30px;
+    /* 高さを低く */
+    color: #ccc;
+    font-size: 13px;
+    /* フォントサイズを小さく */
 }
 
-.tag-item.active,
-.directory-item.active {
-    background: var(--accent-color) !important;
+.tag-item:hover {
+    background: #4a4a4a !important;
+    /* より明るいグレーでホバー表示 */
+    border-color: var(--accent-color) !important;
+    color: #fff !important;
+    /* アニメーション削除 - 色変化のみ */
+}
+
+.tag-item.selected {
+    background: #007AFF !important;
+    /* 固定の青色で確認 */
+    color: white !important;
+    border-color: #007AFF !important;
+    box-shadow: 0 2px 8px rgba(0, 122, 255, 0.3);
+}
+
+/* 選択状態でもホバー効果を適用 */
+.tag-item.selected:hover {
+    background: #1a73e8 !important;
+    /* 選択状態のホバー時はより濃い青 */
     color: white !important;
 }
 
+/* ディレクトリアイテムの選択状態ホバー */
+.directory-item.selected:hover {
+    background: #1a73e8 !important;
+    /* 選択状態のホバー時はより濃い青 */
+    color: white !important;
+}
 
-.tag-name,
-.directory-name {
-    cursor: pointer;
+.tag-item.selected .tag-name,
+.tag-item.selected .tag-count {
+    color: white !important;
+}
+
+/* Remove checkbox styling - now just text */
+.tag-checkbox {
+    display: none;
+}
+
+.tag-name {
     flex: 1;
-    padding: 2px 0;
+    font-size: 13px;
+    font-weight: 500;
+    margin-right: 8px;
+}
+
+.tag-count {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-right: 8px;
+}
+
+.tag-item.selected .tag-count {
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.tag-actions {
+    display: flex;
+    gap: 4px;
+    opacity: 0.6;
+    /* 常に少し見える状態 */
+    transition: opacity 0.2s ease;
+}
+
+.tag-item:hover .tag-actions {
+    opacity: 1;
+    /* ホバー時に完全に表示 */
+}
+
+.tag-edit-btn,
+.tag-delete-btn {
+    width: 24px;
+    height: 24px;
+    border: none;
     border-radius: 4px;
-    color: inherit !important;
+    background: rgba(255, 255, 255, 0.2);
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    transition: all 0.2s ease;
+}
+
+.tag-edit-btn:hover {
+    background: rgba(255, 255, 255, 0.3);
+    color: var(--text-primary);
+}
+
+.tag-delete-btn:hover {
+    background: #ff4757;
+    color: white;
+}
+
+/* Directory Filter Items */
+.directory-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 10px;
+    /* より細く */
+    margin-bottom: 3px;
+    /* 間隔を狭く */
+    background: #2a2a2a;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    /* 角を少し丸く */
+    cursor: pointer;
+    transition: all 0.2s ease;
+    user-select: none;
+    min-height: 30px;
+    /* 高さを低く */
+    color: #ccc;
+    font-size: 13px;
+    /* フォントサイズを小さく */
+}
+
+.directory-item:hover {
+    background: #4a4a4a !important;
+    /* より明るいグレーでホバー表示 */
+    border-color: var(--accent-color) !important;
+    color: #fff !important;
+    /* アニメーション削除 - 色変化のみ */
+}
+
+.directory-item.selected {
+    background: #007AFF !important;
+    /* 固定の青色で確認 */
+    color: white !important;
+    border-color: #007AFF !important;
+    box-shadow: 0 2px 8px rgba(0, 122, 255, 0.3);
+}
+
+.directory-item.selected .directory-path {
+    color: white !important;
+}
+
+/* Remove checkbox styling - now just text */
+.directory-checkbox {
+    display: none;
+}
+
+.directory-path {
+    flex: 1;
+    font-size: 12px;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    margin-right: 8px;
+}
+
+.directory-actions {
+    display: flex;
+    gap: 4px;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.directory-item:hover .directory-actions {
+    opacity: 1;
+}
+
+.directory-remove-btn {
+    width: 24px;
+    height: 24px;
+    border: none;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.2);
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    transition: all 0.2s ease;
+}
+
+.directory-remove-btn:hover {
+    background: #ff4757;
+    color: white;
+}
+
+/* Dark theme support for filter items */
+[data-theme="dark"] .tag-item,
+[data-theme="dark"] .directory-item {
+    background: #2a2a2a;
+    border-color: #555;
+    color: #ccc;
+}
+
+[data-theme="dark"] .tag-item:hover,
+[data-theme="dark"] .directory-item:hover {
+    background: #4a4a4a !important;
+    /* 統一されたホバー色 */
+    border-color: var(--accent-color) !important;
+    color: #fff !important;
+}
+
+[data-theme="dark"] .tag-item.selected,
+[data-theme="dark"] .directory-item.selected {
+    background: var(--accent-color) !important;
+    color: white !important;
+    border-color: var(--accent-color);
+}
+
+/* 選択状態でもホバー効果を適用 */
+[data-theme="dark"] .tag-item.selected:hover,
+[data-theme="dark"] .directory-item.selected:hover {
+    background: #1a73e8 !important;
+    /* 選択状態のホバー時はより濃い青 */
+    color: white !important;
+}
+
+/* Light theme support for filter items */
+[data-theme="light"] .tag-item,
+[data-theme="light"] .directory-item {
+    background: #f5f5f5;
+    border-color: #ddd;
+    color: #333;
+}
+
+[data-theme="light"] .tag-item:hover,
+[data-theme="light"] .directory-item:hover {
+    background: #e5e5e5;
+    border-color: var(--accent-color);
+}
+
+[data-theme="light"] .tag-item.selected,
+[data-theme="light"] .directory-item.selected {
+    background: var(--accent-color) !important;
+    color: white !important;
+    border-color: var(--accent-color);
 }
 
 .tag-item.active .tag-name,
@@ -687,6 +917,20 @@ body {
     border-radius: 4px;
     font-size: 11px;
     font-weight: 500;
+}
+
+.video-rating-overlay {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    background: rgba(0, 0, 0, 0.8);
+    color: #FFD700;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    backdrop-filter: blur(4px);
+    border: 1px solid rgba(255, 215, 0, 0.3);
 }
 
 .video-info {
@@ -1197,7 +1441,7 @@ body {
 }
 
 .modal-header h2 {
-    font-size: 18px;
+    font-size: 20px;
     font-weight: 600;
     color: var(--text-primary);
 }
@@ -1208,12 +1452,50 @@ body {
     max-height: 60vh;
 }
 
+/* 設定ダイアログ専用スタイル */
+.settings-modal .modal-content {
+    width: 50%;
+    max-width: 90%;
+    max-height: 80vh;
+}
+
+.settings-modal .modal-header {
+    padding: 16px;
+}
+
+.settings-modal .modal-header h2 {
+    font-size: 18px;
+}
+
+.settings-modal .modal-body {
+    padding: 16px;
+    max-height: 60vh;
+}
+
+.settings-modal .settings-section {
+    margin-bottom: 16px;
+}
+
+.settings-modal .settings-section h3 {
+    font-size: 16px;
+    margin-bottom: 12px;
+}
+
+.settings-modal label {
+    font-size: 14px;
+    margin: 8px 0;
+}
+
+.settings-modal input[type="checkbox"] {
+    margin-right: 8px;
+}
+
 .settings-section {
-    margin-bottom: 32px;
+    margin-bottom: 24px;
 }
 
 .settings-section h3 {
-    font-size: 16px;
+    font-size: 18px;
     font-weight: 600;
     margin-bottom: 16px;
     color: var(--text-primary);
@@ -2318,11 +2600,12 @@ body {
     margin-bottom: 8px;
 }
 
-.rating-btn {
+/* 評価フィルタの星ボタン */
+.rating-btn[data-rating] {
     padding: 4px;
     background: transparent;
     border: none;
-    color: var(--text-secondary);
+    color: #666;
     cursor: pointer;
     font-size: 20px;
     transition: all 0.2s ease;
@@ -2333,44 +2616,56 @@ body {
     align-items: center;
     justify-content: center;
     border-radius: 50%;
+    outline: none !important;
+    /* 青い丸を削除 */
 }
 
+/* フォーカス時の青い丸も削除 */
+.rating-btn[data-rating]:focus {
+    outline: none !important;
+    box-shadow: none !important;
+}
+
+/* 星ボタンのホバー効果 */
+.rating-btn[data-rating]:hover {
+    color: #FFD700 !important;
+    transform: scale(1.1);
+}
+
+/* 選択された星ボタン - 絶対優先 */
+.rating-btn[data-rating].active {
+    color: #FFD700 !important;
+}
+
+/* 全てボタン（独立スタイル） */
 .rating-btn.all-btn {
-    font-size: 12px;
+    font-size: 12px !important;
     font-weight: 500;
     padding: 6px 8px;
     border: 1px solid var(--border-color);
     border-radius: 6px;
     background: var(--bg-secondary);
-    color: var(--text-primary);
+    color: var(--text-primary) !important;
     min-width: 50px;
     width: auto;
     height: auto;
     margin-top: 8px;
     display: block;
+    transform: none !important;
 }
 
 .rating-btn.all-btn:hover {
     background: var(--bg-tertiary);
     border-color: var(--accent-color);
-    transform: translateY(-1px);
+    transform: translateY(-1px) !important;
+    color: var(--text-primary) !important;
 }
 
 .rating-btn.all-btn.active {
     background: var(--accent-color);
-    color: white;
+    color: white !important;
     border-color: var(--accent-color);
     box-shadow: 0 2px 8px rgba(0, 122, 255, 0.3);
-}
-
-/* Star hover effects */
-.rating-btn[data-rating]:not([data-rating="0"]):hover {
-    color: #FFD700;
-    transform: scale(1.1);
-}
-
-.rating-btn[data-rating]:not([data-rating="0"]).hover {
-    color: #FFD700;
 }
 
 /* Sort Select Styles */
@@ -2742,7 +3037,8 @@ list-view .video-thumbnail .thumbnail-indicator {
 .bulk-tag-apply-table thead th.sticky-header {
     position: sticky;
     top: 0;
-    z-index: 10; /* 基本のstickyヘッダー */
+    z-index: 10;
+    /* 基本のstickyヘッダー */
 }
 
 /* 動画名ヘッダー専用の設定（より高い詳細度） */
@@ -2750,7 +3046,8 @@ list-view .video-thumbnail .thumbnail-indicator {
     position: sticky !important;
     left: 0 !important;
     top: 0 !important;
-    z-index: 30 !important; /* 最高優先度 */
+    z-index: 30 !important;
+    /* 最高優先度 */
     min-width: 300px;
     max-width: 400px;
     background: var(--bg-tertiary) !important;
@@ -2768,7 +3065,8 @@ list-view .video-thumbnail .thumbnail-indicator {
     position: sticky;
     left: 0;
     background: var(--bg-secondary) !important;
-    z-index: 10; /* ヘッダより低く設定 */
+    z-index: 10;
+    /* ヘッダより低く設定 */
     font-weight: 500;
     color: var(--text-primary);
     display: flex;
@@ -2815,7 +3113,8 @@ list-view .video-thumbnail .thumbnail-indicator {
     color: var(--text-primary);
     position: sticky;
     top: 0;
-    z-index: 20; /* 動画名ヘッダより低く設定 */
+    z-index: 20;
+    /* 動画名ヘッダより低く設定 */
     padding: 8px 4px;
 }
 
@@ -2991,4 +3290,83 @@ list-view .video-thumbnail .thumbnail-indicator {
     .select-all-checkbox-container {
         font-size: 8px;
     }
+}
+
+/* カスタムダイアログのスタイル */
+.dialog-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+}
+
+.dialog {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 20px;
+    min-width: 300px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.dialog h3 {
+    margin: 0 0 15px 0;
+    color: var(--text-primary);
+    font-size: 16px;
+}
+
+.dialog input {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-size: 14px;
+    margin-bottom: 15px;
+}
+
+.dialog input:focus {
+    outline: none;
+    border-color: var(--accent-color);
+}
+
+.dialog-buttons {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+}
+
+.dialog-buttons button {
+    padding: 8px 16px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.2s ease;
+}
+
+.dialog-buttons button:first-child {
+    background: var(--accent-color);
+    color: white;
+    border-color: var(--accent-color);
+}
+
+.dialog-buttons button:first-child:hover {
+    background: #1a73e8;
+}
+
+.dialog-buttons button:last-child {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+}
+
+.dialog-buttons button:last-child:hover {
+    background: var(--bg-tertiary);
 }
