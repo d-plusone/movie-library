@@ -44,11 +44,15 @@ interface ElectronAPI {
   deleteTag: (tagName: string) => Promise<boolean>;
   updateTag: (oldName: string, newName: string) => Promise<boolean>;
 
+  // Directory management
+  checkDirectoryExists: (dirPath: string) => Promise<boolean>;
+
   // Event listeners
   onScanProgress: (callback: (data: any) => void) => void;
   onThumbnailProgress: (callback: (data: any) => void) => void;
   onVideoAdded: (callback: (filePath: string) => void) => void;
   onVideoRemoved: (callback: (filePath: string) => void) => void;
+  onDirectoryRemoved: (callback: (dirPath: string) => void) => void;
   onOpenSettings: (callback: () => void) => void;
 
   // Remove listeners
@@ -93,6 +97,10 @@ const electronAPI: ElectronAPI = {
   updateTag: (oldName: string, newName: string) =>
     ipcRenderer.invoke("update-tag", oldName, newName),
 
+  // Directory management
+  checkDirectoryExists: (dirPath: string) =>
+    ipcRenderer.invoke("check-directory-exists", dirPath),
+
   // Event listeners
   onScanProgress: (callback: (data: any) => void) => {
     ipcRenderer.on("scan-progress", (event, data) => callback(data));
@@ -105,6 +113,9 @@ const electronAPI: ElectronAPI = {
   },
   onVideoRemoved: (callback: (filePath: string) => void) => {
     ipcRenderer.on("video-removed", (event, filePath) => callback(filePath));
+  },
+  onDirectoryRemoved: (callback: (dirPath: string) => void) => {
+    ipcRenderer.on("directory-removed", (event, dirPath) => callback(dirPath));
   },
   onOpenSettings: (callback: () => void) => {
     ipcRenderer.on("open-settings", () => callback());

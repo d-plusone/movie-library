@@ -160,6 +160,12 @@ class MovieLibraryApp {
         console.log("Video removed:", filePath);
         this.handleVideoRemoved(filePath);
       });
+
+      // ディレクトリ削除イベント
+      window.electronAPI.onDirectoryRemoved((dirPath: string) => {
+        console.log("Directory removed:", dirPath);
+        this.handleDirectoryRemoved(dirPath);
+      });
     } catch (error) {
       console.warn("Failed to setup progress event listeners:", error);
     }
@@ -235,6 +241,9 @@ class MovieLibraryApp {
       console.log(
         `Loaded ${videos.length} videos, ${tags.length} tags, ${directories.length} directories`
       );
+
+      // 起動時のディレクトリ存在チェック
+      await this.checkDirectoriesExistence(directories);
 
       // FilterManagerにディレクトリ情報を初期化（初回のみ）
       this.filterManager.updateAvailableDirectories(directories);
@@ -1295,6 +1304,101 @@ class MovieLibraryApp {
       this.notificationManager.show("動画の削除処理中にエラーが発生しました", "error");
     } finally {
       this.progressManager.hide();
+    }
+  }
+
+  // ディレクトリ削除時の処理
+  private async handleDirectoryRemoved(dirPath: string): Promise<void> {
+    try {
+      console.log("Handling directory removal:", dirPath);
+      
+      // プログレスバーを表示
+      this.progressManager.show("ディレクトリデータを更新中...");
+      
+      // ディレクトリ名を取得（通知用）
+      const dirName = dirPath.split('/').pop() || dirPath;
+      
+      // ディレクトリをデータベースから削除
+      await this.videoManager.removeDirectory(dirPath);
+      
+      // データを完全に再読み込み
+      await this.refreshData();
+      
+      // フィルター状態も更新
+      const directories = this.videoManager.getDirectories();
+      this.filterManager.updateAvailableDirectories(directories);
+      
+      // 通知を表示
+      this.notificationManager.show(`ディレクトリが削除されました: ${dirName}`, "warning");
+      
+      console.log("Directory removal handled successfully");
+    } catch (error) {
+      console.error("Error handling directory removal:", error);
+      this.notificationManager.show("ディレクトリの削除処理中にエラーが発生しました", "error");
+    } finally {
+      this.progressManager.hide();
+    }
+  }
+
+  // 起動時のディレクトリ存在チェック
+  private async checkDirectoriesExistence(directories: any[]): Promise<void> {
+    try {
+      console.log("Checking directories existence...");
+      
+      const removedDirectories: string[] = [];
+      
+      for (const directory of directories) {
+        const dirPath = directory.path || directory;
+        
+        // ディレクトリの存在をチェック
+        try {
+          const exists = await window.electronAPI.checkDirectoryExists(dirPath);
+          if (!exists) {
+            console.log("Directory no longer exists:", dirPath);
+            removedDirectories.push(dirPath);
+          }
+        } catch (error) {
+          console.warn("Failed to check directory existence:", dirPath, error);
+          removedDirectories.push(dirPath);
+        }
+      }
+      
+      // 削除されたディレクトリがある場合の処理
+      if (removedDirectories.length > 0) {
+        console.log("Found removed directories:", removedDirectories);
+        
+        // 各削除されたディレクトリを処理
+        for (const dirPath of removedDirectories) {
+          try {
+            await this.videoManager.removeDirectory(dirPath);
+            const dirName = dirPath.split('/').pop() || dirPath;
+            console.log(`Removed directory from database: ${dirName}`);
+          } catch (error) {
+            console.error("Failed to remove directory from database:", dirPath, error);
+          }
+        }
+        
+        // データを再読み込み
+        await this.videoManager.loadDirectories(true);
+        const updatedDirectories = this.videoManager.getDirectories();
+        this.filterManager.updateAvailableDirectories(updatedDirectories);
+        
+        // 通知を表示
+        if (removedDirectories.length === 1) {
+          const dirName = removedDirectories[0].split('/').pop() || removedDirectories[0];
+          this.notificationManager.show(
+            `削除されたディレクトリをアプリから除外しました: ${dirName}`,
+            "warning"
+          );
+        } else {
+          this.notificationManager.show(
+            `${removedDirectories.length}個の削除されたディレクトリをアプリから除外しました`,
+            "warning"
+          );
+        }
+      }
+    } catch (error) {
+      console.error("Error checking directories existence:", error);
     }
   }
 

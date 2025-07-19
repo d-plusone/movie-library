@@ -102,11 +102,15 @@ export interface ElectronAPI {
   regenerateMainThumbnail(videoId: string): Promise<Video>;
   setMainThumbnail(filePath: string, timestamp: number): Promise<void>;
 
+  // Directory management
+  checkDirectoryExists(dirPath: string): Promise<boolean>;
+
   // Event listeners
   onScanProgress(callback: (data: ScanProgress) => void): void;
   onThumbnailProgress(callback: (data: ThumbnailProgress) => void): void;
   onVideoAdded(callback: (filePath: string) => void): void;
   onVideoRemoved(callback: (filePath: string) => void): void;
+  onDirectoryRemoved(callback: (dirPath: string) => void): void;
 }
 
 declare global {

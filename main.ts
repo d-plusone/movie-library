@@ -322,6 +322,17 @@ class MovieLibraryApp {
       return result;
     });
 
+    // Check directory exists
+    ipcMain.handle("check-directory-exists", async (event, dirPath: string) => {
+      try {
+        const fs = await import('fs');
+        await fs.promises.access(dirPath, fs.constants.F_OK);
+        return true;
+      } catch (error) {
+        return false;
+      }
+    });
+
     // Scan directories (improved comprehensive scan)
     ipcMain.handle("scan-directories", async () => {
       const directories = await this.db.getDirectories();
@@ -642,6 +653,30 @@ class MovieLibraryApp {
       }
     });
 
+    // ディレクトリ自体の削除を監視
+    watcher.on("unlinkDir", async (dirPath: string) => {
+      // 監視しているディレクトリ自体が削除された場合
+      if (dirPath === directoryPath) {
+        try {
+          console.log("Directory removed:", dirPath);
+          
+          // データベースからディレクトリを削除
+          await this.db.removeDirectory(dirPath);
+          
+          // 監視を停止
+          this.stopWatching(dirPath);
+          
+          if (this.mainWindow) {
+            this.mainWindow.webContents.send("directory-removed", dirPath);
+          }
+          
+          console.log("Directory removal processed successfully:", dirPath);
+        } catch (error) {
+          console.error("Error processing directory removal:", dirPath, error);
+        }
+      }
+    });
+
     this.watchers.set(directoryPath, watcher);
   }
 
@@ -655,8 +690,37 @@ class MovieLibraryApp {
 
   async startWatchingAllDirectories(): Promise<void> {
     const directories = await this.db.getDirectories();
+    const removedDirectories: string[] = [];
+    
     for (const directory of directories) {
-      this.startWatching(directory.path);
+      try {
+        // ディレクトリの存在をチェック
+        const fs = await import('fs');
+        await fs.promises.access(directory.path, fs.constants.F_OK);
+        
+        // 存在する場合は監視を開始
+        this.startWatching(directory.path);
+      } catch (error) {
+        // 存在しない場合はリストに追加
+        console.log("Directory no longer exists:", directory.path);
+        removedDirectories.push(directory.path);
+      }
+    }
+    
+    // 削除されたディレクトリがある場合の処理
+    if (removedDirectories.length > 0) {
+      for (const dirPath of removedDirectories) {
+        try {
+          await this.db.removeDirectory(dirPath);
+          console.log("Removed non-existent directory from database:", dirPath);
+          
+          if (this.mainWindow) {
+            this.mainWindow.webContents.send("directory-removed", dirPath);
+          }
+        } catch (error) {
+          console.error("Failed to remove directory from database:", dirPath, error);
+        }
+      }
     }
   }
 }
