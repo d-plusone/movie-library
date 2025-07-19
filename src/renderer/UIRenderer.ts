@@ -663,7 +663,7 @@ export class UIRenderer {
       resolutionElement.textContent = `${video.width ?? 0}x${
         video.height ?? 0
       }`;
-    if (fpsElement) fpsElement.textContent = `${video.fps ?? 0} fps`;
+    if (fpsElement) fpsElement.textContent = `${this.formatFps(video.fps ?? 0)} fps`;
     if (codecElement) codecElement.textContent = video.codec || "不明";
 
     // タグリストを更新
@@ -1372,5 +1372,24 @@ export class UIRenderer {
     if (thumbnailHeightInput) {
       thumbnailHeightInput.value = settings.height?.toString() || "180";
     }
+  }
+
+  // FPSを適切な桁数で表示するヘルパーメソッド
+  private formatFps(fps: number): string {
+    if (fps === 0) return "0";
+    
+    // 整数かチェック
+    if (fps % 1 === 0) {
+      return fps.toString();
+    }
+    
+    // 小数点第一位までで十分かチェック
+    const firstDecimal = Math.round(fps * 10) / 10;
+    if (Math.abs(fps - firstDecimal) < 0.001) {
+      return firstDecimal.toString();
+    }
+    
+    // 小数点第二位まで表示
+    return (Math.round(fps * 100) / 100).toString();
   }
 }
