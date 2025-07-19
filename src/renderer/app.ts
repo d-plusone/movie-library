@@ -1460,6 +1460,11 @@ class MovieLibraryApp {
   }
 
   private showVideoDetails(video: Video): void {
+    // 同じビデオが既に表示されている場合は再描画をスキップ
+    if (this.currentVideo && this.currentVideo.id === video.id) {
+      return;
+    }
+
     this.currentVideo = video;
     this.uiRenderer.showVideoDetails(video);
 
