@@ -2,9 +2,9 @@ name: Build Test
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [main, develop]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 permissions:
   contents: read
@@ -12,11 +12,11 @@ permissions:
 jobs:
   test-build:
     runs-on: ${{ matrix.os }}
-    
+
     strategy:
       matrix:
         os: [macos-latest, windows-latest]
-    
+
     steps:
       - name: Check out Git repository
         uses: actions/checkout@v4
@@ -47,7 +47,7 @@ jobs:
       - name: Install Python and dependencies
         uses: actions/setup-python@v4
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
       - name: Install Python setuptools
         run: |
@@ -59,7 +59,7 @@ jobs:
         run: |
           npm install -g node-gyp
           rm -rf node_modules/.cache
-          
+
       - name: Setup build environment (Windows)
         if: matrix.os == 'windows-latest'
         run: |
@@ -84,7 +84,7 @@ jobs:
         run: |
           if (Test-Path "node_modules") { Remove-Item -Recurse -Force "node_modules" }
           if (Test-Path "package-lock.json") { Remove-Item -Force "package-lock.json" }
-          
+
       - name: Install dependencies
         run: npm install
 

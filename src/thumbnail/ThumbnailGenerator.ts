@@ -1,13 +1,52 @@
-const fs = require("fs").promises;
-const path = require("path");
-const ffmpeg = require("fluent-ffmpeg");
-const { app } = require("electron");
+import { promises as fs } from "fs";
+import path from "path";
+import ffmpeg from "fluent-ffmpeg";
+import { app } from "electron";
+import DatabaseManager from "../database/DatabaseManager";
+
+interface ThumbnailSettings {
+  quality: number;
+  width: number;
+  height: number;
+}
+
+interface ChapterThumbnail {
+  path: string;
+  timestamp: number;
+  index: number;
+}
+
+interface Video {
+  id: number;
+  path: string;
+  duration: number;
+  thumbnail_path?: string;
+  chapter_thumbnails?: string;
+  chapterThumbnails?: ChapterThumbnail[];
+}
+
+interface ThumbnailResult {
+  mainThumbnail: string;
+  chapterThumbnails: ChapterThumbnail[];
+}
+
+interface RegenerateResult {
+  thumbnailPath: string;
+  timestamp: number;
+  formattedTimestamp: string;
+}
+
+interface ThumbnailOptions {
+  width?: number;
+  height?: number;
+  quality?: number;
+}
 
 // Function to detect if running in development mode
-function isDevelopment() {
+function isDevelopment(): boolean {
   // Check multiple indicators for development mode
   return (
-    process.env.NODE_ENV === 'development' ||
+    process.env.NODE_ENV === "development" ||
     !app.isPackaged ||
     process.defaultApp ||
     /[\\/]electron-prebuilt[\\/]/.test(process.execPath) ||
@@ -15,14 +54,14 @@ function isDevelopment() {
   );
 }
 
-// Function to get ffmpeg path 
-function getFfmpegPath() {
+// Function to get ffmpeg path
+function getFfmpegPath(): string | null {
   try {
     const isDevMode = isDevelopment();
     console.log("Running in development mode:", isDevMode);
     console.log("app.isPackaged:", app.isPackaged);
     console.log("process.execPath:", process.execPath);
-    
+
     if (isDevMode) {
       // Development mode - use require directly
       const ffmpegStatic = require("ffmpeg-static");
@@ -32,34 +71,40 @@ function getFfmpegPath() {
       // Production mode - look for ffmpeg in the app.asar.unpacked directory
       const appPath = app.getAppPath();
       console.log("App path:", appPath);
-      
-      const unpackedPath = appPath.replace('app.asar', 'app.asar.unpacked');
+
+      const unpackedPath = appPath.replace("app.asar", "app.asar.unpacked");
       console.log("Unpacked path:", unpackedPath);
-      
+
       // Try multiple possible paths for ffmpeg
       const possiblePaths = [
-        path.join(unpackedPath, 'node_modules', 'ffmpeg-static', 'ffmpeg'),
-        path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', 'ffmpeg-static', 'ffmpeg'),
-        path.join(process.resourcesPath, 'ffmpeg-static', 'ffmpeg'),
+        path.join(unpackedPath, "node_modules", "ffmpeg-static", "ffmpeg"),
+        path.join(
+          process.resourcesPath,
+          "app.asar.unpacked",
+          "node_modules",
+          "ffmpeg-static",
+          "ffmpeg"
+        ),
+        path.join(process.resourcesPath, "ffmpeg-static", "ffmpeg"),
       ];
-      
+
       // Add platform-specific extensions
-      if (process.platform === 'win32') {
+      if (process.platform === "win32") {
         possiblePaths.forEach((p, i) => {
-          possiblePaths[i] = p + '.exe';
+          possiblePaths[i] = p + ".exe";
         });
       }
-      
+
       for (const ffmpegPath of possiblePaths) {
         try {
-          require('fs').accessSync(ffmpegPath, require('fs').constants.F_OK);
+          require("fs").accessSync(ffmpegPath, require("fs").constants.F_OK);
           console.log("Found ffmpeg at:", ffmpegPath);
           return ffmpegPath;
         } catch (error) {
           console.log("ffmpeg not found at:", ffmpegPath);
         }
       }
-      
+
       // Fallback to require() which should work with asarUnpack
       try {
         const ffmpegStatic = require("ffmpeg-static");
@@ -76,11 +121,11 @@ function getFfmpegPath() {
   }
 }
 
-function getFfprobePath() {
+function getFfprobePath(): string | null {
   try {
     const isDevMode = isDevelopment();
     console.log("Getting ffprobe path, development mode:", isDevMode);
-    
+
     if (isDevMode) {
       // Development mode - use require directly
       const ffprobeStatic = require("ffprobe-static");
@@ -89,34 +134,58 @@ function getFfprobePath() {
     } else {
       // Production mode - look for ffprobe in the app.asar.unpacked directory
       const appPath = app.getAppPath();
-      const unpackedPath = appPath.replace('app.asar', 'app.asar.unpacked');
-      
+      const unpackedPath = appPath.replace("app.asar", "app.asar.unpacked");
+
       // Try multiple possible paths for ffprobe
       const platform = process.platform;
       const arch = process.arch;
       const possiblePaths = [
-        path.join(unpackedPath, 'node_modules', 'ffprobe-static', 'bin', platform, arch, 'ffprobe'),
-        path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', 'ffprobe-static', 'bin', platform, arch, 'ffprobe'),
-        path.join(process.resourcesPath, 'ffprobe-static', 'bin', platform, arch, 'ffprobe'),
+        path.join(
+          unpackedPath,
+          "node_modules",
+          "ffprobe-static",
+          "bin",
+          platform,
+          arch,
+          "ffprobe"
+        ),
+        path.join(
+          process.resourcesPath,
+          "app.asar.unpacked",
+          "node_modules",
+          "ffprobe-static",
+          "bin",
+          platform,
+          arch,
+          "ffprobe"
+        ),
+        path.join(
+          process.resourcesPath,
+          "ffprobe-static",
+          "bin",
+          platform,
+          arch,
+          "ffprobe"
+        ),
       ];
-      
+
       // Add platform-specific extensions
-      if (process.platform === 'win32') {
+      if (process.platform === "win32") {
         possiblePaths.forEach((p, i) => {
-          possiblePaths[i] = p + '.exe';
+          possiblePaths[i] = p + ".exe";
         });
       }
-      
+
       for (const ffprobePath of possiblePaths) {
         try {
-          require('fs').accessSync(ffprobePath, require('fs').constants.F_OK);
+          require("fs").accessSync(ffprobePath, require("fs").constants.F_OK);
           console.log("Found ffprobe at:", ffprobePath);
           return ffprobePath;
         } catch (error) {
           console.log("ffprobe not found at:", ffprobePath);
         }
       }
-      
+
       // Fallback to require() which should work with asarUnpack
       try {
         const ffprobeStatic = require("ffprobe-static");
@@ -137,19 +206,23 @@ function getFfprobePath() {
 try {
   const ffmpegPath = getFfmpegPath();
   const ffprobePath = getFfprobePath();
-  
+
   if (ffmpegPath) {
     console.log("Setting ffmpeg path:", ffmpegPath);
     ffmpeg.setFfmpegPath(ffmpegPath);
   } else {
-    console.error("⚠️  ffmpeg binary not found! Thumbnail generation will not work.");
+    console.error(
+      "⚠️  ffmpeg binary not found! Thumbnail generation will not work."
+    );
   }
-  
+
   if (ffprobePath) {
     console.log("Setting ffprobe path:", ffprobePath);
     ffmpeg.setFfprobePath(ffprobePath);
   } else {
-    console.error("⚠️  ffprobe binary not found! Video info extraction may not work.");
+    console.error(
+      "⚠️  ffprobe binary not found! Video info extraction may not work."
+    );
   }
 } catch (error) {
   console.error("Error setting ffmpeg paths:", error);
@@ -157,7 +230,11 @@ try {
 }
 
 class ThumbnailGenerator {
-  constructor(database) {
+  private db: DatabaseManager;
+  private thumbnailsDir: string;
+  private settings: ThumbnailSettings;
+
+  constructor(database: DatabaseManager) {
     this.db = database;
     this.thumbnailsDir = path.join(app.getPath("userData"), "thumbnails");
     this.settings = {
@@ -168,7 +245,7 @@ class ThumbnailGenerator {
     this.ensureThumbnailsDirectory();
   }
 
-  async ensureThumbnailsDirectory() {
+  async ensureThumbnailsDirectory(): Promise<void> {
     try {
       await fs.access(this.thumbnailsDir);
     } catch {
@@ -176,7 +253,7 @@ class ThumbnailGenerator {
     }
   }
 
-  async generateThumbnails(video) {
+  async generateThumbnails(video: Video): Promise<ThumbnailResult> {
     try {
       const videoId = video.id || video.path.replace(/[^a-zA-Z0-9]/g, "_");
       const mainThumbnailPath = path.join(
@@ -193,7 +270,7 @@ class ThumbnailGenerator {
       );
 
       // Generate chapter thumbnails (5 thumbnails at different timestamps)
-      const chapterThumbnails = [];
+      const chapterThumbnails: ChapterThumbnail[] = [];
       const timestamps = [0.2, 0.35, 0.5, 0.65, 0.8]; // 20%, 35%, 50%, 65%, 80%
 
       for (let i = 0; i < timestamps.length; i++) {
@@ -244,11 +321,11 @@ class ThumbnailGenerator {
   }
 
   async generateSingleThumbnail(
-    videoPath,
-    outputPath,
-    timestamp,
-    options = {}
-  ) {
+    videoPath: string,
+    outputPath: string,
+    timestamp: number,
+    options: ThumbnailOptions = {}
+  ): Promise<string> {
     const defaultOptions = {
       width: this.settings.width,
       height: this.settings.height,
@@ -268,7 +345,7 @@ class ThumbnailGenerator {
           "image2",
           // アスペクト比を保持しながらサイズ調整
           "-vf",
-          `scale=${defaultOptions.width}:${defaultOptions.height}:force_original_aspect_ratio=decrease,pad=${defaultOptions.width}:${defaultOptions.height}:(ow-iw)/2:(oh-ih)/2:black`
+          `scale=${defaultOptions.width}:${defaultOptions.height}:force_original_aspect_ratio=decrease,pad=${defaultOptions.width}:${defaultOptions.height}:(ow-iw)/2:(oh-ih)/2:black`,
         ])
         .output(outputPath)
         .on("end", () => {
@@ -281,11 +358,15 @@ class ThumbnailGenerator {
     });
   }
 
-  updateSettings(newSettings) {
+  updateSettings(newSettings: Partial<ThumbnailSettings>): void {
     this.settings = { ...this.settings, ...newSettings };
   }
 
-  async generateHighQualityThumbnail(videoPath, outputPath, timestamp) {
+  async generateHighQualityThumbnail(
+    videoPath: string,
+    outputPath: string,
+    timestamp: number
+  ): Promise<string> {
     return this.generateSingleThumbnail(videoPath, outputPath, timestamp, {
       width: 640,
       height: 360,
@@ -293,7 +374,7 @@ class ThumbnailGenerator {
     });
   }
 
-  async deleteThumbnails(video) {
+  async deleteThumbnails(video: Video): Promise<void> {
     try {
       // Delete main thumbnail
       if (video.thumbnail_path) {
@@ -320,12 +401,12 @@ class ThumbnailGenerator {
     }
   }
 
-  async cleanupOrphanedThumbnails() {
+  async cleanupOrphanedThumbnails(): Promise<void> {
     try {
       const files = await fs.readdir(this.thumbnailsDir);
       const videos = await this.db.getVideos();
 
-      const usedThumbnails = new Set();
+      const usedThumbnails = new Set<string>();
 
       // Collect all used thumbnail paths
       for (const video of videos) {
@@ -333,8 +414,9 @@ class ThumbnailGenerator {
           usedThumbnails.add(path.basename(video.thumbnail_path));
         }
 
-        if (video.chapterThumbnails) {
-          for (const chapter of video.chapterThumbnails) {
+        if (video.chapter_thumbnails) {
+          const chapterThumbnails = JSON.parse(video.chapter_thumbnails);
+          for (const chapter of chapterThumbnails) {
             usedThumbnails.add(path.basename(chapter.path));
           }
         }
@@ -356,7 +438,11 @@ class ThumbnailGenerator {
     }
   }
 
-  getThumbnailPath(videoId, type = "main", index = 0) {
+  getThumbnailPath(
+    videoId: number | string,
+    type: string = "main",
+    index: number = 0
+  ): string | null {
     if (type === "main") {
       return path.join(this.thumbnailsDir, `${videoId}_main.jpg`);
     } else if (type === "chapter") {
@@ -365,7 +451,7 @@ class ThumbnailGenerator {
     return null;
   }
 
-  async thumbnailExists(thumbnailPath) {
+  async thumbnailExists(thumbnailPath: string): Promise<boolean> {
     try {
       await fs.access(thumbnailPath);
       return true;
@@ -374,7 +460,7 @@ class ThumbnailGenerator {
     }
   }
 
-  async regenerateMainThumbnail(video) {
+  async regenerateMainThumbnail(video: Video): Promise<RegenerateResult> {
     try {
       const videoId = video.id || video.path.replace(/[^a-zA-Z0-9]/g, "_");
       const mainThumbnailPath = path.join(
@@ -386,11 +472,16 @@ class ThumbnailGenerator {
       // Avoid the very beginning and end of the video
       const minPercent = 0.1; // 10%
       const maxPercent = 0.9; // 90%
-      const randomPercent = minPercent + (Math.random() * (maxPercent - minPercent));
+      const randomPercent =
+        minPercent + Math.random() * (maxPercent - minPercent);
       const randomTimestamp = video.duration * randomPercent;
 
       console.log(`Regenerating main thumbnail for video: ${video.path}`);
-      console.log(`Random timestamp: ${this.formatTimestamp(randomTimestamp)} (${(randomPercent * 100).toFixed(1)}%)`);
+      console.log(
+        `Random timestamp: ${this.formatTimestamp(randomTimestamp)} (${(
+          randomPercent * 100
+        ).toFixed(1)}%)`
+      );
 
       // Delete the old thumbnail if it exists
       if (await this.thumbnailExists(mainThumbnailPath)) {
@@ -398,7 +489,10 @@ class ThumbnailGenerator {
           await fs.unlink(mainThumbnailPath);
           console.log("Deleted old main thumbnail");
         } catch (error) {
-          console.warn("Could not delete old thumbnail:", error.message);
+          console.warn(
+            "Could not delete old thumbnail:",
+            (error as Error).message
+          );
         }
       }
 
@@ -419,7 +513,7 @@ class ThumbnailGenerator {
       return {
         thumbnailPath: mainThumbnailPath,
         timestamp: randomTimestamp,
-        formattedTimestamp: this.formatTimestamp(randomTimestamp)
+        formattedTimestamp: this.formatTimestamp(randomTimestamp),
       };
     } catch (error) {
       console.error(
@@ -431,7 +525,7 @@ class ThumbnailGenerator {
     }
   }
 
-  formatTimestamp(seconds) {
+  formatTimestamp(seconds: number): string {
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
     const secs = Math.floor(seconds % 60);
@@ -444,6 +538,108 @@ class ThumbnailGenerator {
       return `${minutes}:${secs.toString().padStart(2, "0")}`;
     }
   }
+
+  // 不要なサムネイル画像を削除
+  async cleanupThumbnails(): Promise<{ removedFiles: number; totalSize: number }> {
+    console.log("Starting thumbnail cleanup...");
+    
+    try {
+      // データベースから全動画を取得
+      const videos = await this.db.getVideos();
+      const validThumbnailPaths = new Set<string>();
+      
+      // 有効なサムネイルパスを収集
+      for (const video of videos) {
+        if (video.thumbnail_path && await this.fileExists(video.thumbnail_path)) {
+          validThumbnailPaths.add(video.thumbnail_path);
+        }
+        
+        // チャプターサムネイルも収集
+        if (video.chapter_thumbnails) {
+          try {
+            const chapters = typeof video.chapter_thumbnails === 'string' 
+              ? JSON.parse(video.chapter_thumbnails) 
+              : video.chapter_thumbnails;
+            
+            if (Array.isArray(chapters)) {
+              for (const chapter of chapters) {
+                const chapterPath = chapter.path || chapter.thumbnail_path;
+                if (chapterPath && await this.fileExists(chapterPath)) {
+                  validThumbnailPaths.add(chapterPath);
+                }
+              }
+            }
+          } catch (error) {
+            console.warn("Failed to parse chapter thumbnails for video:", video.id);
+          }
+        }
+      }
+      
+      // サムネイルディレクトリ内の全ファイルを取得
+      const thumbnailDirs = [
+        this.thumbnailsDir,
+        path.join(path.dirname(this.thumbnailsDir), "chapters")
+      ];
+      
+      let removedFiles = 0;
+      let totalSize = 0;
+      
+      for (const thumbnailDir of thumbnailDirs) {
+        if (await this.directoryExists(thumbnailDir)) {
+          const files = await fs.readdir(thumbnailDir);
+          
+          for (const file of files) {
+            const filePath = path.join(thumbnailDir, file);
+            const stats = await fs.stat(filePath);
+            
+            if (stats.isFile() && !validThumbnailPaths.has(filePath)) {
+              try {
+                totalSize += stats.size;
+                await fs.unlink(filePath);
+                removedFiles++;
+                console.log("Removed orphaned thumbnail:", filePath);
+              } catch (error) {
+                console.error("Failed to remove file:", filePath, error);
+              }
+            }
+          }
+        }
+      }
+      
+      console.log(`Cleanup completed: removed ${removedFiles} files, freed ${this.formatBytes(totalSize)}`);
+      
+      return { removedFiles, totalSize };
+    } catch (error) {
+      console.error("Error during thumbnail cleanup:", error);
+      throw error;
+    }
+  }
+
+  private async fileExists(filePath: string): Promise<boolean> {
+    try {
+      await fs.access(filePath);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private async directoryExists(dirPath: string): Promise<boolean> {
+    try {
+      const stats = await fs.stat(dirPath);
+      return stats.isDirectory();
+    } catch {
+      return false;
+    }
+  }
+
+  private formatBytes(bytes: number): string {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  }
 }
 
-module.exports = ThumbnailGenerator;
+export default ThumbnailGenerator;

@@ -50,31 +50,22 @@
             </div>
         </header>
 
-        <!-- Progress Bar -->
-        <div id="progressContainer" class="progress-container" style="display: none;">
-            <div class="progress-info">
-                <span id="progressText">処理中...</span>
-                <span id="progressPercent">0%</span>
-            </div>
-            <div class="progress-bar">
-                <div id="progressFill" class="progress-fill"></div>
-            </div>
-        </div>
+        <!-- Progress Bar は動的に作成されるため、HTMLテンプレートから削除 -->
 
         <!-- Main Content -->
         <main class="main-content">
             <!-- Sidebar -->
-            <aside class="sidebar">
+            <aside id="sidebar" class="sidebar">
                 <div class="sidebar-section">
                     <h3>フィルター</h3>
                     <div class="filter-group">
                         <label>評価</label>
                         <div class="rating-filter">
-                            <button class="rating-btn" data-rating="1">★</button>
-                            <button class="rating-btn" data-rating="2">★</button>
-                            <button class="rating-btn" data-rating="3">★</button>
-                            <button class="rating-btn" data-rating="4">★</button>
-                            <button class="rating-btn" data-rating="5">★</button>
+                            <button class="rating-btn" data-rating="1">☆</button>
+                            <button class="rating-btn" data-rating="2">☆</button>
+                            <button class="rating-btn" data-rating="3">☆</button>
+                            <button class="rating-btn" data-rating="4">☆</button>
+                            <button class="rating-btn" data-rating="5">☆</button>
                         </div>
                         <button class="rating-btn all-btn" data-rating="0">すべて</button>
                     </div>
@@ -198,6 +189,7 @@
                         <div class="info-group">
                             <label>評価</label>
                             <div class="rating-input">
+                                <button class="clear-rating-btn" title="評価を削除">×</button>
                                 <span class="star" data-rating="1">⭐</span>
                                 <span class="star" data-rating="2">⭐</span>
                                 <span class="star" data-rating="3">⭐</span>
@@ -424,7 +416,6 @@
                 </div>
             </div>
         </div>
-
         <!-- Bulk Tag Apply Dialog -->
         <div id="bulkTagApplyDialog" class="modal" style="display: none;">
             <div class="modal-content bulk-tag-apply-modal">
@@ -439,7 +430,7 @@
                                 <thead>
                                     <tr>
                                         <th class="video-name-header sticky-header">動画名</th>
-                                        <!-- Tag columns with inline select-all checkboxes will be dynamically added here -->
+                                        <!-- Tag columns will be dynamically added here -->
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -499,11 +490,9 @@
                 </div>
             </div>
         </div>
-
-
     </div>
 
-    <script type="module" src="app.js"></script>
+    <script type="module" src="../../dist-ts/renderer/src/renderer/app.js"></script>
 </body>
 
 </html>

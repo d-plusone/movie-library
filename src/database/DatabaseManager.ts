@@ -1,16 +1,81 @@
-const sqlite3 = require("sqlite3").verbose();
-const path = require("path");
-const fs = require("fs").promises;
-const { app } = require("electron");
+import sqlite3 from "sqlite3";
+import path from "path";
+import { promises as fs } from "fs";
+import { app } from "electron";
+
+interface VideoData {
+  path: string;
+  filename: string;
+  title?: string;
+  duration?: number;
+  size?: number;
+  width?: number;
+  height?: number;
+  fps?: number;
+  codec?: string;
+  bitrate?: number;
+  createdAt?: string;
+  modifiedAt?: string;
+  thumbnailPath?: string;
+  chapterThumbnails?: any[];
+}
+
+interface VideoUpdateData {
+  title?: string;
+  rating?: number;
+  description?: string;
+  thumbnailPath?: string;
+  chapterThumbnails?: any[];
+}
+
+interface VideoRecord {
+  id: number;
+  path: string;
+  filename: string;
+  title?: string;
+  duration?: number;
+  size?: number;
+  width?: number;
+  height?: number;
+  fps?: number;
+  codec?: string;
+  bitrate?: number;
+  created_at?: string;
+  modified_at?: string;
+  rating: number;
+  thumbnail_path?: string;
+  chapter_thumbnails: string;
+  description?: string;
+  added_at: string;
+  updated_at: string;
+  tags?: string[];
+}
+
+interface DirectoryRecord {
+  id: number;
+  path: string;
+  name: string;
+  added_at: string;
+}
+
+interface TagRecord {
+  id: number;
+  name: string;
+  color: string;
+  created_at: string;
+}
 
 class DatabaseManager {
+  private dbPath: string;
+  private db: sqlite3.Database | null = null;
+
   constructor() {
     const userDataPath = app.getPath("userData");
     this.dbPath = path.join(userDataPath, "movie-library.db");
     this.db = null;
   }
 
-  async initialize() {
+  async initialize(): Promise<void> {
     return new Promise((resolve, reject) => {
       this.db = new sqlite3.Database(this.dbPath, (err) => {
         if (err) {
@@ -22,10 +87,10 @@ class DatabaseManager {
     });
   }
 
-  async createTables() {
+  async createTables(): Promise<void> {
     // Enable foreign key constraints
-    await new Promise((resolve, reject) => {
-      this.db.run("PRAGMA foreign_keys = ON", (err) => {
+    await new Promise<void>((resolve, reject) => {
+      this.db!.run("PRAGMA foreign_keys = ON", (err) => {
         if (err) reject(err);
         else resolve();
       });
@@ -84,8 +149,8 @@ class DatabaseManager {
       CREATE INDEX IF NOT EXISTS idx_videos_created_at ON videos(created_at);
     `;
 
-    return new Promise((resolve, reject) => {
-      this.db.exec(sql, (err) => {
+    return new Promise<void>((resolve, reject) => {
+      this.db!.exec(sql, (err) => {
         if (err) {
           reject(err);
         } else {
@@ -95,7 +160,7 @@ class DatabaseManager {
     });
   }
 
-  async addVideo(videoData) {
+  async addVideo(videoData: VideoData): Promise<number> {
     const sql = `
       INSERT OR REPLACE INTO videos (
         path, filename, title, duration, size, width, height, fps, codec, bitrate,
@@ -104,7 +169,7 @@ class DatabaseManager {
     `;
 
     return new Promise((resolve, reject) => {
-      this.db.run(
+      this.db!.run(
         sql,
         [
           videoData.path,
@@ -134,11 +199,11 @@ class DatabaseManager {
   }
 
   async getVideos(
-    sortBy = "filename",
-    sortOrder = "ASC",
-    limit = null,
-    offset = 0
-  ) {
+    sortBy: string = "filename",
+    sortOrder: string = "ASC",
+    limit: number | null = null,
+    offset: number = 0
+  ): Promise<VideoRecord[]> {
     let sql = `
       SELECT v.*, GROUP_CONCAT(t.name) as tags
       FROM videos v
@@ -153,7 +218,7 @@ class DatabaseManager {
     }
 
     return new Promise((resolve, reject) => {
-      this.db.all(sql, [], (err, rows) => {
+      this.db!.all(sql, [], (err, rows: any[]) => {
         if (err) {
           reject(err);
         } else {
@@ -170,7 +235,7 @@ class DatabaseManager {
     });
   }
 
-  async getVideo(id) {
+  async getVideo(id: number): Promise<VideoRecord | null> {
     const sql = `
       SELECT v.*, GROUP_CONCAT(t.name) as tags
       FROM videos v
@@ -181,7 +246,7 @@ class DatabaseManager {
     `;
 
     return new Promise((resolve, reject) => {
-      this.db.get(sql, [id], (err, row) => {
+      this.db!.get(sql, [id], (err, row: any) => {
         if (err) {
           reject(err);
         } else if (row) {
@@ -199,9 +264,9 @@ class DatabaseManager {
     });
   }
 
-  async updateVideo(id, data) {
-    const fields = [];
-    const values = [];
+  async updateVideo(id: number, data: VideoUpdateData): Promise<boolean> {
+    const fields: string[] = [];
+    const values: any[] = [];
 
     if (data.title !== undefined) {
       fields.push("title = ?");
@@ -234,7 +299,7 @@ class DatabaseManager {
     const sql = `UPDATE videos SET ${fields.join(", ")} WHERE id = ?`;
 
     return new Promise((resolve, reject) => {
-      this.db.run(sql, values, function (err) {
+      this.db!.run(sql, values, function (err) {
         if (err) {
           reject(err);
         } else {
@@ -244,10 +309,10 @@ class DatabaseManager {
     });
   }
 
-  async removeVideo(path) {
+  async removeVideo(path: string): Promise<boolean> {
     const sql = "DELETE FROM videos WHERE path = ?";
     return new Promise((resolve, reject) => {
-      this.db.run(sql, [path], function (err) {
+      this.db!.run(sql, [path], function (err) {
         if (err) {
           reject(err);
         } else {
@@ -257,7 +322,7 @@ class DatabaseManager {
     });
   }
 
-  async searchVideos(query) {
+  async searchVideos(query: string): Promise<VideoRecord[]> {
     const sql = `
       SELECT v.*, GROUP_CONCAT(t.name) as tags
       FROM videos v
@@ -271,10 +336,10 @@ class DatabaseManager {
     const searchPattern = `%${query}%`;
 
     return new Promise((resolve, reject) => {
-      this.db.all(
+      this.db!.all(
         sql,
         [searchPattern, searchPattern, searchPattern, searchPattern],
-        (err, rows) => {
+        (err, rows: any[]) => {
           if (err) {
             reject(err);
           } else {
@@ -292,11 +357,11 @@ class DatabaseManager {
     });
   }
 
-  async getVideosWithoutThumbnails() {
+  async getVideosWithoutThumbnails(): Promise<VideoRecord[]> {
     const sql =
       'SELECT * FROM videos WHERE thumbnail_path IS NULL OR thumbnail_path = ""';
     return new Promise((resolve, reject) => {
-      this.db.all(sql, [], (err, rows) => {
+      this.db!.all(sql, [], (err, rows: any[]) => {
         if (err) {
           reject(err);
         } else {
@@ -307,11 +372,11 @@ class DatabaseManager {
   }
 
   // Directory management
-  async addDirectory(directoryPath) {
+  async addDirectory(directoryPath: string): Promise<number> {
     const name = path.basename(directoryPath);
     const sql = "INSERT OR IGNORE INTO directories (path, name) VALUES (?, ?)";
     return new Promise((resolve, reject) => {
-      this.db.run(sql, [directoryPath, name], function (err) {
+      this.db!.run(sql, [directoryPath, name], function (err) {
         if (err) {
           reject(err);
         } else {
@@ -321,10 +386,10 @@ class DatabaseManager {
     });
   }
 
-  async removeDirectory(directoryPath) {
+  async removeDirectory(directoryPath: string): Promise<boolean> {
     const sql = "DELETE FROM directories WHERE path = ?";
     return new Promise((resolve, reject) => {
-      this.db.run(sql, [directoryPath], function (err) {
+      this.db!.run(sql, [directoryPath], function (err) {
         if (err) {
           reject(err);
         } else {
@@ -334,10 +399,10 @@ class DatabaseManager {
     });
   }
 
-  async getDirectories() {
+  async getDirectories(): Promise<DirectoryRecord[]> {
     const sql = "SELECT * FROM directories ORDER BY name ASC";
     return new Promise((resolve, reject) => {
-      this.db.all(sql, [], (err, rows) => {
+      this.db!.all(sql, [], (err, rows: any[]) => {
         if (err) {
           reject(err);
         } else {
@@ -348,10 +413,10 @@ class DatabaseManager {
   }
 
   // Tag management
-  async getTags() {
+  async getTags(): Promise<TagRecord[]> {
     const sql = "SELECT * FROM tags ORDER BY name ASC";
     return new Promise((resolve, reject) => {
-      this.db.all(sql, [], (err, rows) => {
+      this.db!.all(sql, [], (err, rows: any[]) => {
         if (err) {
           reject(err);
         } else {
@@ -361,10 +426,10 @@ class DatabaseManager {
     });
   }
 
-  async addTag(name, color = "#007AFF") {
+  async addTag(name: string, color: string = "#007AFF"): Promise<number> {
     const sql = "INSERT OR IGNORE INTO tags (name, color) VALUES (?, ?)";
     return new Promise((resolve, reject) => {
-      this.db.run(sql, [name, color], function (err) {
+      this.db!.run(sql, [name, color], function (err) {
         if (err) {
           reject(err);
         } else {
@@ -374,7 +439,7 @@ class DatabaseManager {
     });
   }
 
-  async addTagToVideo(videoId, tagName) {
+  async addTagToVideo(videoId: number, tagName: string): Promise<boolean> {
     // First ensure the tag exists
     await this.addTag(tagName);
 
@@ -383,7 +448,7 @@ class DatabaseManager {
       SELECT ?, id FROM tags WHERE name = ?
     `;
     return new Promise((resolve, reject) => {
-      this.db.run(sql, [videoId, tagName], function (err) {
+      this.db!.run(sql, [videoId, tagName], function (err) {
         if (err) {
           reject(err);
         } else {
@@ -393,13 +458,13 @@ class DatabaseManager {
     });
   }
 
-  async removeTagFromVideo(videoId, tagName) {
+  async removeTagFromVideo(videoId: number, tagName: string): Promise<boolean> {
     const sql = `
       DELETE FROM video_tags
       WHERE video_id = ? AND tag_id = (SELECT id FROM tags WHERE name = ?)
     `;
     return new Promise((resolve, reject) => {
-      this.db.run(sql, [videoId, tagName], function (err) {
+      this.db!.run(sql, [videoId, tagName], function (err) {
         if (err) {
           reject(err);
         } else {
@@ -409,13 +474,13 @@ class DatabaseManager {
     });
   }
 
-  async deleteTag(tagName) {
+  async deleteTag(tagName: string): Promise<boolean> {
     // With foreign key constraints enabled, deleting from tags will automatically
     // delete related records from video_tags due to ON DELETE CASCADE
     const deleteTagSql = `DELETE FROM tags WHERE name = ?`;
 
     return new Promise((resolve, reject) => {
-      this.db.run(deleteTagSql, [tagName], function (err) {
+      this.db!.run(deleteTagSql, [tagName], function (err) {
         if (err) {
           reject(err);
         } else {
@@ -425,11 +490,11 @@ class DatabaseManager {
     });
   }
 
-  async updateTag(oldName, newName) {
+  async updateTag(oldName: string, newName: string): Promise<boolean> {
     const sql = `UPDATE tags SET name = ? WHERE name = ?`;
 
     return new Promise((resolve, reject) => {
-      this.db.run(sql, [newName, oldName], function (err) {
+      this.db!.run(sql, [newName, oldName], function (err) {
         if (err) {
           reject(err);
         } else {
@@ -440,7 +505,7 @@ class DatabaseManager {
   }
 
   // 指定時刻以降にビデオが更新されているかチェック
-  async hasVideoUpdates(lastCheckTime) {
+  async hasVideoUpdates(lastCheckTime: number): Promise<boolean> {
     const sql = `
       SELECT COUNT(*) as count
       FROM videos
@@ -451,28 +516,32 @@ class DatabaseManager {
     const checkTimeSeconds = Math.floor(lastCheckTime / 1000);
 
     return new Promise((resolve, reject) => {
-      this.db.get(sql, [checkTimeSeconds, checkTimeSeconds], (err, row) => {
-        if (err) {
-          console.error("Error checking video updates:", err);
-          reject(err);
-        } else {
-          console.log("hasVideoUpdates check:", {
-            lastCheckTime: new Date(lastCheckTime).toISOString(),
-            checkTimeSeconds,
-            hasUpdates: row.count > 0,
-            updateCount: row.count,
-          });
-          resolve(row.count > 0);
+      this.db!.get(
+        sql,
+        [checkTimeSeconds, checkTimeSeconds],
+        (err, row: any) => {
+          if (err) {
+            console.error("Error checking video updates:", err);
+            reject(err);
+          } else {
+            console.log("hasVideoUpdates check:", {
+              lastCheckTime: new Date(lastCheckTime).toISOString(),
+              checkTimeSeconds,
+              hasUpdates: row.count > 0,
+              updateCount: row.count,
+            });
+            resolve(row.count > 0);
+          }
         }
-      });
+      );
     });
   }
 
-  close() {
+  close(): void {
     if (this.db) {
       this.db.close();
     }
   }
 }
 
-module.exports = DatabaseManager;
+export default DatabaseManager;

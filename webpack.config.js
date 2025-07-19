@@ -1,17 +1,17 @@
 // webpack.config.js - 必要に応じてレンダラープロセスの最適化
-const path = require('path');
+const path = require("path");
 
 module.exports = {
-  mode: 'production',
-  entry: './src/renderer/app.js',
-  target: 'electron-renderer',
+  mode: "production",
+  entry: "./src/renderer/app.js",
+  target: "electron-renderer",
   optimization: {
     minimize: true,
     usedExports: true,
-    sideEffects: false
+    sideEffects: false,
   },
   resolve: {
-    extensions: ['.js']
+    extensions: [".js"],
   },
   module: {
     rules: [
@@ -19,12 +19,12 @@ module.exports = {
         test: /\.js$/,
         exclude: /node_modules/,
         use: {
-          loader: 'babel-loader',
+          loader: "babel-loader",
           options: {
-            presets: ['@babel/preset-env']
-          }
-        }
-      }
-    ]
-  }
+            presets: ["@babel/preset-env"],
+          },
+        },
+      },
+    ],
+  },
 };
