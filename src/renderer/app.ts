@@ -748,18 +748,118 @@ class MovieLibraryApp {
       this.progressManager.show("メインサムネイルを再生成中...");
       const result = await this.videoManager.regenerateMainThumbnail(video.id);
 
+      console.log("Thumbnail regeneration result:", result);
+
+      // 結果の検証
+      if (!result || (!result.thumbnail_path && !result.thumbnailPath)) {
+        throw new Error("サムネイル再生成の結果が無効です");
+      }
+
+      // プロパティ名の正規化（APIの返り値に応じて調整）
+      const thumbnailPath = result.thumbnail_path || result.thumbnailPath;
+      
+      if (!thumbnailPath) {
+        throw new Error("サムネイルパスが取得できませんでした");
+      }
+
       // UIの更新
+      const timestamp = Date.now();
+      
+      // 1. 一覧・グリッドビューのサムネイル更新
       const videoElement = document.querySelector(
         `[data-video-id="${video.id}"]`
       );
+      console.log("Video element found:", videoElement);
+      
       if (videoElement) {
-        const thumbnail = videoElement.querySelector(
-          ".thumbnail img"
+        // グリッドビューとリストビューで異なるセレクタを使用
+        let thumbnail: HTMLImageElement | null = null;
+        
+        // まずグリッドビューのサムネイル構造を試す (.thumbnail-image.active)
+        thumbnail = videoElement.querySelector(
+          ".thumbnail-image.active"
         ) as HTMLImageElement;
-        if (thumbnail) {
-          // キャッシュバスターを追加してブラウザのキャッシュを回避
-          thumbnail.src = `file://${result.thumbnail_path}?t=${Date.now()}`;
+        
+        // 見つからない場合はリストビューの構造を試す (.video-thumbnail img)
+        if (!thumbnail) {
+          thumbnail = videoElement.querySelector(
+            ".video-thumbnail img"
+          ) as HTMLImageElement;
         }
+        
+        // さらに見つからない場合は汎用的なimgセレクタを試す
+        if (!thumbnail) {
+          thumbnail = videoElement.querySelector(
+            ".video-thumbnail .thumbnail-image"
+          ) as HTMLImageElement;
+        }
+        
+        console.log("Thumbnail img element found:", thumbnail);
+        
+        if (thumbnail) {
+          console.log("Updating list thumbnail:", thumbnailPath);
+          // キャッシュバスターを追加してブラウザのキャッシュを回避
+          thumbnail.src = `file://${thumbnailPath}?t=${timestamp}`;
+          
+          // 画像の読み込み成功をハンドリング
+          thumbnail.onload = () => {
+            console.log("List thumbnail loaded successfully:", thumbnailPath);
+          };
+          
+          // 画像の読み込みエラーをハンドリング
+          thumbnail.onerror = () => {
+            console.error("Failed to load thumbnail image:", thumbnailPath);
+          };
+        } else {
+          console.log("Thumbnail img element not found in video element");
+          // デバッグのため、要素内の構造を確認
+          console.log("Video element HTML:", videoElement.innerHTML);
+        }
+      } else {
+        console.log("Video element not found for ID:", video.id);
+      }
+
+      // 2. 詳細画面のメインサムネイル更新
+      const detailsMainThumbnail = document.getElementById("detailsMainThumbnail") as HTMLImageElement;
+      console.log("Details main thumbnail element:", detailsMainThumbnail);
+      console.log("Current video ID:", this.currentVideo?.id, "Regenerated video ID:", video.id);
+      
+      if (detailsMainThumbnail && this.currentVideo && this.currentVideo.id === video.id) {
+        console.log("Updating details thumbnail:", thumbnailPath);
+        detailsMainThumbnail.src = `file://${thumbnailPath}?t=${timestamp}`;
+        
+        // 画像の読み込み成功をハンドリング
+        detailsMainThumbnail.onload = () => {
+          console.log("Details thumbnail loaded successfully:", thumbnailPath);
+        };
+        
+        // 画像の読み込みエラーをハンドリング
+        detailsMainThumbnail.onerror = () => {
+          console.error("Failed to load details thumbnail image:", thumbnailPath);
+        };
+      } else {
+        console.log("Details thumbnail not updated:", {
+          elementExists: !!detailsMainThumbnail,
+          hasCurrentVideo: !!this.currentVideo,
+          videoIdMatch: this.currentVideo?.id === video.id
+        });
+      }
+
+      // 3. ローカルデータも更新
+      if (this.currentVideo && this.currentVideo.id === video.id) {
+        this.currentVideo.thumbnail_path = thumbnailPath;
+      }
+      
+      // 4. filteredVideosのデータも更新
+      const videoInList = this.filteredVideos.find(v => v.id === video.id);
+      if (videoInList) {
+        videoInList.thumbnail_path = thumbnailPath;
+      }
+
+      // 5. VideoManagerのデータも更新
+      const videoInManager = this.videoManager.getVideos().find(v => v.id === video.id);
+      if (videoInManager) {
+        videoInManager.thumbnail_path = thumbnailPath;
       }
 
       this.notificationManager.show(
