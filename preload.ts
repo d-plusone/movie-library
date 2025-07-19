@@ -30,6 +30,7 @@ interface ElectronAPI {
   removeDirectory: (path: string) => Promise<boolean>;
   chooseDirectory: () => Promise<string[]>;
   scanDirectories: () => Promise<any[]>;
+  rescanAllVideos: () => Promise<any>;
 
   // Thumbnail operations
   generateThumbnails: () => Promise<any[]>;
@@ -50,6 +51,7 @@ interface ElectronAPI {
 
   // Event listeners
   onScanProgress: (callback: (data: any) => void) => void;
+  onRescanProgress: (callback: (data: any) => void) => void;
   onThumbnailProgress: (callback: (data: any) => void) => void;
   onVideoAdded: (callback: (filePath: string) => void) => void;
   onVideoRemoved: (callback: (filePath: string) => void) => void;
@@ -78,6 +80,7 @@ const electronAPI: ElectronAPI = {
     ipcRenderer.invoke("remove-directory", path),
   chooseDirectory: () => ipcRenderer.invoke("choose-directory"),
   scanDirectories: () => ipcRenderer.invoke("scan-directories"),
+  rescanAllVideos: () => ipcRenderer.invoke("rescan-all-videos"),
 
   // Thumbnail operations
   generateThumbnails: () => ipcRenderer.invoke("generate-thumbnails"),
@@ -106,6 +109,9 @@ const electronAPI: ElectronAPI = {
   // Event listeners
   onScanProgress: (callback: (data: any) => void) => {
     ipcRenderer.on("scan-progress", (event, data) => callback(data));
+  },
+  onRescanProgress: (callback: (data: any) => void) => {
+    ipcRenderer.on("rescan-progress", (event, data) => callback(data));
   },
   onThumbnailProgress: (callback: (data: any) => void) => {
     ipcRenderer.on("thumbnail-progress", (event, data) => callback(data));

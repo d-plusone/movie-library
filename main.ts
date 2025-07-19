@@ -374,10 +374,59 @@ class MovieLibraryApp {
 
       // 最終プログレス送信
       this.mainWindow?.webContents.send("scan-progress", {
-        current: 100,
-        total: 100,
-        message: "スキャン完了",
-        file: ""
+        message: "スキャン完了"
+      });
+
+      return {
+        totalNew: result.newVideos.length,
+        totalUpdated: result.updatedVideos.length,
+        totalReprocessed: result.reprocessedVideos.length,
+        totalDeleted: result.deletedVideos.length
+      };
+    });
+
+    // Rescan all videos (force rescan of all existing videos)
+    ipcMain.handle("rescan-all-videos", async () => {
+      const directories = await this.db.getDirectories();
+      const directoryPaths = directories.map(d => d.path);
+      
+      console.log("Starting rescan of all videos in directories:", directoryPaths);
+      
+      // 全動画の強制再スキャンを実行
+      const result = await this.videoScanner.comprehensiveScan(
+        directoryPaths,
+        (progress) => {
+          // プログレス送信
+          this.mainWindow?.webContents.send("rescan-progress", {
+            current: progress.current,
+            total: progress.total,
+            message: `再スキャン中: ${progress.file}`,
+            file: progress.file
+          });
+        }
+      );
+
+      // 削除された動画をデータベースから削除
+      for (const deletedPath of result.deletedVideos) {
+        try {
+          await this.db.removeVideo(deletedPath);
+          console.log(`Removed deleted video from database: ${deletedPath}`);
+        } catch (error) {
+          console.error(`Failed to remove deleted video: ${deletedPath}`, error);
+        }
+      }
+
+      // 結果をログ出力
+      console.log("Rescan all videos completed:", {
+        newVideos: result.newVideos.length,
+        updatedVideos: result.updatedVideos.length,
+        reprocessedVideos: result.reprocessedVideos.length,
+        deletedVideos: result.deletedVideos.length
+      });
+
+      // 最終プログレス送信
+      this.mainWindow?.webContents.send("rescan-progress", {
+        message: "再スキャン完了"
       });
 
       return {

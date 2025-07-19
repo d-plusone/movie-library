@@ -257,6 +257,28 @@ export class VideoManager {
     }
   }
 
+  // 全ての動画を強制的に再スキャン
+  async rescanAllVideos(): Promise<any> {
+    console.log("VideoManager.rescanAllVideos called");
+    
+    console.log("electronAPI.rescanAllVideos available:", !!window.electronAPI?.rescanAllVideos);
+    
+    try {
+      console.log("Calling window.electronAPI.rescanAllVideos()");
+      const result = await window.electronAPI.rescanAllVideos();
+      console.log("window.electronAPI.rescanAllVideos() completed successfully:", result);
+      return result;
+    } catch (error) {
+      console.error("VideoManager - Error rescanning all videos:", error);
+      console.error("Error details:", {
+        message: error.message,
+        stack: error.stack,
+        name: error.name
+      });
+      throw error;
+    }
+  }
+
   // サムネイル設定を更新
   async updateThumbnailSettings(settings: ThumbnailSettings): Promise<void> {
     try {

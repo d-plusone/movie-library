@@ -357,6 +357,17 @@ body {
     }
 }
 
+@keyframes slideInUpCentered {
+    from {
+        transform: translateX(-50%) translateY(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(-50%) translateY(0);
+        opacity: 1;
+    }
+}
+
 .progress-modal-header {
     display: flex;
     justify-content: space-between;
@@ -519,16 +530,20 @@ body {
     min-height: auto;
     max-height: 80vh;
     transition: all 0.3s ease;
-    animation: slideInUp 0.3s ease;
+    animation: slideInUpCentered 0.3s ease;
     user-select: none;
     display: flex;
     flex-direction: column;
     overflow: hidden;
     padding: 16px;
+    /* 初期位置を確実に中央に */
+    margin-left: 0;
+    margin-right: 0;
 }
 
 .unified-progress-modal.hidden {
-    display: none;
+    display: none !important;
+    visibility: hidden !important;
 }
 
 .progress-list {

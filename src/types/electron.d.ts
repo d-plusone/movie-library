@@ -87,6 +87,7 @@ export interface ElectronAPI {
   removeDirectory(directoryPath: string): Promise<void>;
   chooseDirectory(): Promise<string[]>;
   scanDirectories(): Promise<void>;
+  rescanAllVideos(): Promise<any>;
 
   // Tag operations
   getTags(): Promise<Tag[]>;
@@ -108,6 +109,7 @@ export interface ElectronAPI {
 
   // Event listeners
   onScanProgress(callback: (data: ScanProgress) => void): void;
+  onRescanProgress(callback: (data: ScanProgress) => void): void;
   onThumbnailProgress(callback: (data: ThumbnailProgress) => void): void;
   onVideoAdded(callback: (filePath: string) => void): void;
   onVideoRemoved(callback: (filePath: string) => void): void;

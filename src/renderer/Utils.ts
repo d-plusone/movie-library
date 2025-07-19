@@ -137,6 +137,14 @@ export class UnifiedProgressManager {
     this.progressContainer = document.createElement("div");
     this.progressContainer.id = "unifiedProgressModal";
     this.progressContainer.className = "unified-progress-modal hidden";
+    
+    // 初期位置を明示的に設定
+    this.progressContainer.style.position = "fixed";
+    this.progressContainer.style.left = "50%";
+    this.progressContainer.style.transform = "translateX(-50%)";
+    this.progressContainer.style.bottom = "20px";
+    this.progressContainer.style.display = "none";
+    this.progressContainer.style.visibility = "hidden";
 
     // 進捗リスト
     this.progressList = document.createElement("div");
@@ -307,11 +315,19 @@ export class UnifiedProgressManager {
   // モーダルを表示
   show(): void {
     if (this.progressContainer && !this.isVisible) {
+      // 初期位置を確実に設定
+      this.progressContainer.style.left = "50%";
+      this.progressContainer.style.transform = "translateX(-50%)";
+      this.progressContainer.style.bottom = "20px";
+      
       this.progressContainer.classList.remove("hidden");
       this.progressContainer.classList.remove("minimized");
       this.progressContainer.style.display = "flex";
       this.progressContainer.style.visibility = "visible";
       this.isVisible = true;
+      
+      // レイアウトを強制的に再計算させる
+      this.progressContainer.offsetHeight;
       
       // モーダルサイズを調整
       this.adjustModalSize();

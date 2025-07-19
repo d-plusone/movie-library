@@ -138,7 +138,41 @@ class MovieLibraryApp {
           this.unifiedProgress.updateProgress("scan-progress", data.current, 
             `ディレクトリをスキャン中 (${data.current}/${data.total})`);
         } else if (data && data.message) {
-          this.unifiedProgress.addProgress("scan-progress", data.message, 100);
+          // 完了メッセージの場合
+          if (this.unifiedProgress.hasProgress("scan-progress")) {
+            // 既存のプログレスを完了
+            this.unifiedProgress.completeProgress("scan-progress");
+          } else {
+            // プログレスが存在しない場合は一時的に作成して即座に完了
+            this.unifiedProgress.addProgress("scan-progress", data.message, 1);
+            this.unifiedProgress.updateProgress("scan-progress", 1, data.message);
+            this.unifiedProgress.completeProgress("scan-progress");
+          }
+        }
+      });
+
+      // 再スキャンプログレスイベント
+      window.electronAPI.onRescanProgress((data) => {
+        if (data && typeof data === 'object' && data.current !== undefined && data.total !== undefined) {
+          // 再スキャン専用のプログレスを更新
+          if (!this.unifiedProgress.hasProgress("settings-rescan-all")) {
+            this.unifiedProgress.addOwnerProgress("settings-rescan-all", "全ての動画を再スキャン中", data.total);
+          } else {
+            this.unifiedProgress.updateProgressTotal("settings-rescan-all", data.total);
+          }
+          this.unifiedProgress.updateProgress("settings-rescan-all", data.current, 
+            `全ての動画を再スキャン中 (${data.current}/${data.total})`);
+        } else if (data && data.message) {
+          // 完了メッセージの場合
+          if (this.unifiedProgress.hasProgress("settings-rescan-all")) {
+            // 既存のプログレスを完了
+            this.unifiedProgress.completeProgress("settings-rescan-all");
+          } else {
+            // プログレスが存在しない場合は一時的に作成して即座に完了
+            this.unifiedProgress.addOwnerProgress("settings-rescan-all", data.message, 1);
+            this.unifiedProgress.updateProgress("settings-rescan-all", 1, data.message);
+            this.unifiedProgress.completeProgress("settings-rescan-all");
+          }
         }
       });
 
@@ -164,9 +198,16 @@ class MovieLibraryApp {
         } else if (data && data.message) {
           // メッセージのみの場合は適切なプログレスを使用
           if (this.unifiedProgress.hasProgress("settings-thumbnail-regen")) {
-            this.unifiedProgress.updateProgress("settings-thumbnail-regen", 0, data.message);
+            // 設定画面からの再生成完了
+            this.unifiedProgress.completeProgress("settings-thumbnail-regen");
+          } else if (this.unifiedProgress.hasProgress("thumbnail-progress")) {
+            // 通常のサムネイル生成完了
+            this.unifiedProgress.completeProgress("thumbnail-progress");
           } else {
-            this.unifiedProgress.addProgress("thumbnail-progress", data.message, 100);
+            // プログレスが存在しない場合は一時的に作成して即座に完了
+            this.unifiedProgress.addProgress("thumbnail-progress", data.message, 1);
+            this.unifiedProgress.updateProgress("thumbnail-progress", 1, data.message);
+            this.unifiedProgress.completeProgress("thumbnail-progress");
           }
         }
       });
@@ -479,6 +520,11 @@ class MovieLibraryApp {
       "cleanupThumbnailsBtn",
       "click",
       this.cleanupThumbnails.bind(this)
+    );
+    this.safeAddEventListener(
+      "rescanAllBtn",
+      "click",
+      this.rescanAllVideos.bind(this)
     );
     // refreshBtn is not needed - data refresh is automatic
     this.safeAddEventListener(
@@ -903,7 +949,7 @@ class MovieLibraryApp {
     
     try {
       // プログレス表示開始（バックエンドイベントで更新される）
-      this.unifiedProgress.addProgress("scan-progress", "ディレクトリをスキャン中", 100);
+      this.unifiedProgress.addProgress("scan-progress", "ディレクトリをスキャン中", 1);
       
       const result = await this.videoManager.scanDirectories();
       console.log("Comprehensive scan completed:", result);
@@ -922,7 +968,7 @@ class MovieLibraryApp {
       // 新規・更新・再処理された動画がある場合はサムネイル生成を実行
       if (shouldGenerateThumbnails) {
         console.log("Starting automatic thumbnail generation after scan...");
-        this.unifiedProgress.addProgress("thumbnail-progress", "サムネイルを生成中", 100);
+        this.unifiedProgress.addProgress("thumbnail-progress", "サムネイルを生成中", 1);
         try {
           await this.videoManager.generateThumbnails();
           console.log("Automatic thumbnail generation completed");
@@ -984,7 +1030,7 @@ class MovieLibraryApp {
     
     try {
       // プログレス表示開始（バックエンドイベントで更新される）
-      this.unifiedProgress.addProgress("thumbnail-progress", "サムネイルを生成中", 100);
+      this.unifiedProgress.addProgress("thumbnail-progress", "サムネイルを生成中", 1);
       
       await this.videoManager.generateThumbnails();
       console.log("Thumbnail generation completed successfully");
@@ -1220,6 +1266,64 @@ class MovieLibraryApp {
       if (cleanupBtn) {
         cleanupBtn.disabled = false;
         cleanupBtn.innerHTML = '<span class="icon">🗑️</span><span>不要な画像を削除</span>';
+      }
+    }
+  }
+
+  private async rescanAllVideos(): Promise<void> {
+    console.log("rescanAllVideos called");
+    
+    // ボタンを無効化
+    const rescanBtn = document.getElementById("rescanAllBtn") as HTMLButtonElement;
+    if (rescanBtn) {
+      rescanBtn.disabled = true;
+      rescanBtn.textContent = "再スキャン中...";
+    }
+    
+    try {
+      // オーナープログレスとして開始（このプログレスが終了するまでモーダルは閉じない）
+      this.unifiedProgress.addOwnerProgress("settings-rescan-all", "全ての動画を再スキャン中", 1);
+      
+      // 強制的に全ての動画を再スキャン
+      const result = await this.videoManager.rescanAllVideos();
+      console.log("Full rescan completed:", result);
+      
+      // 処理完了を表示
+      this.unifiedProgress.updateProgress("settings-rescan-all", 1, "全ての動画の再スキャンが完了しました");
+      
+      console.log("Starting data refresh...");
+      await this.refreshData();
+      console.log("Data refresh completed");
+      
+      // 結果に応じた詳細な通知
+      if (result) {
+        const { totalProcessed, totalUpdated, totalErrors } = result;
+        let message = "全ての動画の再スキャンが完了しました";
+        const details: string[] = [];
+        
+        if (totalProcessed > 0) details.push(`処理: ${totalProcessed}件`);
+        if (totalUpdated > 0) details.push(`更新: ${totalUpdated}件`);
+        if (totalErrors > 0) details.push(`エラー: ${totalErrors}件`);
+        
+        if (details.length > 0) {
+          message += ` (${details.join(', ')})`;
+        }
+        
+        this.notificationManager.show(message, totalErrors > 0 ? "warning" : "success");
+      } else {
+        this.notificationManager.show("全ての動画の再スキャンが完了しました", "success");
+      }
+    } catch (error) {
+      console.error("Error rescanning all videos:", error);
+      this.notificationManager.show("全動画再スキャンに失敗しました", "error");
+    } finally {
+      // プログレスを完了（これでモーダルも閉じる）
+      this.unifiedProgress.completeProgress("settings-rescan-all");
+      
+      // ボタンを有効化
+      if (rescanBtn) {
+        rescanBtn.disabled = false;
+        rescanBtn.innerHTML = '<span class="icon">🔄</span><span>全ての動画を再スキャン</span>';
       }
     }
   }
