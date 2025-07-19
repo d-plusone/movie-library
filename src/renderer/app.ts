@@ -377,18 +377,24 @@ class MovieLibraryApp {
             // ディレクトリが明示的に全解除された場合は何も表示しない
             return false;
           } else {
-            // 選択されたディレクトリのいずれかに直接属するかチェック（完全一致）
+            // 選択されたディレクトリのいずれかに属するかチェック（サブフォルダも含む、正確な境界判定）
             const hasMatchingDirectory = filterData.selectedDirectories.some(
               (dir: string) => {
                 // パスを正規化して比較
                 const normalizedVideoPath = video.path.replace(/\\/g, '/');
                 const normalizedDir = dir.replace(/\\/g, '/');
                 
-                // ディレクトリパスで動画ファイルのディレクトリ部分を取得
-                const videoDir = normalizedVideoPath.substring(0, normalizedVideoPath.lastIndexOf('/'));
+                // ディレクトリ末尾のスラッシュを統一
+                const dirWithSlash = normalizedDir.endsWith('/') ? normalizedDir : normalizedDir + '/';
                 
-                // 完全一致をチェック
-                return videoDir === normalizedDir;
+                // 1. 完全一致（ディレクトリ直下のファイル）
+                const videoDir = normalizedVideoPath.substring(0, normalizedVideoPath.lastIndexOf('/') + 1);
+                if (videoDir === dirWithSlash) {
+                  return true;
+                }
+                
+                // 2. サブディレクトリ内のファイル（正確な境界チェック）
+                return normalizedVideoPath.startsWith(dirWithSlash);
               }
             );
             if (!hasMatchingDirectory) return false;
