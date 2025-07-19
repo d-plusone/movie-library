@@ -95,6 +95,7 @@ export class UnifiedProgressManager {
   private progressContainer: HTMLElement | null = null;
   private progressList: HTMLElement | null = null;
   private activeProgresses: Map<string, ProgressItem> = new Map();
+  private ownerProgresses: Set<string> = new Set(); // オーナープログレスを管理
   private isVisible: boolean = false;
 
   static getInstance(): UnifiedProgressManager {
@@ -149,12 +150,26 @@ export class UnifiedProgressManager {
 
   // 新しい進捗を追加
   addProgress(id: string, message: string, total: number = 100): void {
+    this._addProgress(id, message, total, false);
+  }
+
+  // オーナー進捗を追加（この進捗が残っている間はモーダルを閉じない）
+  addOwnerProgress(id: string, message: string, total: number = 100): void {
+    this._addProgress(id, message, total, true);
+  }
+
+  // 内部的な進捗追加メソッド
+  private _addProgress(id: string, message: string, total: number, isOwner: boolean): void {
     if (this.activeProgresses.has(id)) {
       return; // 既に存在する場合は何もしない
     }
 
     const progressItem = new ProgressItem(id, message, total);
     this.activeProgresses.set(id, progressItem);
+
+    if (isOwner) {
+      this.ownerProgresses.add(id);
+    }
 
     // DOM要素を作成してリストに追加
     const progressElement = this.createProgressElement(progressItem);
@@ -175,6 +190,20 @@ export class UnifiedProgressManager {
     if (!progressItem) return;
 
     progressItem.update(current, message);
+    this.updateProgressElement(id, progressItem);
+  }
+
+  // 指定IDのプログレスが存在するかチェック
+  hasProgress(id: string): boolean {
+    return this.activeProgresses.has(id);
+  }
+
+  // 進捗の総数を更新
+  updateProgressTotal(id: string, total: number): void {
+    const progressItem = this.activeProgresses.get(id);
+    if (!progressItem) return;
+
+    progressItem.updateTotal(total);
     this.updateProgressElement(id, progressItem);
   }
 
@@ -204,14 +233,16 @@ export class UnifiedProgressManager {
 
     // マップから削除
     this.activeProgresses.delete(id);
+    this.ownerProgresses.delete(id); // オーナーセットからも削除
 
     // サイズを調整
     if (this.activeProgresses.size > 0) {
       this.adjustModalSize();
     }
 
-    // 全ての進捗が完了した場合はモーダルを隠す
-    if (this.activeProgresses.size === 0) {
+    // オーナープログレスが残っている場合は閉じない
+    // 全ての進捗が完了し、かつオーナープログレスがない場合のみモーダルを隠す
+    if (this.activeProgresses.size === 0 && this.ownerProgresses.size === 0) {
       this.hide();
     }
   }
@@ -351,6 +382,12 @@ class ProgressItem {
     if (message) {
       this.message = message;
     }
+  }
+
+  // 総数を更新（動的に総数が変わる場合に使用）
+  updateTotal(total: number): void {
+    this.total = total;
+    this.current = Math.min(this.current, this.total);
   }
 
   complete(): void {

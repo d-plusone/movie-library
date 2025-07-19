@@ -36,6 +36,7 @@ interface ElectronAPI {
   regenerateAllThumbnails: () => Promise<any[]>;
   regenerateMainThumbnail: (videoId: number) => Promise<any>;
   updateThumbnailSettings: (settings: ThumbnailSettings) => Promise<boolean>;
+  cleanupThumbnails: () => Promise<void>;
 
   // Tag operations
   getTags: () => Promise<any[]>;
@@ -86,6 +87,7 @@ const electronAPI: ElectronAPI = {
     ipcRenderer.invoke("regenerate-main-thumbnail", videoId),
   updateThumbnailSettings: (settings: ThumbnailSettings) =>
     ipcRenderer.invoke("update-thumbnail-settings", settings),
+  cleanupThumbnails: () => ipcRenderer.invoke("cleanup-thumbnails"),
 
   // Tag operations
   getTags: () => ipcRenderer.invoke("get-tags"),

@@ -538,6 +538,108 @@ class ThumbnailGenerator {
       return `${minutes}:${secs.toString().padStart(2, "0")}`;
     }
   }
+
+  // 不要なサムネイル画像を削除
+  async cleanupThumbnails(): Promise<{ removedFiles: number; totalSize: number }> {
+    console.log("Starting thumbnail cleanup...");
+    
+    try {
+      // データベースから全動画を取得
+      const videos = await this.db.getVideos();
+      const validThumbnailPaths = new Set<string>();
+      
+      // 有効なサムネイルパスを収集
+      for (const video of videos) {
+        if (video.thumbnail_path && await this.fileExists(video.thumbnail_path)) {
+          validThumbnailPaths.add(video.thumbnail_path);
+        }
+        
+        // チャプターサムネイルも収集
+        if (video.chapter_thumbnails) {
+          try {
+            const chapters = typeof video.chapter_thumbnails === 'string' 
+              ? JSON.parse(video.chapter_thumbnails) 
+              : video.chapter_thumbnails;
+            
+            if (Array.isArray(chapters)) {
+              for (const chapter of chapters) {
+                const chapterPath = chapter.path || chapter.thumbnail_path;
+                if (chapterPath && await this.fileExists(chapterPath)) {
+                  validThumbnailPaths.add(chapterPath);
+                }
+              }
+            }
+          } catch (error) {
+            console.warn("Failed to parse chapter thumbnails for video:", video.id);
+          }
+        }
+      }
+      
+      // サムネイルディレクトリ内の全ファイルを取得
+      const thumbnailDirs = [
+        this.thumbnailsDir,
+        path.join(path.dirname(this.thumbnailsDir), "chapters")
+      ];
+      
+      let removedFiles = 0;
+      let totalSize = 0;
+      
+      for (const thumbnailDir of thumbnailDirs) {
+        if (await this.directoryExists(thumbnailDir)) {
+          const files = await fs.readdir(thumbnailDir);
+          
+          for (const file of files) {
+            const filePath = path.join(thumbnailDir, file);
+            const stats = await fs.stat(filePath);
+            
+            if (stats.isFile() && !validThumbnailPaths.has(filePath)) {
+              try {
+                totalSize += stats.size;
+                await fs.unlink(filePath);
+                removedFiles++;
+                console.log("Removed orphaned thumbnail:", filePath);
+              } catch (error) {
+                console.error("Failed to remove file:", filePath, error);
+              }
+            }
+          }
+        }
+      }
+      
+      console.log(`Cleanup completed: removed ${removedFiles} files, freed ${this.formatBytes(totalSize)}`);
+      
+      return { removedFiles, totalSize };
+    } catch (error) {
+      console.error("Error during thumbnail cleanup:", error);
+      throw error;
+    }
+  }
+
+  private async fileExists(filePath: string): Promise<boolean> {
+    try {
+      await fs.access(filePath);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private async directoryExists(dirPath: string): Promise<boolean> {
+    try {
+      const stats = await fs.stat(dirPath);
+      return stats.isDirectory();
+    } catch {
+      return false;
+    }
+  }
+
+  private formatBytes(bytes: number): string {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  }
 }
 
 export default ThumbnailGenerator;

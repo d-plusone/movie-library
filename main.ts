@@ -480,6 +480,18 @@ class MovieLibraryApp {
       return true;
     });
 
+    // Cleanup thumbnails
+    ipcMain.handle("cleanup-thumbnails", async () => {
+      try {
+        const result = await this.thumbnailGenerator.cleanupThumbnails();
+        console.log("Thumbnail cleanup completed:", result);
+        return result;
+      } catch (error) {
+        console.error("Error during thumbnail cleanup:", error);
+        throw error;
+      }
+    });
+
     // Update video
     ipcMain.handle("update-video", async (event, videoId: number, data) => {
       return await this.db.updateVideo(videoId, data);

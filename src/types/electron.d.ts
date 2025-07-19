@@ -101,6 +101,7 @@ export interface ElectronAPI {
   regenerateAllThumbnails(): Promise<void>;
   regenerateMainThumbnail(videoId: string): Promise<Video>;
   setMainThumbnail(filePath: string, timestamp: number): Promise<void>;
+  cleanupThumbnails(): Promise<void>;
 
   // Directory management
   checkDirectoryExists(dirPath: string): Promise<boolean>;

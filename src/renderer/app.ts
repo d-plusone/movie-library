@@ -5,6 +5,7 @@ import {
   NotificationManager,
   ProgressManager,
   EnhancedProgressManager,
+  UnifiedProgressManager,
   ThemeManager,
   KeyboardManager,
   FormatUtils,
@@ -85,6 +86,7 @@ class MovieLibraryApp {
   private directoryCheckProgress: EnhancedProgressManager; // ディレクトリチェック用
   private thumbnailProgress: EnhancedProgressManager; // サムネイル生成用
   private scanProgress: EnhancedProgressManager; // スキャン用
+  private unifiedProgress: UnifiedProgressManager; // 統一プログレス管理
   private themeManager: ThemeManager;
   private keyboardManager: KeyboardManager;
 
@@ -98,6 +100,7 @@ class MovieLibraryApp {
     this.directoryCheckProgress = new EnhancedProgressManager("directory-check");
     this.thumbnailProgress = new EnhancedProgressManager("thumbnail-generation");
     this.scanProgress = new EnhancedProgressManager("scanning");
+    this.unifiedProgress = UnifiedProgressManager.getInstance();
     this.themeManager = new ThemeManager();
 
     // Initialize keyboard navigation
@@ -126,28 +129,45 @@ class MovieLibraryApp {
       // スキャンプログレスイベント
       window.electronAPI.onScanProgress((data) => {
         if (data && typeof data === 'object' && data.current !== undefined && data.total !== undefined) {
-          this.progressManager.updateProgressFromData(
-            data.current,
-            data.total,
-            "ディレクトリをスキャン中",
-            data.file
-          );
+          // スキャン専用のプログレスを更新
+          if (!this.unifiedProgress.hasProgress("scan-progress")) {
+            this.unifiedProgress.addProgress("scan-progress", "ディレクトリをスキャン中", data.total);
+          } else {
+            this.unifiedProgress.updateProgressTotal("scan-progress", data.total);
+          }
+          this.unifiedProgress.updateProgress("scan-progress", data.current, 
+            `ディレクトリをスキャン中 (${data.current}/${data.total})`);
         } else if (data && data.message) {
-          this.progressManager.show(data.message);
+          this.unifiedProgress.addProgress("scan-progress", data.message, 100);
         }
       });
 
       // サムネイル生成プログレスイベント
       window.electronAPI.onThumbnailProgress((data) => {
         if (data && typeof data === 'object' && data.current !== undefined && data.total !== undefined) {
-          this.progressManager.updateProgressFromData(
-            data.current,
-            data.total,
-            "サムネイルを生成中",
-            data.file
-          );
+          // 設定画面からのサムネイル再生成かどうかをチェック
+          if (this.unifiedProgress.hasProgress("settings-thumbnail-regen")) {
+            // 設定画面からの再生成の場合 - 総数を動的に更新
+            this.unifiedProgress.updateProgressTotal("settings-thumbnail-regen", data.total);
+            this.unifiedProgress.updateProgress("settings-thumbnail-regen", data.current, 
+              `全サムネイルを再生成中 (${data.current}/${data.total})`);
+          } else {
+            // 通常のサムネイル生成の場合
+            if (!this.unifiedProgress.hasProgress("thumbnail-progress")) {
+              this.unifiedProgress.addProgress("thumbnail-progress", "サムネイルを生成中", data.total);
+            } else {
+              this.unifiedProgress.updateProgressTotal("thumbnail-progress", data.total);
+            }
+            this.unifiedProgress.updateProgress("thumbnail-progress", data.current, 
+              `サムネイルを生成中 (${data.current}/${data.total})`);
+          }
         } else if (data && data.message) {
-          this.progressManager.show(data.message);
+          // メッセージのみの場合は適切なプログレスを使用
+          if (this.unifiedProgress.hasProgress("settings-thumbnail-regen")) {
+            this.unifiedProgress.updateProgress("settings-thumbnail-regen", 0, data.message);
+          } else {
+            this.unifiedProgress.addProgress("thumbnail-progress", data.message, 100);
+          }
         }
       });
 
@@ -454,6 +474,11 @@ class MovieLibraryApp {
       "regenerateThumbnailsBtn",
       "click",
       this.regenerateAllThumbnails.bind(this)
+    );
+    this.safeAddEventListener(
+      "cleanupThumbnailsBtn",
+      "click",
+      this.cleanupThumbnails.bind(this)
     );
     // refreshBtn is not needed - data refresh is automatic
     this.safeAddEventListener(
@@ -878,7 +903,7 @@ class MovieLibraryApp {
     
     try {
       // プログレス表示開始（バックエンドイベントで更新される）
-      this.scanProgress.startProgress(1, "ディレクトリをスキャン中");
+      this.unifiedProgress.addProgress("scan-progress", "ディレクトリをスキャン中", 100);
       
       const result = await this.videoManager.scanDirectories();
       console.log("Comprehensive scan completed:", result);
@@ -897,16 +922,16 @@ class MovieLibraryApp {
       // 新規・更新・再処理された動画がある場合はサムネイル生成を実行
       if (shouldGenerateThumbnails) {
         console.log("Starting automatic thumbnail generation after scan...");
-        this.thumbnailProgress.startProgress(1, "サムネイルを生成中");
+        this.unifiedProgress.addProgress("thumbnail-progress", "サムネイルを生成中", 100);
         try {
           await this.videoManager.generateThumbnails();
           console.log("Automatic thumbnail generation completed");
           await this.refreshData(); // サムネイル生成後にデータを再読み込み
-          this.thumbnailProgress.completeProgress();
+          this.unifiedProgress.completeProgress("thumbnail-progress");
         } catch (thumbnailError) {
           console.error("Error during automatic thumbnail generation:", thumbnailError);
           this.notificationManager.show("サムネイル生成中にエラーが発生しました", "warning");
-          this.thumbnailProgress.hide();
+          this.unifiedProgress.removeProgress("thumbnail-progress");
         }
       }
       
@@ -937,7 +962,7 @@ class MovieLibraryApp {
       console.error("Error scanning directories:", error);
       this.notificationManager.show("スキャンに失敗しました", "error");
     } finally {
-      this.scanProgress.completeProgress();
+      this.unifiedProgress.completeProgress("scan-progress");
       
       // ボタンを有効化
       if (scanBtn) {
@@ -959,7 +984,7 @@ class MovieLibraryApp {
     
     try {
       // プログレス表示開始（バックエンドイベントで更新される）
-      this.thumbnailProgress.startProgress(1, "サムネイルを生成中");
+      this.unifiedProgress.addProgress("thumbnail-progress", "サムネイルを生成中", 100);
       
       await this.videoManager.generateThumbnails();
       console.log("Thumbnail generation completed successfully");
@@ -972,7 +997,7 @@ class MovieLibraryApp {
       console.error("Error generating thumbnails:", error);
       this.notificationManager.show("サムネイル生成に失敗しました", "error");
     } finally {
-      this.thumbnailProgress.completeProgress();
+      this.unifiedProgress.completeProgress("thumbnail-progress");
       
       // ボタンを有効化
       if (genBtn) {
@@ -993,11 +1018,15 @@ class MovieLibraryApp {
     }
     
     try {
-      // プログレス表示開始（バックエンドイベントで更新される）
-      this.thumbnailProgress.startProgress(1, "全サムネイルを再生成中");
+      // オーナープログレスとして開始（このプログレスが終了するまでモーダルは閉じない）
+      // 初期状態では総数不明なので1で開始
+      this.unifiedProgress.addOwnerProgress("settings-thumbnail-regen", "全サムネイルを再生成中", 1);
       
       await this.videoManager.regenerateAllThumbnails();
       console.log("Thumbnail regeneration completed successfully");
+      
+      // 処理完了を表示
+      this.unifiedProgress.updateProgress("settings-thumbnail-regen", 1, "全サムネイルの再生成が完了しました");
       
       console.log("Starting data refresh...");
       await this.refreshData();
@@ -1010,7 +1039,8 @@ class MovieLibraryApp {
       console.error("Error regenerating thumbnails:", error);
       this.notificationManager.show("サムネイル再生成に失敗しました", "error");
     } finally {
-      this.thumbnailProgress.completeProgress();
+      // プログレスを完了（これでモーダルも閉じる）
+      this.unifiedProgress.completeProgress("settings-thumbnail-regen");
       
       // ボタンを有効化
       if (regenBtn) {
@@ -1155,6 +1185,42 @@ class MovieLibraryApp {
       console.error("Error regenerating main thumbnail:", error);
       this.notificationManager.show("サムネイル再生成に失敗しました", "error");
       this.progressManager.hide();
+    }
+  }
+
+  private async cleanupThumbnails(): Promise<void> {
+    console.log("cleanupThumbnails called");
+    
+    // ボタンを無効化
+    const cleanupBtn = document.getElementById("cleanupThumbnailsBtn") as HTMLButtonElement;
+    if (cleanupBtn) {
+      cleanupBtn.disabled = true;
+      cleanupBtn.textContent = "削除中...";
+    }
+    
+    try {
+      // オーナープログレスとして開始（このプログレスが終了するまでモーダルは閉じない）
+      this.unifiedProgress.addOwnerProgress("settings-thumbnail-cleanup", "不要な画像を削除中", 100);
+      
+      await this.videoManager.cleanupThumbnails();
+      console.log("Thumbnail cleanup completed successfully");
+      
+      this.notificationManager.show(
+        "不要な画像の削除が完了しました",
+        "success"
+      );
+    } catch (error) {
+      console.error("Error cleaning up thumbnails:", error);
+      this.notificationManager.show("不要な画像の削除に失敗しました", "error");
+    } finally {
+      // プログレスを完了（これでモーダルも閉じる）
+      this.unifiedProgress.completeProgress("settings-thumbnail-cleanup");
+      
+      // ボタンを有効化
+      if (cleanupBtn) {
+        cleanupBtn.disabled = false;
+        cleanupBtn.innerHTML = '<span class="icon">🗑️</span><span>不要な画像を削除</span>';
+      }
     }
   }
 

@@ -536,4 +536,25 @@ export class VideoManager {
       throw error;
     }
   }
+
+  // 不要なサムネイル画像を削除
+  async cleanupThumbnails(): Promise<void> {
+    console.log("VideoManager.cleanupThumbnails called");
+    console.log("electronAPI available:", !!window.electronAPI);
+    console.log("electronAPI.cleanupThumbnails available:", !!window.electronAPI?.cleanupThumbnails);
+    
+    try {
+      console.log("Calling window.electronAPI.cleanupThumbnails()");
+      await window.electronAPI.cleanupThumbnails();
+      console.log("window.electronAPI.cleanupThumbnails() completed successfully");
+    } catch (error) {
+      console.error("VideoManager - Error cleaning up thumbnails:", error);
+      console.error("Error details:", {
+        message: error.message,
+        stack: error.stack,
+        name: error.name
+      });
+      throw error;
+    }
+  }
 }
