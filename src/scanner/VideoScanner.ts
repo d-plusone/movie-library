@@ -571,6 +571,117 @@ class VideoScanner {
 
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
   }
+
+  // 全ての動画を強制的に再スキャンするメソッド
+  async forceRescanAllVideos(
+    directories: string[],
+    progressCallback?: ProgressCallback | null
+  ): Promise<{
+    processedVideos: ProcessedVideo[];
+    updatedVideos: ProcessedVideo[];
+    deletedVideos: string[];
+    totalProcessed: number;
+    totalUpdated: number;
+    totalErrors: number;
+  }> {
+    const result = {
+      processedVideos: [] as ProcessedVideo[],
+      updatedVideos: [] as ProcessedVideo[],
+      deletedVideos: [] as string[],
+      totalProcessed: 0,
+      totalUpdated: 0,
+      totalErrors: 0
+    };
+
+    console.log("Starting force rescan of all videos in directories:", directories);
+
+    // 1. 現在のデータベース内の全動画を取得
+    const existingVideos = await this.getAllExistingVideos();
+    const existingPaths = new Set(existingVideos.map(v => v.path));
+
+    // 2. 現在のファイルシステムから全動画ファイルを取得
+    const allCurrentFiles: string[] = [];
+    for (const dir of directories) {
+      const files = await this.getAllFiles(dir);
+      allCurrentFiles.push(...files.filter(file => this.isVideoFile(file)));
+    }
+    const currentPaths = new Set(allCurrentFiles);
+
+    // 3. 削除された動画を検出
+    for (const existingVideo of existingVideos) {
+      if (!currentPaths.has(existingVideo.path)) {
+        result.deletedVideos.push(existingVideo.path);
+        console.log(`Detected deleted video: ${existingVideo.path}`);
+      }
+    }
+
+    // 4. 存在する全ての動画ファイルを強制的に再処理
+    const totalFiles = allCurrentFiles.length;
+    let processedCount = 0;
+
+    for (const filePath of allCurrentFiles) {
+      try {
+        processedCount++;
+        result.totalProcessed++;
+
+        // プログレスコールバック呼び出し
+        if (progressCallback) {
+          progressCallback({
+            current: processedCount,
+            total: totalFiles,
+            file: path.basename(filePath),
+          });
+        }
+
+        console.log(`Force rescanning video ${processedCount}/${totalFiles}: ${filePath}`);
+
+        // 既存の動画データがあるかチェック
+        const existingVideo = existingVideos.find(v => v.path === filePath);
+        
+        // ファイルを強制的に再処理（既存データがあっても無視）
+        const video = await this.processFile(filePath, true); // 強制処理フラグを追加
+
+        if (video) {
+          result.processedVideos.push(video);
+          
+          // 既存データと比較して更新があったかチェック
+          if (existingVideo) {
+            // メタデータの違いをチェック
+            const hasChanges = 
+              existingVideo.duration !== video.duration ||
+              existingVideo.width !== video.width ||
+              existingVideo.height !== video.height ||
+              existingVideo.size !== video.size ||
+              existingVideo.title !== video.title;
+            
+            if (hasChanges) {
+              result.updatedVideos.push(video);
+              result.totalUpdated++;
+              console.log(`Video metadata updated: ${filePath}`);
+            }
+          } else {
+            // 新しい動画として扱う
+            result.updatedVideos.push(video);
+            result.totalUpdated++;
+            console.log(`New video processed: ${filePath}`);
+          }
+        }
+
+      } catch (error) {
+        result.totalErrors++;
+        console.error(`Error processing video file: ${filePath}`, error);
+      }
+    }
+
+    console.log("Force rescan completed:", {
+      totalProcessed: result.totalProcessed,
+      totalUpdated: result.totalUpdated,
+      totalErrors: result.totalErrors,
+      deletedVideos: result.deletedVideos.length
+    });
+
+    return result;
+  }
 }
 
 export default VideoScanner;

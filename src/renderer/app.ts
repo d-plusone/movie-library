@@ -1288,17 +1288,23 @@ class MovieLibraryApp {
       const result = await this.videoManager.rescanAllVideos();
       console.log("Full rescan completed:", result);
       
-      // 処理完了を表示
-      this.unifiedProgress.updateProgress("settings-rescan-all", 1, "全ての動画の再スキャンが完了しました");
+      // 処理完了を表示（サムネイル生成が自動で開始されることを示す）
+      this.unifiedProgress.updateProgress("settings-rescan-all", 1, "再スキャン完了 - サムネイル生成中...");
       
       console.log("Starting data refresh...");
       await this.refreshData();
       console.log("Data refresh completed");
+
+      // サムネイル生成完了まで少し待機（非同期で実行されているため）
+      setTimeout(() => {
+        // 通知メッセージでサムネイル生成完了も含める
+        this.notificationManager.show("再スキャンとサムネイル生成が完了しました", "success");
+      }, 2000); // 2秒後に最終通知
       
-      // 結果に応じた詳細な通知
+      // 結果に応じた詳細な通知（サムネイル生成開始の通知は別途表示）
       if (result) {
         const { totalProcessed, totalUpdated, totalErrors } = result;
-        let message = "全ての動画の再スキャンが完了しました";
+        let message = "再スキャン完了";
         const details: string[] = [];
         
         if (totalProcessed > 0) details.push(`処理: ${totalProcessed}件`);
@@ -1309,9 +1315,12 @@ class MovieLibraryApp {
           message += ` (${details.join(', ')})`;
         }
         
-        this.notificationManager.show(message, totalErrors > 0 ? "warning" : "success");
+        message += " - サムネイル生成中...";
+        
+        // 即座に結果を表示し、後で最終完了通知を表示
+        this.notificationManager.show(message, totalErrors > 0 ? "warning" : "info");
       } else {
-        this.notificationManager.show("全ての動画の再スキャンが完了しました", "success");
+        this.notificationManager.show("再スキャン完了 - サムネイル生成中...", "info");
       }
     } catch (error) {
       console.error("Error rescanning all videos:", error);
