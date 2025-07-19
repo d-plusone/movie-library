@@ -63,7 +63,7 @@ class MovieLibraryApp {
   // Core data
   private filteredVideos: Video[] = [];
   private currentVideo: Video | null = null;
-  private currentSort: SortState = { field: "filename", order: "ASC" };
+  private currentSort: SortState = { field: "created_at", order: "DESC" };
 
   // Thumbnail and tooltip state
   private currentThumbnails: ThumbnailData[] = [];
@@ -328,6 +328,9 @@ class MovieLibraryApp {
 
       // 保存されたフィルタ状態を復元
       this.restoreFilterState();
+
+      // UIの初期ソート設定を反映
+      this.updateSortUI();
 
       console.log("Initial data load completed successfully");
     } catch (error) {
@@ -1575,6 +1578,20 @@ class MovieLibraryApp {
   private toggleTheme(): void {
     this.themeManager.toggleTheme();
     this.initializeThemeButton();
+  }
+
+  private updateSortUI(): void {
+    // ソート項目のselect要素を更新
+    const sortSelect = document.getElementById("sortSelect") as HTMLSelectElement;
+    if (sortSelect) {
+      sortSelect.value = this.currentSort.field;
+    }
+
+    // ソート順のselect要素を更新
+    const orderSelect = document.getElementById("orderSelect") as HTMLSelectElement;
+    if (orderSelect) {
+      orderSelect.value = this.currentSort.order;
+    }
   }
 
   private handleSortChange(e: Event): void {
