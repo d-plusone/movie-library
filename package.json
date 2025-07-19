@@ -67,15 +67,18 @@
         "compression": "maximum",
         "removePackageScripts": true,
         "removePackageKeywords": true,
+        "extraMetadata": {
+            "main": "dist-ts/main.js"
+        },
         "asarUnpack": [
             "node_modules/ffmpeg-static/ffmpeg",
             "node_modules/ffprobe-static/bin/ffprobe",
             "node_modules/sqlite3/lib/binding/**/*"
         ],
         "files": [
-            "dist-ts/main.js",
-            "dist-ts/preload.js",
-            "src/**/*",
+            "dist-ts/**/*",
+            "src/renderer/index.html",
+            "src/renderer/styles.css",
             "assets/icon.*",
             "package.json",
             "node_modules/chokidar/index.js",

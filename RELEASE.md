@@ -71,6 +71,25 @@ npm run build:all
 
 ## トラブルシューティング
 
+### TypeScript化後のビルドエラー
+
+**症状**: `Application entry file "main.js" does not exist` エラー
+
+**原因**: electron-builderがpackage.jsonの`main`フィールドを`main.js`に上書きするため、TypeScriptでコンパイルされた`dist-ts/main.js`が見つからない
+
+**解決方法**: package.jsonのbuild設定に`extraMetadata`を追加
+```json
+"build": {
+  "extraMetadata": {
+    "main": "dist-ts/main.js"
+  },
+  "files": [
+    "dist-ts/**/*",
+    ...
+  ]
+}
+```
+
 ### ビルドエラー
 
 - ネイティブモジュール（sqlite3）のエラーが発生した場合:
