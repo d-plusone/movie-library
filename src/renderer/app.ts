@@ -260,13 +260,6 @@ class MovieLibraryApp {
       // 保存されたフィルタ状態を復元
       this.restoreFilterState();
 
-      // 読み込み完了通知
-      if (videos.length > 0) {
-        this.notificationManager.show(`${videos.length}件の動画を読み込みました`, "success");
-      } else {
-        this.notificationManager.show("動画が見つかりませんでした。ディレクトリを追加してスキャンしてください", "info");
-      }
-
       console.log("Initial data load completed successfully");
     } catch (error) {
       console.error("Error loading initial data:", error);
