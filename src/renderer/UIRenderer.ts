@@ -78,7 +78,7 @@ export class UIRenderer {
   }
 
   // 動画リストを描画
-  renderVideoList(filteredVideos: Video[]): number {
+  renderVideoList(filteredVideos: Video[], playVideoCallback?: (path: string) => Promise<void>): number {
     const videoList = document.getElementById("videoList");
 
     if (!videoList) {
@@ -98,7 +98,7 @@ export class UIRenderer {
     }
 
     filteredVideos.forEach((video, index) => {
-      const videoElement = this.createVideoElement(video, index);
+      const videoElement = this.createVideoElement(video, index, playVideoCallback);
       videoList.appendChild(videoElement);
     });
 
@@ -117,7 +117,7 @@ export class UIRenderer {
   }
 
   // 動画要素を作成
-  createVideoElement(video: Video, index: number): HTMLElement {
+  createVideoElement(video: Video, index: number, playVideoCallback?: (path: string) => Promise<void>): HTMLElement {
     const div = document.createElement("div");
     div.className = "video-item";
     div.dataset.index = index.toString();
@@ -392,6 +392,15 @@ export class UIRenderer {
     // Assemble the complete video element
     div.appendChild(thumbnailDiv);
     div.appendChild(videoInfoDiv);
+
+    // Add double-click event for video playback
+    div.addEventListener("dblclick", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (playVideoCallback) {
+        playVideoCallback(video.path);
+      }
+    });
 
     return div;
   }
@@ -1425,5 +1434,18 @@ export class UIRenderer {
     
     // 小数点第二位まで表示
     return (Math.round(fps * 100) / 100).toString();
+  }
+
+  // 動画を再生（OSの既定のアプリケーションで開く）
+  async playVideo(videoPath: string, playVideoCallback: (path: string) => Promise<void>): Promise<void> {
+    await playVideoCallback(videoPath);
+  }
+
+  // 選択された動画を再生
+  async playSelectedVideo(videos: Video[], playVideoCallback: (path: string) => Promise<void>): Promise<void> {
+    if (this.selectedVideoIndex >= 0 && this.selectedVideoIndex < videos.length) {
+      const selectedVideo = videos[this.selectedVideoIndex];
+      await this.playVideo(selectedVideo.path, playVideoCallback);
+    }
   }
 }

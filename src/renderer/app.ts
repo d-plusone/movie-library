@@ -280,7 +280,7 @@ class MovieLibraryApp {
   }
 
   private renderAll(): void {
-    this.uiRenderer.renderVideoList(this.filteredVideos);
+    this.uiRenderer.renderVideoList(this.filteredVideos, (path: string) => this.playVideo(path));
     this.uiRenderer.renderSidebar(
       this.videoManager.getTags(),
       this.videoManager.getDirectories(),
@@ -389,7 +389,7 @@ class MovieLibraryApp {
   }
 
   private renderVideoList(): void {
-    this.uiRenderer.renderVideoList(this.filteredVideos);
+    this.uiRenderer.renderVideoList(this.filteredVideos, (path: string) => this.playVideo(path));
   }
 
   private renderSidebar(): void {
@@ -2008,7 +2008,8 @@ class MovieLibraryApp {
   private handleEnterKey(e: KeyboardEvent): void {
     const selectedIndex = this.uiRenderer.getSelectedVideoIndex();
     if (selectedIndex >= 0 && this.filteredVideos[selectedIndex]) {
-      this.showVideoDetails(this.filteredVideos[selectedIndex]);
+      // Enterキーで動画を再生
+      this.uiRenderer.playSelectedVideo(this.filteredVideos, (path: string) => this.playVideo(path));
     }
   }
 
