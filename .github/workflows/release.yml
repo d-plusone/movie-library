@@ -140,21 +140,3 @@ jobs:
           # Ensure native modules are rebuilt for Windows
           npm run rebuild
           npm run build:win -- --publish=always
-
-      - name: Upload artifacts (macOS)
-        if: matrix.os == 'macos-latest'
-        uses: actions/upload-artifact@v4
-        with:
-          name: macos-build
-          path: |
-            dist/*.dmg
-            dist/mac-arm64/*.app
-            dist/mac/*.app
-
-      - name: Upload artifacts (Windows)
-        if: matrix.os == 'windows-latest'
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-build
-          path: |
-            dist/*.exe
