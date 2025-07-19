@@ -608,127 +608,92 @@ export class UIRenderer {
   }
 
   // ビデオ詳細の描画
-  renderVideoDetails(video: Video): void {
-    // 詳細パネルを表示
-    const detailsPanel = document.getElementById("detailsPanel");
-    if (!detailsPanel) {
-      console.error("UIRenderer - detailsPanel element not found!");
-      return;
-    }
-
-    // パネルを表示
-    detailsPanel.style.display = "block";
-
-    // メインサムネイルを設定
-    const mainThumbnailImg = document.getElementById(
-      "detailsMainThumbnail"
-    ) as HTMLImageElement;
-    if (mainThumbnailImg && video.thumbnail_path) {
-      mainThumbnailImg.src = `file://${video.thumbnail_path}?t=${Date.now()}`;
-      mainThumbnailImg.alt = video.title;
-    }
-
-    // タイトル入力を設定
-    const titleInput = document.getElementById(
-      "detailsTitleInput"
-    ) as HTMLInputElement;
-    if (titleInput) {
-      titleInput.value = video.title;
-    }
-
-    // 説明入力を設定
-    const descriptionInput = document.getElementById(
-      "detailsDescriptionInput"
-    ) as HTMLTextAreaElement;
-    if (descriptionInput) {
-      descriptionInput.value = video.description || "";
-    }
-
-    // ファイル情報を設定
-    const filePathElement = document.getElementById("detailsFilePath");
-    const fileSizeElement = document.getElementById("detailsFileSize");
-    const durationElement = document.getElementById("detailsDuration");
-    const resolutionElement = document.getElementById("detailsResolution");
-    const fpsElement = document.getElementById("detailsFps");
-    const codecElement = document.getElementById("detailsCodec");
-
-    if (filePathElement) filePathElement.textContent = video.path;
-    if (fileSizeElement)
-      fileSizeElement.textContent = FormatUtils.formatFileSize(video.size ?? 0);
-    if (durationElement)
-      durationElement.textContent = FormatUtils.formatDuration(
-        video.duration ?? 0
-      );
-    if (resolutionElement)
-      resolutionElement.textContent = `${video.width ?? 0}x${
-        video.height ?? 0
-      }`;
-    if (fpsElement) fpsElement.textContent = `${this.formatFps(video.fps ?? 0)} fps`;
-    if (codecElement) codecElement.textContent = video.codec || "不明";
-
-    // タグリストを更新
-    this.updateDetailsTagsDisplay(video.tags || []);
-
-    // 評価を設定
-    this.updateDetailsRatingDisplay(video.rating || 0);
-
-    // チャプターサムネイルを表示
-    this.updateChapterThumbnails(video);
-  }
-
-  // チャプターサムネイルを更新
+  // チャプターサムネイルを効率的に更新
   private updateChapterThumbnails(video: Video): void {
     const chapterContainer = document.getElementById(
       "detailsChapterThumbnails"
     );
     if (!chapterContainer) return;
 
-    chapterContainer.innerHTML = "";
-
-    if (!video.chapter_thumbnails) return;
-
-    let chapters: any[] = [];
-    try {
-      if (Array.isArray(video.chapter_thumbnails)) {
-        chapters = video.chapter_thumbnails;
-      } else if (typeof video.chapter_thumbnails === "string") {
-        const parsed = JSON.parse(video.chapter_thumbnails);
-        if (Array.isArray(parsed)) {
-          chapters = parsed;
-        } else if (typeof parsed === "object" && parsed !== null) {
-          chapters = Object.values(parsed).filter(
+    // 新しいチャプターデータを解析
+    let newChapters: any[] = [];
+    if (video.chapter_thumbnails) {
+      try {
+        if (Array.isArray(video.chapter_thumbnails)) {
+          newChapters = video.chapter_thumbnails;
+        } else if (typeof video.chapter_thumbnails === "string") {
+          const parsed = JSON.parse(video.chapter_thumbnails);
+          if (Array.isArray(parsed)) {
+            newChapters = parsed;
+          } else if (typeof parsed === "object" && parsed !== null) {
+            newChapters = Object.values(parsed).filter(
+              (item: any) => item && (item.path || item.thumbnail_path)
+            );
+          }
+        } else if (
+          typeof video.chapter_thumbnails === "object" &&
+          video.chapter_thumbnails !== null
+        ) {
+          newChapters = Object.values(video.chapter_thumbnails).filter(
             (item: any) => item && (item.path || item.thumbnail_path)
           );
         }
-      } else if (
-        typeof video.chapter_thumbnails === "object" &&
-        video.chapter_thumbnails !== null
-      ) {
-        chapters = Object.values(video.chapter_thumbnails).filter(
-          (item: any) => item && (item.path || item.thumbnail_path)
-        );
+      } catch (error) {
+        console.warn("Failed to parse chapter_thumbnails:", error);
+        return;
       }
-    } catch (error) {
-      console.warn("Failed to parse chapter_thumbnails:", error);
-      return;
     }
 
-    // チャプターサムネイルを表示（最大5個）
-    chapters.slice(0, 5).forEach((chapter, index) => {
+    // 表示するチャプター数（最大5個）
+    const maxChapters = 5;
+    const chaptersToShow = newChapters.slice(0, maxChapters);
+
+    // 既存の要素数と新しい要素数を比較
+    const existingChapters = chapterContainer.children;
+    const existingCount = existingChapters.length;
+    const newCount = chaptersToShow.length;
+
+    // 既存の要素を更新
+    for (let i = 0; i < Math.min(existingCount, newCount); i++) {
+      const existingDiv = existingChapters[i] as HTMLElement;
+      const existingImg = existingDiv.querySelector("img") as HTMLImageElement;
+      const chapter = chaptersToShow[i];
       const chapterPath = chapter.path || chapter.thumbnail_path;
-      if (!chapterPath) return;
+      
+      if (existingImg && chapterPath) {
+        const newSrc = `file://${chapterPath}?t=${Date.now()}`;
+        if (existingImg.src !== newSrc) {
+          existingImg.src = newSrc;
+          existingImg.alt = `Chapter ${i + 1}`;
+        }
+      }
+    }
+
+    // 新しい要素が必要な場合は追加
+    for (let i = existingCount; i < newCount; i++) {
+      const chapter = chaptersToShow[i];
+      const chapterPath = chapter.path || chapter.thumbnail_path;
+      if (!chapterPath) continue;
 
       const chapterDiv = document.createElement("div");
       chapterDiv.className = "chapter-thumbnail";
 
       const img = document.createElement("img");
       img.src = `file://${chapterPath}?t=${Date.now()}`;
-      img.alt = `Chapter ${index + 1}`;
+      img.alt = `Chapter ${i + 1}`;
       img.loading = "lazy";
 
       chapterDiv.appendChild(img);
       chapterContainer.appendChild(chapterDiv);
-    });
+    }
+
+    // 余分な要素がある場合は削除
+    for (let i = existingCount - 1; i >= newCount; i--) {
+      const elementToRemove = existingChapters[i];
+      if (elementToRemove) {
+        chapterContainer.removeChild(elementToRemove);
+      }
+    }
   }
 
   // 詳細パネルのタグ表示を更新
@@ -794,7 +759,76 @@ export class UIRenderer {
 
   // 詳細画面を表示
   showVideoDetails(video: Video): void {
-    this.renderVideoDetails(video);
+    const detailsPanel = document.getElementById("detailsPanel");
+    if (!detailsPanel) {
+      console.error("UIRenderer - detailsPanel element not found!");
+      return;
+    }
+
+    // パネルが初回表示の場合のみ表示状態を設定
+    if (detailsPanel.style.display !== "block") {
+      detailsPanel.style.display = "block";
+    }
+
+    // 要素の内容のみを効率的に更新
+    this.updateVideoDetailsContent(video);
+  }
+
+  // 詳細画面の内容のみを更新（DOM構造は維持）
+  private updateVideoDetailsContent(video: Video): void {
+    // メインサムネイルを更新
+    const mainThumbnailImg = document.getElementById(
+      "detailsMainThumbnail"
+    ) as HTMLImageElement;
+    if (mainThumbnailImg && video.thumbnail_path) {
+      const newSrc = `file://${video.thumbnail_path}?t=${Date.now()}`;
+      if (mainThumbnailImg.src !== newSrc) {
+        mainThumbnailImg.src = newSrc;
+        mainThumbnailImg.alt = video.title;
+      }
+    }
+
+    // タイトル入力を更新
+    const titleInput = document.getElementById(
+      "detailsTitleInput"
+    ) as HTMLInputElement;
+    if (titleInput && titleInput.value !== video.title) {
+      titleInput.value = video.title;
+    }
+
+    // 説明入力を更新
+    const descriptionInput = document.getElementById(
+      "detailsDescriptionInput"
+    ) as HTMLTextAreaElement;
+    const descriptionValue = video.description || "";
+    if (descriptionInput && descriptionInput.value !== descriptionValue) {
+      descriptionInput.value = descriptionValue;
+    }
+
+    // ファイル情報を更新（値が変わった場合のみ）
+    this.updateElementTextIfChanged("detailsFilePath", video.path);
+    this.updateElementTextIfChanged("detailsFileSize", FormatUtils.formatFileSize(video.size ?? 0));
+    this.updateElementTextIfChanged("detailsDuration", FormatUtils.formatDuration(video.duration ?? 0));
+    this.updateElementTextIfChanged("detailsResolution", `${video.width ?? 0}x${video.height ?? 0}`);
+    this.updateElementTextIfChanged("detailsFps", `${this.formatFps(video.fps ?? 0)} fps`);
+    this.updateElementTextIfChanged("detailsCodec", video.codec || "不明");
+
+    // タグリストを更新
+    this.updateDetailsTagsDisplay(video.tags || []);
+
+    // 評価を更新
+    this.updateDetailsRatingDisplay(video.rating || 0);
+
+    // チャプターサムネイルを更新
+    this.updateChapterThumbnails(video);
+  }
+
+  // 要素のテキストが変更された場合のみ更新
+  private updateElementTextIfChanged(elementId: string, newText: string): void {
+    const element = document.getElementById(elementId);
+    if (element && element.textContent !== newText) {
+      element.textContent = newText;
+    }
   }
 
   // 詳細画面を非表示
