@@ -1201,42 +1201,23 @@ class MovieLibraryApp {
 
   private handleArrowKeys(e: KeyboardEvent): void {
     // モーダルやダイアログが開いている場合は、グリッド/リストナビゲーションを無効にする
+    const chapterModal = document.getElementById("chapterDialog");
+    const settingsModal = document.getElementById("settingsModal");
+    const tagEditDialog = document.getElementById("tagEditDialog");
+    const bulkTagApplyDialog = document.getElementById("bulkTagApplyDialog");
+    const errorDialog = document.getElementById("errorDialog");
 
-    // 可視なモーダル/ダイアログをチェック
-    const activeModals = [
-      document.getElementById("settingsModal"),
-      document.getElementById("bulkTagApplyDialog"),
-      document.getElementById("chapterDialog"),
-      document.querySelector(".dialog-overlay") as HTMLElement, // カスタムダイアログ
-    ].filter((modal) => {
-      if (!modal) return false;
-      const htmlModal = modal as HTMLElement;
-
-      // より確実な可視性チェック
-      const computedStyle = window.getComputedStyle(htmlModal);
-      const isVisible =
-        computedStyle.display !== "none" &&
-        computedStyle.visibility !== "hidden" &&
-        htmlModal.offsetParent !== null &&
-        htmlModal.offsetWidth > 0 &&
-        htmlModal.offsetHeight > 0;
-
-      if (isVisible) {
-        console.log(
-          "Active modal detected:",
-          htmlModal.id || htmlModal.className
-        );
-      }
-
-      return isVisible;
-    });
-
-    // モーダルが開いている場合はナビゲーションを無効にする
-    if (activeModals.length > 0) {
-      console.log(
-        "Modal/dialog is open, disabling navigation. Count:",
-        activeModals.length
-      );
+    if (
+      (chapterModal && chapterModal.hasAttribute("is-open")) ||
+      (settingsModal && settingsModal.hasAttribute("is-open")) ||
+      (tagEditDialog && tagEditDialog.hasAttribute("is-open")) ||
+      (bulkTagApplyDialog && bulkTagApplyDialog.hasAttribute("is-open")) ||
+      (errorDialog && errorDialog.hasAttribute("is-open"))
+    ) {
+      // 何らかのモーダル/ダイアログが開いている場合は何もしない
+      // 各モーダル/ダイアログ側のキーボードハンドラーが処理する
+      e.preventDefault();
+      e.stopPropagation();
       return;
     }
 
@@ -1826,6 +1807,7 @@ class MovieLibraryApp {
     });
 
     bulkTagApplyDialog.style.display = "flex";
+    bulkTagApplyDialog.setAttribute("is-open", "true");
   }
 
   // 全選択チェックボックスの状態を更新するヘルパーメソッド
@@ -1868,6 +1850,7 @@ class MovieLibraryApp {
     const bulkTagApplyDialog = DOMUtils.getElementById("bulkTagApplyDialog");
     if (bulkTagApplyDialog) {
       bulkTagApplyDialog.style.display = "none";
+      bulkTagApplyDialog.removeAttribute("is-open");
     }
   }
 

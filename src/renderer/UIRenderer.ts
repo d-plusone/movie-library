@@ -830,6 +830,7 @@ export class UIRenderer {
     if (modal) {
       modal.classList.add("settings-modal");
       modal.style.display = "flex";
+      modal.setAttribute("is-open", "true");
     }
   }
 
@@ -839,18 +840,20 @@ export class UIRenderer {
     if (modal) {
       modal.style.display = "none";
       modal.classList.remove("settings-modal");
+      modal.removeAttribute("is-open");
     }
   }
 
   // 一括タグダイアログを表示
   showBulkTagDialog(videos: Video[], availableTags: string[]): void {
-    const modal = document.getElementById("bulkTagModal");
+    const modal = document.getElementById("bulkTagApplyDialog");
     if (!modal) {
-      console.error("bulkTagModal element not found!");
+      console.error("bulkTagApplyDialog element not found!");
       return;
     }
 
     modal.style.display = "block";
+    modal.setAttribute("is-open", "true");
 
     // ビデオリストを更新
     const videosList = modal.querySelector("#selectedVideosList");
@@ -881,9 +884,10 @@ export class UIRenderer {
 
   // 一括タグダイアログを非表示
   hideBulkTagDialog(): void {
-    const modal = document.getElementById("bulkTagModal");
+    const modal = document.getElementById("bulkTagApplyDialog");
     if (modal) {
       modal.style.display = "none";
+      modal.removeAttribute("is-open");
     }
   }
 
@@ -937,7 +941,7 @@ export class UIRenderer {
     const overlay = document.createElement("div");
     overlay.className = "chapter-dialog-overlay";
     overlay.innerHTML = `
-      <div id="chapterDialog" class="chapter-dialog">
+      <div id="chapterDialog" class="chapter-dialog" is-open="true">
         <div class="chapter-dialog-header">
           <h3>${FormatUtils.escapeHtml(video.title)} - ${
       allThumbnails[0].title
@@ -1022,6 +1026,10 @@ export class UIRenderer {
 
     if (closeBtn) {
       closeBtn.addEventListener("click", () => {
+        const chapterDialog = overlay.querySelector("#chapterDialog");
+        if (chapterDialog) {
+          chapterDialog.removeAttribute("is-open");
+        }
         overlay.remove();
         document.removeEventListener("keydown", handleKeydown);
       });
@@ -1038,6 +1046,10 @@ export class UIRenderer {
     // オーバーレイクリックで閉じる
     overlay.addEventListener("click", (e) => {
       if (e.target === overlay) {
+        const chapterDialog = overlay.querySelector("#chapterDialog");
+        if (chapterDialog) {
+          chapterDialog.removeAttribute("is-open");
+        }
         overlay.remove();
         document.removeEventListener("keydown", handleKeydown);
       }
@@ -1047,6 +1059,10 @@ export class UIRenderer {
     const handleKeydown = (e: KeyboardEvent) => {
       switch (e.key) {
         case "Escape":
+          const chapterDialog = overlay.querySelector("#chapterDialog");
+          if (chapterDialog) {
+            chapterDialog.removeAttribute("is-open");
+          }
           overlay.remove();
           document.removeEventListener("keydown", handleKeydown);
           break;
