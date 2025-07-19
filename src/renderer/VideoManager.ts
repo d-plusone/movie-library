@@ -194,15 +194,16 @@ export class VideoManager {
   }
 
   // ディレクトリをスキャン
-  async scanDirectories(): Promise<void> {
+  async scanDirectories(): Promise<any> {
     console.log("VideoManager.scanDirectories called");
     console.log("electronAPI available:", !!window.electronAPI);
     console.log("electronAPI.scanDirectories available:", !!window.electronAPI?.scanDirectories);
     
     try {
       console.log("Calling window.electronAPI.scanDirectories()");
-      await window.electronAPI.scanDirectories();
-      console.log("window.electronAPI.scanDirectories() completed successfully");
+      const result = await window.electronAPI.scanDirectories();
+      console.log("window.electronAPI.scanDirectories() completed successfully:", result);
+      return result;
     } catch (error) {
       console.error("VideoManager - Error scanning directories:", error);
       console.error("Error details:", {

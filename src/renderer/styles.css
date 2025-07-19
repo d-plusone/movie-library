@@ -1730,6 +1730,10 @@ body.progress-hidden .main-content {
     border-left: 4px solid var(--error-color);
 }
 
+.notification.warning {
+    border-left: 4px solid var(--warning-color);
+}
+
 .notification.info {
     border-left: 4px solid var(--accent-color);
 }

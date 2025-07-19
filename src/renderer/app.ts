@@ -148,6 +148,18 @@ class MovieLibraryApp {
           this.progressManager.show(data.message);
         }
       });
+
+      // ビデオ追加イベント
+      window.electronAPI.onVideoAdded((filePath: string) => {
+        console.log("Video added:", filePath);
+        this.handleVideoAdded(filePath);
+      });
+
+      // ビデオ削除イベント
+      window.electronAPI.onVideoRemoved((filePath: string) => {
+        console.log("Video removed:", filePath);
+        this.handleVideoRemoved(filePath);
+      });
     } catch (error) {
       console.warn("Failed to setup progress event listeners:", error);
     }
@@ -205,6 +217,9 @@ class MovieLibraryApp {
 
       console.log("Starting initial data load...");
 
+      // プログレスバーを表示
+      this.progressManager.show("データを読み込み中...");
+
       // データ読み込み（差分チェック付き）
       const videosPromise = this.videoManager.loadVideos();
       const tagsPromise = this.videoManager.loadTags();
@@ -236,10 +251,19 @@ class MovieLibraryApp {
       // 保存されたフィルタ状態を復元
       this.restoreFilterState();
 
+      // 読み込み完了通知
+      if (videos.length > 0) {
+        this.notificationManager.show(`${videos.length}件の動画を読み込みました`, "success");
+      } else {
+        this.notificationManager.show("動画が見つかりませんでした。ディレクトリを追加してスキャンしてください", "info");
+      }
+
       console.log("Initial data load completed successfully");
     } catch (error) {
       console.error("Error loading initial data:", error);
       this.notificationManager.show("データの読み込みに失敗しました", "error");
+    } finally {
+      this.progressManager.hide();
     }
   }
 
@@ -773,14 +797,59 @@ class MovieLibraryApp {
     try {
       console.log("Showing progress manager");
       this.progressManager.show("ディレクトリをスキャン中...");
-      console.log("Starting directory scan...");
+      console.log("Starting comprehensive directory scan...");
       console.log("Calling videoManager.scanDirectories()");
-      await this.videoManager.scanDirectories();
-      console.log("Directory scan completed successfully");
+      const result = await this.videoManager.scanDirectories();
+      console.log("Comprehensive scan completed:", result);
+      
       console.log("Starting data refresh...");
       await this.refreshData();
       console.log("Data refresh completed");
-      this.notificationManager.show("スキャンが完了しました", "success");
+      
+      // スキャン結果を確認してサムネイル生成が必要かチェック
+      let shouldGenerateThumbnails = false;
+      if (result) {
+        const { totalNew, totalUpdated, totalReprocessed } = result;
+        shouldGenerateThumbnails = (totalNew > 0) || (totalUpdated > 0) || (totalReprocessed > 0);
+      }
+      
+      // 新規・更新・再処理された動画がある場合はサムネイル生成を実行
+      if (shouldGenerateThumbnails) {
+        console.log("Starting automatic thumbnail generation after scan...");
+        this.progressManager.show("サムネイルを生成中...");
+        try {
+          await this.videoManager.generateThumbnails();
+          console.log("Automatic thumbnail generation completed");
+          await this.refreshData(); // サムネイル生成後にデータを再読み込み
+        } catch (thumbnailError) {
+          console.error("Error during automatic thumbnail generation:", thumbnailError);
+          this.notificationManager.show("サムネイル生成中にエラーが発生しました", "warning");
+        }
+      }
+      
+      // 結果に応じた詳細な通知
+      if (result) {
+        const { totalNew, totalUpdated, totalReprocessed, totalDeleted } = result;
+        let message = "スキャンが完了しました";
+        const details: string[] = [];
+        
+        if (totalNew > 0) details.push(`新規: ${totalNew}件`);
+        if (totalUpdated > 0) details.push(`更新: ${totalUpdated}件`);
+        if (totalReprocessed > 0) details.push(`再処理: ${totalReprocessed}件`);
+        if (totalDeleted > 0) details.push(`削除: ${totalDeleted}件`);
+        
+        if (details.length > 0) {
+          message += ` (${details.join(', ')})`;
+        }
+        
+        if (shouldGenerateThumbnails) {
+          message += "。サムネイルも生成しました";
+        }
+        
+        this.notificationManager.show(message, "success");
+      } else {
+        this.notificationManager.show("スキャンが完了しました", "success");
+      }
     } catch (error) {
       console.error("Error scanning directories:", error);
       console.error("Error details:", {
@@ -797,7 +866,7 @@ class MovieLibraryApp {
       if (scanBtn) {
         console.log("Re-enabling scanDirectoriesBtn button");
         scanBtn.disabled = false;
-        scanBtn.innerHTML = '<span class="icon">🔄</span><span>再スキャン</span>';
+        scanBtn.innerHTML = '<span class="icon">🔄</span><span>スキャン</span>';
       }
       console.log("scanDirectories method completed");
     }
@@ -1048,6 +1117,110 @@ class MovieLibraryApp {
     } catch (error) {
       console.error("Error refreshing data:", error);
       this.notificationManager.show("データの更新に失敗しました", "error");
+    } finally {
+      this.progressManager.hide();
+    }
+  }
+
+  // ビデオファイル追加時の処理
+  private async handleVideoAdded(filePath: string): Promise<void> {
+    try {
+      console.log("Handling video addition:", filePath);
+      
+      // プログレスバーを表示
+      this.progressManager.show("新しい動画を読み込み中...");
+      
+      // 短時間のディレイを入れて、ファイル操作の完了を待つ
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // データを再読み込み（新しい動画を含むため）
+      await this.videoManager.loadVideos(true);
+      
+      // 新しく追加された動画を取得
+      let newVideo = this.videoManager.getVideos().find(v => v.path === filePath);
+      
+      if (!newVideo) {
+        console.log("Video not found in database, triggering directory scan:", filePath);
+        
+        // データベースで見つからない場合は、ディレクトリ全体の再スキャンを実行
+        try {
+          this.progressManager.show("ディレクトリを再スキャン中...");
+          await this.videoManager.scanDirectories();
+          
+          // 再度データを読み込み
+          await this.videoManager.loadVideos(true);
+          newVideo = this.videoManager.getVideos().find(v => v.path === filePath);
+        } catch (scanError) {
+          console.error("Failed to scan directories:", scanError);
+        }
+      }
+      
+      if (newVideo) {
+        // フィルタリングされたリストを更新
+        this.filteredVideos = this.videoManager.getVideos();
+        this.applyFiltersAndSort();
+        
+        // UIを更新
+        this.renderAll();
+        
+        // 統計も更新
+        this.uiRenderer.updateStats(this.videoManager.getStats());
+        
+        // 通知を表示
+        const fileName = filePath.split('/').pop() || filePath;
+        this.notificationManager.show(`新しい動画が追加されました: ${fileName}`, "success");
+        
+        console.log("Video addition handled successfully:", newVideo);
+      } else {
+        console.warn("Added video could not be processed:", filePath);
+        const fileName = filePath.split('/').pop() || filePath;
+        this.notificationManager.show(`動画ファイルを処理できませんでした: ${fileName}`, "warning");
+      }
+    } catch (error) {
+      console.error("Error handling video addition:", error);
+      this.notificationManager.show("動画の追加処理中にエラーが発生しました", "error");
+    } finally {
+      this.progressManager.hide();
+    }
+  }
+
+  // ビデオファイル削除時の処理
+  private async handleVideoRemoved(filePath: string): Promise<void> {
+    try {
+      console.log("Handling video removal:", filePath);
+      
+      // プログレスバーを表示
+      this.progressManager.show("動画データを更新中...");
+      
+      // 削除された動画の情報を保存（通知用）
+      const removedVideo = this.videoManager.getVideos().find(v => v.path === filePath);
+      const fileName = removedVideo?.filename || filePath.split('/').pop() || filePath;
+      
+      // 現在表示中の動画が削除された場合、詳細パネルを閉じる
+      if (this.currentVideo && this.currentVideo.path === filePath) {
+        this.hideVideoDetails();
+      }
+      
+      // データを再読み込み
+      await this.videoManager.loadVideos(true);
+      
+      // フィルタリングされたリストを更新
+      this.filteredVideos = this.videoManager.getVideos();
+      this.applyFiltersAndSort();
+      
+      // UIを更新
+      this.renderAll();
+      
+      // 統計も更新
+      this.uiRenderer.updateStats(this.videoManager.getStats());
+      
+      // 通知を表示
+      this.notificationManager.show(`動画が削除されました: ${fileName}`, "info");
+      
+      console.log("Video removal handled successfully");
+    } catch (error) {
+      console.error("Error handling video removal:", error);
+      this.notificationManager.show("動画の削除処理中にエラーが発生しました", "error");
     } finally {
       this.progressManager.hide();
     }
