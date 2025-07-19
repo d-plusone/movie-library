@@ -847,6 +847,8 @@ export class UIRenderer {
   // 評価表示を更新
   updateDetailsRatingDisplay(rating: number): void {
     const ratingStars = document.querySelectorAll(".rating-input .star");
+    const clearButton = document.querySelector(".clear-rating-btn") as HTMLElement;
+    
     ratingStars.forEach((star, index) => {
       const starElement = star as HTMLElement;
       if (index < rating) {
@@ -855,6 +857,49 @@ export class UIRenderer {
       } else {
         starElement.textContent = "☆";
         starElement.classList.remove("active");
+      }
+    });
+
+    // 削除ボタンの表示/非表示を制御
+    if (clearButton) {
+      clearButton.style.display = rating > 0 ? "inline-block" : "none";
+    }
+  }
+
+  // 詳細画面の評価ホバー表示を更新
+  updateDetailsRatingHover(rating: number, isHover: boolean): void {
+    const ratingStars = document.querySelectorAll(".rating-input .star");
+    
+    ratingStars.forEach((star, index) => {
+      const starElement = star as HTMLElement;
+      
+      if (isHover) {
+        // ホバー時：一時的なプレビュー表示
+        if (index < rating && rating > 0) {
+          starElement.textContent = "⭐";
+          starElement.classList.add("hover");
+        } else {
+          // ホバー範囲外でもactiveクラスがあれば⭐を維持
+          if (starElement.classList.contains("active")) {
+            starElement.textContent = "⭐";
+          } else {
+            starElement.textContent = "☆";
+          }
+          starElement.classList.remove("hover");
+        }
+      } else {
+        // ホバー終了時：activeクラスに基づいて表示を復元
+        starElement.classList.remove("hover");
+        if (index < rating && rating > 0) {
+          starElement.textContent = "⭐";
+          starElement.classList.add("active");
+        } else {
+          if (starElement.classList.contains("active")) {
+            starElement.textContent = "⭐";
+          } else {
+            starElement.textContent = "☆";
+          }
+        }
       }
     });
   }

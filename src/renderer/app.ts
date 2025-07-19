@@ -904,10 +904,31 @@ class MovieLibraryApp {
 
     // レーティング星のクリックイベント
     ratingStars.forEach((star, index) => {
-      star.addEventListener("click", () => {
+      const starElement = star as HTMLElement;
+      
+      // クリックイベント
+      starElement.addEventListener("click", () => {
         this.setVideoRating(index + 1);
       });
+
+      // ホバーイベント
+      starElement.addEventListener("mouseenter", () => {
+        this.uiRenderer.updateDetailsRatingHover(index + 1, true);
+      });
+
+      starElement.addEventListener("mouseleave", () => {
+        const currentRating = this.currentVideo?.rating || 0;
+        this.uiRenderer.updateDetailsRatingHover(currentRating, false);
+      });
     });
+
+    // 評価削除ボタンのクリックイベント
+    const clearRatingBtn = document.querySelector(".clear-rating-btn");
+    if (clearRatingBtn) {
+      clearRatingBtn.addEventListener("click", () => {
+        this.setVideoRating(0);
+      });
+    }
 
     // タグ入力のイベント処理
     const tagInput = document.getElementById("tagInput") as HTMLInputElement;
@@ -1063,14 +1084,32 @@ class MovieLibraryApp {
       // ローカルデータを更新
       this.currentVideo.rating = rating;
 
-      // UIを更新
+      // UIを更新（詳細画面のみ）
       this.uiRenderer.updateDetailsRatingDisplay(rating);
-      this.renderVideoList();
+      
+      // 動画リストの該当アイテムの評価表示のみ更新
+      this.updateVideoItemRating(this.currentVideo.id, rating);
 
-      this.notificationManager.show(`評価を${rating}に設定しました`, "success");
+      // 適切な通知メッセージを表示
+      if (rating === 0) {
+        this.notificationManager.show("評価を削除しました", "success");
+      } else {
+        this.notificationManager.show(`評価を${rating}に設定しました`, "success");
+      }
     } catch (error) {
       console.error("Error setting rating:", error);
       this.notificationManager.show("評価の設定に失敗しました", "error");
+    }
+  }
+
+  // 動画リストの特定のアイテムの評価表示を更新
+  private updateVideoItemRating(videoId: number, rating: number): void {
+    const videoElement = document.querySelector(`[data-video-id="${videoId}"]`);
+    if (videoElement) {
+      const ratingElement = videoElement.querySelector('.video-rating, .video-rating-overlay');
+      if (ratingElement) {
+        ratingElement.textContent = "⭐".repeat(rating);
+      }
     }
   }
 

@@ -6,9 +6,11 @@
 // 通知管理クラス
 export class NotificationManager {
   private maxToasts: number;
+  private recentMessages: Set<string>;
 
   constructor() {
     this.maxToasts = 3;
+    this.recentMessages = new Set();
   }
 
   show(message: string, type: string = "info"): void {
@@ -17,6 +19,17 @@ export class NotificationManager {
       console.error("NotificationManager - notification container not found");
       return;
     }
+
+    // 重複通知の防止（1秒以内の同じメッセージは無視）
+    const messageKey = `${message}-${type}`;
+    if (this.recentMessages.has(messageKey)) {
+      return;
+    }
+    
+    this.recentMessages.add(messageKey);
+    setTimeout(() => {
+      this.recentMessages.delete(messageKey);
+    }, 1000);
 
     // 通知の制限: 最大3個まで表示
     const existingNotifications = container.querySelectorAll(".notification");
