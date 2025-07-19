@@ -751,7 +751,62 @@ class MovieLibraryApp {
           `${directoryPaths.length}個のディレクトリを追加しました`,
           "success"
         );
-        this.renderSidebar();
+        
+        // ディレクトリ追加後、自動でスキャンとサムネイル生成を実行
+        this.progressManager.show("追加されたディレクトリをスキャン中...");
+        try {
+          console.log("Starting automatic scan after directory addition...");
+          const result = await this.videoManager.scanDirectories();
+          console.log("Automatic scan completed:", result);
+          
+          // データを再読み込み
+          await this.refreshData();
+          
+          // スキャン結果を確認してサムネイル生成が必要かチェック
+          let shouldGenerateThumbnails = false;
+          if (result) {
+            const { totalNew, totalUpdated, totalReprocessed } = result;
+            shouldGenerateThumbnails = (totalNew > 0) || (totalUpdated > 0) || (totalReprocessed > 0);
+          }
+          
+          // 新規・更新・再処理された動画がある場合はサムネイル生成を実行
+          if (shouldGenerateThumbnails) {
+            console.log("Starting automatic thumbnail generation after directory addition...");
+            this.progressManager.show("サムネイルを生成中...");
+            try {
+              await this.videoManager.generateThumbnails();
+              console.log("Automatic thumbnail generation completed");
+              await this.refreshData(); // サムネイル生成後にデータを再読み込み
+            } catch (thumbnailError) {
+              console.error("Error during automatic thumbnail generation:", thumbnailError);
+              this.notificationManager.show("サムネイル生成中にエラーが発生しました", "warning");
+            }
+          }
+          
+          // 最終的な結果通知
+          if (result) {
+            const { totalNew, totalUpdated, totalReprocessed, totalDeleted } = result;
+            if (totalNew > 0 || totalUpdated > 0 || totalReprocessed > 0) {
+              const details: string[] = [];
+              if (totalNew > 0) details.push(`新規: ${totalNew}件`);
+              if (totalUpdated > 0) details.push(`更新: ${totalUpdated}件`);
+              if (totalReprocessed > 0) details.push(`再処理: ${totalReprocessed}件`);
+              
+              let message = `スキャンが完了しました (${details.join(', ')})`;
+              if (shouldGenerateThumbnails) {
+                message += "。サムネイルも生成しました";
+              }
+              this.notificationManager.show(message, "success");
+            } else {
+              this.notificationManager.show("新しい動画は見つかりませんでした", "info");
+            }
+          }
+        } catch (scanError) {
+          console.error("Error during automatic scan:", scanError);
+          this.notificationManager.show("自動スキャン中にエラーが発生しました", "warning");
+        } finally {
+          this.progressManager.hide();
+        }
       }
     } catch (error) {
       console.error("Error adding directory:", error);
@@ -769,8 +824,15 @@ class MovieLibraryApp {
 
     try {
       await this.videoManager.removeDirectory(path);
+      
+      // データを完全に再読み込み
+      await this.refreshData();
+      
+      // フィルター状態も更新
+      const directories = this.videoManager.getDirectories();
+      this.filterManager.updateAvailableDirectories(directories);
+      
       this.notificationManager.show("ディレクトリを削除しました", "success");
-      this.renderSidebar();
     } catch (error) {
       console.error("Error removing directory:", error);
       this.notificationManager.show(
