@@ -304,9 +304,19 @@ class MovieLibraryApp {
             // ディレクトリが明示的に全解除された場合は何も表示しない
             return false;
           } else {
-            // 選択されたディレクトリのいずれかに含まれるかチェック
+            // 選択されたディレクトリのいずれかに直接属するかチェック（完全一致）
             const hasMatchingDirectory = filterData.selectedDirectories.some(
-              (dir: string) => video.path.startsWith(dir)
+              (dir: string) => {
+                // パスを正規化して比較
+                const normalizedVideoPath = video.path.replace(/\\/g, '/');
+                const normalizedDir = dir.replace(/\\/g, '/');
+                
+                // ディレクトリパスで動画ファイルのディレクトリ部分を取得
+                const videoDir = normalizedVideoPath.substring(0, normalizedVideoPath.lastIndexOf('/'));
+                
+                // 完全一致をチェック
+                return videoDir === normalizedDir;
+              }
             );
             if (!hasMatchingDirectory) return false;
           }
