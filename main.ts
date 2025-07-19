@@ -326,13 +326,33 @@ class MovieLibraryApp {
     ipcMain.handle("scan-directories", async () => {
       const directories = await this.db.getDirectories();
       const allVideos: ProcessedVideo[] = [];
+      let processedDirs = 0;
+      const totalDirs = directories.length;
 
       for (const directory of directories) {
         try {
+          // プログレス送信
+          this.mainWindow?.webContents.send("scan-progress", {
+            current: processedDirs,
+            total: totalDirs,
+            message: `ディレクトリをスキャン中: ${directory.path}`,
+            file: directory.path
+          });
+
           const videos = await this.videoScanner.scanDirectory(directory.path);
           allVideos.push(...videos);
+          processedDirs++;
+
+          // 完了時プログレス送信
+          this.mainWindow?.webContents.send("scan-progress", {
+            current: processedDirs,
+            total: totalDirs,
+            message: `ディレクトリスキャン完了`,
+            file: directory.path
+          });
         } catch (error) {
           console.error("Error scanning directory:", directory.path, error);
+          processedDirs++;
         }
       }
 
@@ -343,17 +363,37 @@ class MovieLibraryApp {
     ipcMain.handle("generate-thumbnails", async () => {
       const videos = await this.db.getVideosWithoutThumbnails();
       const results: any[] = [];
+      let processedVideos = 0;
+      const totalVideos = videos.length;
 
       for (const video of videos) {
         try {
+          // プログレス送信
+          this.mainWindow?.webContents.send("thumbnail-progress", {
+            current: processedVideos,
+            total: totalVideos,
+            message: `サムネイル生成中: ${video.filename}`,
+            file: video.filename
+          });
+
           if (video.duration !== undefined) {
             const result = await this.thumbnailGenerator.generateThumbnails(
               video as any
             );
             results.push(result);
           }
+          processedVideos++;
+
+          // 完了時プログレス送信
+          this.mainWindow?.webContents.send("thumbnail-progress", {
+            current: processedVideos,
+            total: totalVideos,
+            message: `サムネイル生成完了`,
+            file: video.filename
+          });
         } catch (error) {
           console.error("Error generating thumbnails for:", video.path, error);
+          processedVideos++;
         }
       }
 
@@ -364,21 +404,41 @@ class MovieLibraryApp {
     ipcMain.handle("regenerate-all-thumbnails", async () => {
       const videos = await this.db.getVideos();
       const results: any[] = [];
+      let processedVideos = 0;
+      const totalVideos = videos.length;
 
       for (const video of videos) {
         try {
+          // プログレス送信
+          this.mainWindow?.webContents.send("thumbnail-progress", {
+            current: processedVideos,
+            total: totalVideos,
+            message: `サムネイル再生成中: ${video.filename}`,
+            file: video.filename
+          });
+
           if (video.duration !== undefined) {
             const result = await this.thumbnailGenerator.generateThumbnails(
               video as any
             );
             results.push(result);
           }
+          processedVideos++;
+
+          // 完了時プログレス送信
+          this.mainWindow?.webContents.send("thumbnail-progress", {
+            current: processedVideos,
+            total: totalVideos,
+            message: `サムネイル再生成完了`,
+            file: video.filename
+          });
         } catch (error) {
           console.error(
             "Error regenerating thumbnails for:",
             video.path,
             error
           );
+          processedVideos++;
         }
       }
 

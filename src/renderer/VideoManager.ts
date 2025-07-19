@@ -195,30 +195,63 @@ export class VideoManager {
 
   // ディレクトリをスキャン
   async scanDirectories(): Promise<void> {
+    console.log("VideoManager.scanDirectories called");
+    console.log("electronAPI available:", !!window.electronAPI);
+    console.log("electronAPI.scanDirectories available:", !!window.electronAPI?.scanDirectories);
+    
     try {
+      console.log("Calling window.electronAPI.scanDirectories()");
       await window.electronAPI.scanDirectories();
+      console.log("window.electronAPI.scanDirectories() completed successfully");
     } catch (error) {
       console.error("VideoManager - Error scanning directories:", error);
+      console.error("Error details:", {
+        message: error.message,
+        stack: error.stack,
+        name: error.name
+      });
       throw error;
     }
   }
 
   // サムネイルを生成
   async generateThumbnails(): Promise<void> {
+    console.log("VideoManager.generateThumbnails called");
+    console.log("electronAPI available:", !!window.electronAPI);
+    console.log("electronAPI.generateThumbnails available:", !!window.electronAPI?.generateThumbnails);
+    
     try {
+      console.log("Calling window.electronAPI.generateThumbnails()");
       await window.electronAPI.generateThumbnails();
+      console.log("window.electronAPI.generateThumbnails() completed successfully");
     } catch (error) {
       console.error("VideoManager - Error generating thumbnails:", error);
+      console.error("Error details:", {
+        message: error.message,
+        stack: error.stack,
+        name: error.name
+      });
       throw error;
     }
   }
 
   // 全サムネイルを再生成
   async regenerateAllThumbnails(): Promise<void> {
+    console.log("VideoManager.regenerateAllThumbnails called");
+    console.log("electronAPI available:", !!window.electronAPI);
+    console.log("electronAPI.regenerateAllThumbnails available:", !!window.electronAPI?.regenerateAllThumbnails);
+    
     try {
+      console.log("Calling window.electronAPI.regenerateAllThumbnails()");
       await window.electronAPI.regenerateAllThumbnails();
+      console.log("window.electronAPI.regenerateAllThumbnails() completed successfully");
     } catch (error) {
       console.error("VideoManager - Error regenerating thumbnails:", error);
+      console.error("Error details:", {
+        message: error.message,
+        stack: error.stack,
+        name: error.name
+      });
       throw error;
     }
   }

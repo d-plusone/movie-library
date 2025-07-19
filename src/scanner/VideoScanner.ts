@@ -92,6 +92,30 @@ class VideoScanner {
   }
 
   isVideoFile(filePath: string): boolean {
+    const fileName = path.basename(filePath);
+    
+    // macOSの隠しファイル（Resource Fork）をスキップ
+    if (fileName.startsWith("._")) {
+      return false;
+    }
+    
+    // 隠しファイル（ドットファイル）をスキップ
+    if (fileName.startsWith(".")) {
+      return false;
+    }
+    
+    // システムファイルをスキップ
+    const systemFiles = [
+      ".DS_Store",
+      "Thumbs.db",
+      "desktop.ini",
+      ".AppleDouble",
+      ".localized",
+    ];
+    if (systemFiles.includes(fileName)) {
+      return false;
+    }
+    
     const ext = path.extname(filePath).toLowerCase();
     return this.supportedExtensions.includes(ext);
   }
@@ -138,7 +162,14 @@ class VideoScanner {
         for (const entry of entries) {
           const fullPath = path.join(currentPath, entry.name);
 
+          // 隠しディレクトリやシステムディレクトリをスキップ
           if (entry.isDirectory()) {
+            if (entry.name.startsWith(".") || 
+                entry.name === "__MACOSX" || 
+                entry.name === "System Volume Information" ||
+                entry.name === "$RECYCLE.BIN") {
+              continue;
+            }
             await scanDir(fullPath);
           } else if (entry.isFile()) {
             files.push(fullPath);
@@ -155,6 +186,13 @@ class VideoScanner {
 
   async processFile(filePath: string): Promise<ProcessedVideo | null> {
     try {
+      // 再度ファイル名をチェック（念のため）
+      const fileName = path.basename(filePath);
+      if (fileName.startsWith("._") || fileName.startsWith(".")) {
+        console.log(`Skipping hidden/system file: ${fileName}`);
+        return null;
+      }
+
       // Check if file already exists in database
       const existingVideo = await this.checkExistingVideo(filePath);
       const stats = await fs.stat(filePath);

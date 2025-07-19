@@ -135,12 +135,16 @@ export class ProgressBarManager {
     }
     if (this.progressContainer) {
       this.progressContainer.classList.remove("hidden");
+      // bodyクラスを更新してレイアウト調整
+      document.body.classList.remove("progress-hidden");
     }
   }
 
   hide(): void {
     if (this.progressContainer) {
       this.progressContainer.classList.add("hidden");
+      // bodyクラスを更新してレイアウト調整
+      document.body.classList.add("progress-hidden");
     }
     this.updateProgress(0);
   }
@@ -153,7 +157,9 @@ export class ProgressBarManager {
       )}%`;
     }
     if (text && this.progressText) {
-      this.progressText.textContent = text;
+      // パーセンテージを表示に含める
+      const percentText = percentage > 0 ? ` (${Math.round(percentage)}%)` : '';
+      this.progressText.textContent = text + percentText;
     }
   }
 
@@ -216,6 +222,20 @@ export class FormatUtils {
 // プログレス管理（後方互換性のため）
 export class ProgressManager extends ProgressBarManager {
   // 継承によって後方互換性を保つ
+  
+  // 進捗情報から割合を計算するメソッドを追加
+  updateProgressFromData(current: number, total: number, baseText: string, currentItem?: string): void {
+    const percentage = total > 0 ? (current / total) * 100 : 0;
+    let progressText = `${baseText} (${current}/${total})`;
+    
+    if (currentItem) {
+      // ファイル名が長い場合は短縮表示
+      const shortItem = currentItem.length > 50 ? currentItem.substring(0, 47) + '...' : currentItem;
+      progressText += ` - ${shortItem}`;
+    }
+    
+    this.updateProgress(percentage, progressText);
+  }
 }
 
 // テーマ管理クラス

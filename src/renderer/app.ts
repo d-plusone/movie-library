@@ -93,6 +93,9 @@ class MovieLibraryApp {
     this.progressManager = new ProgressManager();
     this.themeManager = new ThemeManager();
 
+    // プログレスバーは初期状態で非表示
+    document.body.classList.add("progress-hidden");
+
     // Initialize keyboard navigation
     this.keyboardManager = new KeyboardManager({
       onEscape: (e) => this.handleEscapeKey(e),
@@ -100,6 +103,9 @@ class MovieLibraryApp {
       onEnter: (e) => this.handleEnterKey(e),
       onSpace: (e) => this.handleSpaceKey(e),
     });
+
+    // プログレスイベントリスナーを設定
+    this.setupProgressEventListeners();
 
     this.initializeEventListeners();
     this.loadSettings(); // 設定を読み込み
@@ -110,16 +116,64 @@ class MovieLibraryApp {
     });
   }
 
+  // プログレスイベントリスナーを設定
+  private setupProgressEventListeners(): void {
+    try {
+      // スキャンプログレスイベント
+      window.electronAPI.onScanProgress((data) => {
+        console.log("Scan progress:", data);
+        if (data.current !== undefined && data.total !== undefined) {
+          this.progressManager.updateProgressFromData(
+            data.current,
+            data.total,
+            "ディレクトリをスキャン中",
+            data.file
+          );
+        } else if (data.message) {
+          this.progressManager.show(data.message);
+        }
+      });
+
+      // サムネイル生成プログレスイベント
+      window.electronAPI.onThumbnailProgress((data) => {
+        console.log("Thumbnail progress:", data);
+        if (data.current !== undefined && data.total !== undefined) {
+          this.progressManager.updateProgressFromData(
+            data.current,
+            data.total,
+            "サムネイルを生成中",
+            data.file
+          );
+        } else if (data.message) {
+          this.progressManager.show(data.message);
+        }
+      });
+    } catch (error) {
+      console.warn("Failed to setup progress event listeners:", error);
+    }
+  }
+
   // 安全にイベントリスナーを追加するメソッド
   private safeAddEventListener(
     elementId: string,
     event: string,
     handler: (e: Event) => void
   ): boolean {
+    console.log(`Attempting to add event listener for ${elementId}`);
     const element = document.getElementById(elementId);
+    console.log(`Element ${elementId} found:`, !!element);
+    
     if (element && handler) {
       element.addEventListener(event, handler);
       console.log(`Event listener added for ${elementId} - ${event}`);
+      
+      // テスト用のクリックイベントも追加
+      if (event === "click") {
+        element.addEventListener("click", () => {
+          console.log(`Button ${elementId} was clicked!`);
+        });
+      }
+      
       return true;
     } else {
       console.warn(
@@ -333,6 +387,8 @@ class MovieLibraryApp {
   }
 
   private initializeEventListeners(): void {
+    console.log("Initializing event listeners...");
+    
     this.safeAddEventListener(
       "addDirectoryBtn",
       "click",
@@ -424,6 +480,8 @@ class MovieLibraryApp {
 
     // Event delegation for dynamic content
     this.setupEventDelegation();
+    
+    console.log("Event listeners initialization completed");
   }
 
   private setupEventDelegation(): void {
@@ -699,47 +757,146 @@ class MovieLibraryApp {
   }
 
   private async scanDirectories(): Promise<void> {
+    console.log("scanDirectories called");
+    console.log("Current electronAPI available:", !!window.electronAPI);
+    console.log("videoManager available:", !!this.videoManager);
+    
+    // ボタンを無効化
+    const scanBtn = document.getElementById("scanDirectoriesBtn") as HTMLButtonElement;
+    console.log("scanDirectoriesBtn element found:", !!scanBtn);
+    if (scanBtn) {
+      console.log("Disabling scanDirectoriesBtn button");
+      scanBtn.disabled = true;
+      scanBtn.textContent = "スキャン中...";
+    }
+    
     try {
+      console.log("Showing progress manager");
       this.progressManager.show("ディレクトリをスキャン中...");
+      console.log("Starting directory scan...");
+      console.log("Calling videoManager.scanDirectories()");
       await this.videoManager.scanDirectories();
+      console.log("Directory scan completed successfully");
+      console.log("Starting data refresh...");
       await this.refreshData();
+      console.log("Data refresh completed");
       this.notificationManager.show("スキャンが完了しました", "success");
     } catch (error) {
       console.error("Error scanning directories:", error);
+      console.error("Error details:", {
+        message: error.message,
+        stack: error.stack,
+        name: error.name
+      });
       this.notificationManager.show("スキャンに失敗しました", "error");
     } finally {
+      console.log("Hiding progress manager");
       this.progressManager.hide();
+      
+      // ボタンを有効化
+      if (scanBtn) {
+        console.log("Re-enabling scanDirectoriesBtn button");
+        scanBtn.disabled = false;
+        scanBtn.innerHTML = '<span class="icon">🔄</span><span>再スキャン</span>';
+      }
+      console.log("scanDirectories method completed");
     }
   }
 
   private async generateThumbnails(): Promise<void> {
+    console.log("generateThumbnails called");
+    console.log("Current electronAPI available:", !!window.electronAPI);
+    console.log("videoManager available:", !!this.videoManager);
+    
+    // ボタンを無効化
+    const genBtn = document.getElementById("generateThumbnailsBtn") as HTMLButtonElement;
+    console.log("generateThumbnailsBtn element found:", !!genBtn);
+    if (genBtn) {
+      console.log("Disabling generateThumbnailsBtn button");
+      genBtn.disabled = true;
+      genBtn.textContent = "生成中...";
+    }
+    
     try {
+      console.log("Showing progress manager");
       this.progressManager.show("サムネイルを生成中...");
+      console.log("Starting thumbnail generation...");
+      console.log("Calling videoManager.generateThumbnails()");
       await this.videoManager.generateThumbnails();
+      console.log("Thumbnail generation completed successfully");
+      console.log("Starting data refresh...");
       await this.refreshData();
+      console.log("Data refresh completed");
       this.notificationManager.show("サムネイル生成が完了しました", "success");
     } catch (error) {
       console.error("Error generating thumbnails:", error);
+      console.error("Error details:", {
+        message: error.message,
+        stack: error.stack,
+        name: error.name
+      });
       this.notificationManager.show("サムネイル生成に失敗しました", "error");
     } finally {
+      console.log("Hiding progress manager");
       this.progressManager.hide();
+      
+      // ボタンを有効化
+      if (genBtn) {
+        console.log("Re-enabling generateThumbnailsBtn button");
+        genBtn.disabled = false;
+        genBtn.innerHTML = '<span class="icon">🖼️</span><span>サムネイル再生成</span>';
+      }
+      console.log("generateThumbnails method completed");
     }
   }
 
   private async regenerateAllThumbnails(): Promise<void> {
+    console.log("regenerateAllThumbnails called");
+    console.log("Current electronAPI available:", !!window.electronAPI);
+    console.log("videoManager available:", !!this.videoManager);
+    
+    // ボタンを無効化
+    const regenBtn = document.getElementById("regenerateThumbnailsBtn") as HTMLButtonElement;
+    console.log("regenerateThumbnailsBtn element found:", !!regenBtn);
+    if (regenBtn) {
+      console.log("Disabling regenerateThumbnailsBtn button");
+      regenBtn.disabled = true;
+      regenBtn.textContent = "再生成中...";
+    }
+    
     try {
+      console.log("Showing progress manager");
       this.progressManager.show("全サムネイルを再生成中...");
+      console.log("Starting thumbnail regeneration...");
+      console.log("Calling videoManager.regenerateAllThumbnails()");
       await this.videoManager.regenerateAllThumbnails();
+      console.log("Thumbnail regeneration completed successfully");
+      console.log("Starting data refresh...");
       await this.refreshData();
+      console.log("Data refresh completed");
       this.notificationManager.show(
         "サムネイル再生成が完了しました",
         "success"
       );
     } catch (error) {
       console.error("Error regenerating thumbnails:", error);
+      console.error("Error details:", {
+        message: error.message,
+        stack: error.stack,
+        name: error.name
+      });
       this.notificationManager.show("サムネイル再生成に失敗しました", "error");
     } finally {
+      console.log("Hiding progress manager");
       this.progressManager.hide();
+      
+      // ボタンを有効化
+      if (regenBtn) {
+        console.log("Re-enabling regenerateThumbnailsBtn button");
+        regenBtn.disabled = false;
+        regenBtn.innerHTML = '<span class="icon">🖼️</span><span>全て再生成</span>';
+      }
+      console.log("regenerateAllThumbnails method completed");
     }
   }
 

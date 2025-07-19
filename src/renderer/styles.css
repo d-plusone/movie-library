@@ -236,6 +236,20 @@ body {
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
 }
 
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    pointer-events: none;
+    transform: none;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.btn:disabled:hover {
+    transform: none;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    background: rgba(255, 255, 255, 0.15);
+}
+
 .btn-primary {
     background: var(--accent-color);
     color: white;
@@ -299,24 +313,78 @@ body {
 
 /* Progress Bar */
 .progress-container {
-    padding: 8px 20px;
+    position: fixed;
+    top: 60px; /* ヘッダーの高さ分下に配置 */
+    left: 0;
+    right: 0;
+    z-index: 1000; /* ヘッダーのz-indexより低く設定 */
     background: var(--bg-secondary);
     border-bottom: 1px solid var(--border-color);
+    padding: 16px 20px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    backdrop-filter: blur(8px);
 }
 
+.progress-container.hidden {
+    display: none;
+}
+
+/* プログレスバーが表示されているときのコンテンツ調整 */
+body:not(.progress-hidden) .main-content {
+    margin-top: 80px; /* プログレスバーの高さ分調整 */
+}
+
+body.progress-hidden .main-content {
+    margin-top: 0;
+}
+
+.progress-text {
+    font-size: 14px;
+    color: var(--text-primary);
+    margin-bottom: 8px;
+    font-weight: 500;
+}
+
+.progress-bar-wrapper {
+    height: 6px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+    overflow: hidden;
+    position: relative;
+}
+
+.progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, #007AFF, #5856D6);
+    border-radius: 3px;
+    transition: width 0.3s ease;
+    width: 0%;
+    position: relative;
+}
+
+.progress-bar::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+    animation: progressShimmer 2s infinite;
+}
+
+@keyframes progressShimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+}
+
+/* Legacy progress bar styles */
 .progress-info {
     display: flex;
     justify-content: space-between;
     margin-bottom: 4px;
     font-size: 12px;
     color: var(--text-secondary);
-}
-
-.progress-bar {
-    height: 4px;
-    background: #e5e5e7;
-    border-radius: 2px;
-    overflow: hidden;
 }
 
 .progress-fill {
