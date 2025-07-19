@@ -1,7 +1,7 @@
 {
     "name": "movie-library",
     "version": "0.0.6",
-    "description": "A video file management application for Mac",
+    "description": "A comprehensive video file management application with automatic thumbnail generation and subfolder support",
     "main": "dist-ts/main.js",
     "scripts": {
         "start": "npm run build:ts && electron .",
