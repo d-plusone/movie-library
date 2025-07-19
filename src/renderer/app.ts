@@ -4,6 +4,7 @@ import { UIRenderer } from "./UIRenderer.js";
 import {
   NotificationManager,
   ProgressManager,
+  EnhancedProgressManager,
   ThemeManager,
   KeyboardManager,
   FormatUtils,
@@ -80,7 +81,10 @@ class MovieLibraryApp {
   private videoManager: VideoManager;
   private uiRenderer: UIRenderer;
   private notificationManager: NotificationManager;
-  private progressManager: ProgressManager;
+  private progressManager: ProgressManager; // 後方互換性のため残す
+  private directoryCheckProgress: EnhancedProgressManager; // ディレクトリチェック用
+  private thumbnailProgress: EnhancedProgressManager; // サムネイル生成用
+  private scanProgress: EnhancedProgressManager; // スキャン用
   private themeManager: ThemeManager;
   private keyboardManager: KeyboardManager;
 
@@ -90,11 +94,11 @@ class MovieLibraryApp {
     this.videoManager = new VideoManager();
     this.uiRenderer = new UIRenderer();
     this.notificationManager = new NotificationManager();
-    this.progressManager = new ProgressManager();
+    this.progressManager = new ProgressManager(); // 後方互換性のため残す
+    this.directoryCheckProgress = new EnhancedProgressManager("directory-check");
+    this.thumbnailProgress = new EnhancedProgressManager("thumbnail-generation");
+    this.scanProgress = new EnhancedProgressManager("scanning");
     this.themeManager = new ThemeManager();
-
-    // プログレスバーは初期状態で非表示
-    document.body.classList.add("progress-hidden");
 
     // Initialize keyboard navigation
     this.keyboardManager = new KeyboardManager({
@@ -121,30 +125,28 @@ class MovieLibraryApp {
     try {
       // スキャンプログレスイベント
       window.electronAPI.onScanProgress((data) => {
-        console.log("Scan progress:", data);
-        if (data.current !== undefined && data.total !== undefined) {
+        if (data && typeof data === 'object' && data.current !== undefined && data.total !== undefined) {
           this.progressManager.updateProgressFromData(
             data.current,
             data.total,
             "ディレクトリをスキャン中",
             data.file
           );
-        } else if (data.message) {
+        } else if (data && data.message) {
           this.progressManager.show(data.message);
         }
       });
 
       // サムネイル生成プログレスイベント
       window.electronAPI.onThumbnailProgress((data) => {
-        console.log("Thumbnail progress:", data);
-        if (data.current !== undefined && data.total !== undefined) {
+        if (data && typeof data === 'object' && data.current !== undefined && data.total !== undefined) {
           this.progressManager.updateProgressFromData(
             data.current,
             data.total,
             "サムネイルを生成中",
             data.file
           );
-        } else if (data.message) {
+        } else if (data && data.message) {
           this.progressManager.show(data.message);
         }
       });
@@ -213,6 +215,8 @@ class MovieLibraryApp {
   }
 
   private async loadInitialData(): Promise<void> {
+    let showedProgress = false;
+    
     try {
       // Check if electronAPI is available
       if (!window.electronAPI) {
@@ -222,9 +226,6 @@ class MovieLibraryApp {
       }
 
       console.log("Starting initial data load...");
-
-      // プログレスバーを表示
-      this.progressManager.show("データを読み込み中...");
 
       // データ読み込み（差分チェック付き）
       const videosPromise = this.videoManager.loadVideos();
@@ -242,8 +243,15 @@ class MovieLibraryApp {
         `Loaded ${videos.length} videos, ${tags.length} tags, ${directories.length} directories`
       );
 
-      // 起動時のディレクトリ存在チェック
-      await this.checkDirectoriesExistence(directories);
+      // 起動時のディレクトリ存在チェック（ディレクトリがある場合のみプログレス表示）
+      if (directories.length > 0) {
+        console.log(`Starting directory existence check for ${directories.length} directories`);
+        this.directoryCheckProgress.startProgress(directories.length, "ディレクトリをチェック中");
+        showedProgress = true;
+        await this.checkDirectoriesExistence(directories);
+        console.log("Directory existence check completed, calling completeProgress");
+        this.directoryCheckProgress.completeProgress();
+      }
 
       // FilterManagerにディレクトリ情報を初期化（初回のみ）
       this.filterManager.updateAvailableDirectories(directories);
@@ -265,7 +273,9 @@ class MovieLibraryApp {
       console.error("Error loading initial data:", error);
       this.notificationManager.show("データの読み込みに失敗しました", "error");
     } finally {
-      this.progressManager.hide();
+      // プログレスバーを表示した場合のみ非表示にする
+      // completeProgress()が既に実行されているので、追加のhideは不要
+      console.log("loadInitialData finally block: showedProgress =", showedProgress);
     }
   }
 
@@ -765,7 +775,7 @@ class MovieLibraryApp {
         );
         
         // ディレクトリ追加後、自動でスキャンとサムネイル生成を実行
-        this.progressManager.show("追加されたディレクトリをスキャン中...");
+        this.scanProgress.startProgress(1, "追加されたディレクトリをスキャン中");
         try {
           console.log("Starting automatic scan after directory addition...");
           const result = await this.videoManager.scanDirectories();
@@ -784,14 +794,16 @@ class MovieLibraryApp {
           // 新規・更新・再処理された動画がある場合はサムネイル生成を実行
           if (shouldGenerateThumbnails) {
             console.log("Starting automatic thumbnail generation after directory addition...");
-            this.progressManager.show("サムネイルを生成中...");
+            this.thumbnailProgress.startProgress(1, "サムネイルを生成中");
             try {
               await this.videoManager.generateThumbnails();
               console.log("Automatic thumbnail generation completed");
               await this.refreshData(); // サムネイル生成後にデータを再読み込み
+              this.thumbnailProgress.completeProgress();
             } catch (thumbnailError) {
               console.error("Error during automatic thumbnail generation:", thumbnailError);
               this.notificationManager.show("サムネイル生成中にエラーが発生しました", "warning");
+              this.thumbnailProgress.hide();
             }
           }
           
@@ -817,7 +829,7 @@ class MovieLibraryApp {
           console.error("Error during automatic scan:", scanError);
           this.notificationManager.show("自動スキャン中にエラーが発生しました", "warning");
         } finally {
-          this.progressManager.hide();
+          this.scanProgress.completeProgress();
         }
       }
     } catch (error) {
@@ -856,23 +868,18 @@ class MovieLibraryApp {
 
   private async scanDirectories(): Promise<void> {
     console.log("scanDirectories called");
-    console.log("Current electronAPI available:", !!window.electronAPI);
-    console.log("videoManager available:", !!this.videoManager);
     
     // ボタンを無効化
     const scanBtn = document.getElementById("scanDirectoriesBtn") as HTMLButtonElement;
-    console.log("scanDirectoriesBtn element found:", !!scanBtn);
     if (scanBtn) {
-      console.log("Disabling scanDirectoriesBtn button");
       scanBtn.disabled = true;
       scanBtn.textContent = "スキャン中...";
     }
     
     try {
-      console.log("Showing progress manager");
-      this.progressManager.show("ディレクトリをスキャン中...");
-      console.log("Starting comprehensive directory scan...");
-      console.log("Calling videoManager.scanDirectories()");
+      // プログレス表示開始（バックエンドイベントで更新される）
+      this.scanProgress.startProgress(1, "ディレクトリをスキャン中");
+      
       const result = await this.videoManager.scanDirectories();
       console.log("Comprehensive scan completed:", result);
       
@@ -890,14 +897,16 @@ class MovieLibraryApp {
       // 新規・更新・再処理された動画がある場合はサムネイル生成を実行
       if (shouldGenerateThumbnails) {
         console.log("Starting automatic thumbnail generation after scan...");
-        this.progressManager.show("サムネイルを生成中...");
+        this.thumbnailProgress.startProgress(1, "サムネイルを生成中");
         try {
           await this.videoManager.generateThumbnails();
           console.log("Automatic thumbnail generation completed");
           await this.refreshData(); // サムネイル生成後にデータを再読み込み
+          this.thumbnailProgress.completeProgress();
         } catch (thumbnailError) {
           console.error("Error during automatic thumbnail generation:", thumbnailError);
           this.notificationManager.show("サムネイル生成中にエラーが発生しました", "warning");
+          this.thumbnailProgress.hide();
         }
       }
       
@@ -926,94 +935,70 @@ class MovieLibraryApp {
       }
     } catch (error) {
       console.error("Error scanning directories:", error);
-      console.error("Error details:", {
-        message: error.message,
-        stack: error.stack,
-        name: error.name
-      });
       this.notificationManager.show("スキャンに失敗しました", "error");
     } finally {
-      console.log("Hiding progress manager");
-      this.progressManager.hide();
+      this.scanProgress.completeProgress();
       
       // ボタンを有効化
       if (scanBtn) {
-        console.log("Re-enabling scanDirectoriesBtn button");
         scanBtn.disabled = false;
         scanBtn.innerHTML = '<span class="icon">🔄</span><span>スキャン</span>';
       }
-      console.log("scanDirectories method completed");
     }
   }
 
   private async generateThumbnails(): Promise<void> {
     console.log("generateThumbnails called");
-    console.log("Current electronAPI available:", !!window.electronAPI);
-    console.log("videoManager available:", !!this.videoManager);
     
     // ボタンを無効化
     const genBtn = document.getElementById("generateThumbnailsBtn") as HTMLButtonElement;
-    console.log("generateThumbnailsBtn element found:", !!genBtn);
     if (genBtn) {
-      console.log("Disabling generateThumbnailsBtn button");
       genBtn.disabled = true;
       genBtn.textContent = "生成中...";
     }
     
     try {
-      console.log("Showing progress manager");
-      this.progressManager.show("サムネイルを生成中...");
-      console.log("Starting thumbnail generation...");
-      console.log("Calling videoManager.generateThumbnails()");
+      // プログレス表示開始（バックエンドイベントで更新される）
+      this.thumbnailProgress.startProgress(1, "サムネイルを生成中");
+      
       await this.videoManager.generateThumbnails();
       console.log("Thumbnail generation completed successfully");
+      
       console.log("Starting data refresh...");
       await this.refreshData();
       console.log("Data refresh completed");
       this.notificationManager.show("サムネイル生成が完了しました", "success");
     } catch (error) {
       console.error("Error generating thumbnails:", error);
-      console.error("Error details:", {
-        message: error.message,
-        stack: error.stack,
-        name: error.name
-      });
       this.notificationManager.show("サムネイル生成に失敗しました", "error");
     } finally {
-      console.log("Hiding progress manager");
-      this.progressManager.hide();
+      this.thumbnailProgress.completeProgress();
       
       // ボタンを有効化
       if (genBtn) {
-        console.log("Re-enabling generateThumbnailsBtn button");
         genBtn.disabled = false;
         genBtn.innerHTML = '<span class="icon">🖼️</span><span>サムネイル再生成</span>';
       }
-      console.log("generateThumbnails method completed");
     }
   }
 
   private async regenerateAllThumbnails(): Promise<void> {
     console.log("regenerateAllThumbnails called");
-    console.log("Current electronAPI available:", !!window.electronAPI);
-    console.log("videoManager available:", !!this.videoManager);
     
     // ボタンを無効化
     const regenBtn = document.getElementById("regenerateThumbnailsBtn") as HTMLButtonElement;
-    console.log("regenerateThumbnailsBtn element found:", !!regenBtn);
     if (regenBtn) {
-      console.log("Disabling regenerateThumbnailsBtn button");
       regenBtn.disabled = true;
       regenBtn.textContent = "再生成中...";
     }
     
     try {
-      console.log("Showing progress manager");
-      this.progressManager.show("全サムネイルを再生成中...");
-      console.log("Starting thumbnail regeneration...");
-      console.log("Calling videoManager.regenerateAllThumbnails()");
+      // プログレス表示開始（バックエンドイベントで更新される）
+      this.thumbnailProgress.startProgress(1, "全サムネイルを再生成中");
+      
       await this.videoManager.regenerateAllThumbnails();
       console.log("Thumbnail regeneration completed successfully");
+      
       console.log("Starting data refresh...");
       await this.refreshData();
       console.log("Data refresh completed");
@@ -1023,30 +1008,27 @@ class MovieLibraryApp {
       );
     } catch (error) {
       console.error("Error regenerating thumbnails:", error);
-      console.error("Error details:", {
-        message: error.message,
-        stack: error.stack,
-        name: error.name
-      });
       this.notificationManager.show("サムネイル再生成に失敗しました", "error");
     } finally {
-      console.log("Hiding progress manager");
-      this.progressManager.hide();
+      this.thumbnailProgress.completeProgress();
       
       // ボタンを有効化
       if (regenBtn) {
-        console.log("Re-enabling regenerateThumbnailsBtn button");
         regenBtn.disabled = false;
         regenBtn.innerHTML = '<span class="icon">🖼️</span><span>全て再生成</span>';
       }
-      console.log("regenerateAllThumbnails method completed");
     }
   }
 
   private async regenerateMainThumbnail(video: Video): Promise<void> {
     try {
-      this.progressManager.show("メインサムネイルを再生成中...");
+      // 単一サムネイル再生成の進捗開始（総数1件）
+      this.progressManager.startProgress(1, "メインサムネイルを再生成中");
+      
       const result = await this.videoManager.regenerateMainThumbnail(video.id);
+
+      // 処理完了
+      this.progressManager.processItem(video.filename);
 
       console.log("Thumbnail regeneration result:", result);
 
@@ -1166,10 +1148,12 @@ class MovieLibraryApp {
         "メインサムネイルを再生成しました",
         "success"
       );
+      
+      // 進捗完了
+      this.progressManager.completeProgress();
     } catch (error) {
       console.error("Error regenerating main thumbnail:", error);
       this.notificationManager.show("サムネイル再生成に失敗しました", "error");
-    } finally {
       this.progressManager.hide();
     }
   }
@@ -1340,8 +1324,14 @@ class MovieLibraryApp {
       
       const removedDirectories: string[] = [];
       
-      for (const directory of directories) {
+      for (let i = 0; i < directories.length; i++) {
+        const directory = directories[i];
         const dirPath = directory.path || directory;
+        
+        console.log(`Checking directory ${i + 1}/${directories.length}: ${dirPath}`);
+        
+        // プログレス更新
+        this.directoryCheckProgress.processItem(dirPath);
         
         // ディレクトリの存在をチェック
         try {
@@ -1349,6 +1339,8 @@ class MovieLibraryApp {
           if (!exists) {
             console.log("Directory no longer exists:", dirPath);
             removedDirectories.push(dirPath);
+          } else {
+            console.log("Directory exists:", dirPath);
           }
         } catch (error) {
           console.warn("Failed to check directory existence:", dirPath, error);

@@ -89,84 +89,334 @@ export class NotificationManager {
   }
 }
 
-// 進捗バー管理クラス
-export class ProgressBarManager {
-  private progressBar: HTMLElement | null;
-  private progressText: HTMLElement | null;
-  private progressContainer: HTMLElement | null;
+// 統一進捗モーダル管理クラス
+export class UnifiedProgressManager {
+  private static instance: UnifiedProgressManager | null = null;
+  private progressContainer: HTMLElement | null = null;
+  private progressList: HTMLElement | null = null;
+  private activeProgresses: Map<string, ProgressItem> = new Map();
+  private isVisible: boolean = false;
 
-  constructor() {
-    this.progressBar = null;
-    this.progressText = null;
-    this.progressContainer = null;
-    this.createProgressBar();
+  static getInstance(): UnifiedProgressManager {
+    if (!UnifiedProgressManager.instance) {
+      UnifiedProgressManager.instance = new UnifiedProgressManager();
+    }
+    return UnifiedProgressManager.instance;
   }
 
-  private createProgressBar(): void {
-    // プログレスバーのコンテナを作成
+  constructor() {
+    this.createProgressModal();
+    
+    // ウィンドウリサイズ時のサイズ調整
+    window.addEventListener('resize', () => {
+      if (this.isVisible && this.progressContainer) {
+        this.adjustModalSize();
+      }
+    });
+  }
+
+  private createProgressModal(): void {
+    // 既存のモーダルがあれば削除（新旧問わず）
+    const existingUnified = document.getElementById("unifiedProgressModal");
+    if (existingUnified) {
+      existingUnified.remove();
+    }
+    
+    // 古い形式のプログレスモーダルも削除
+    const existingLegacy = document.getElementById("progressContainer");
+    if (existingLegacy) {
+      existingLegacy.remove();
+    }
+    
+    // 他の古いプログレスモーダルも削除
+    const oldModals = document.querySelectorAll('.progress-modal');
+    oldModals.forEach(modal => modal.remove());
+
+    // 統一進捗モーダルを作成（ヘッダー・ドラッグ機能なし）
     this.progressContainer = document.createElement("div");
-    this.progressContainer.id = "progressContainer";
-    this.progressContainer.className = "progress-container hidden";
+    this.progressContainer.id = "unifiedProgressModal";
+    this.progressContainer.className = "unified-progress-modal hidden";
 
-    // プログレステキスト
-    this.progressText = document.createElement("div");
-    this.progressText.className = "progress-text";
-    this.progressText.textContent = "処理中...";
+    // 進捗リスト
+    this.progressList = document.createElement("div");
+    this.progressList.className = "progress-list";
 
-    // プログレスバー
-    const progressBarWrapper = document.createElement("div");
-    progressBarWrapper.className = "progress-bar-wrapper";
-
-    this.progressBar = document.createElement("div");
-    this.progressBar.className = "progress-bar";
-    this.progressBar.style.width = "0%";
-
-    progressBarWrapper.appendChild(this.progressBar);
-    this.progressContainer.appendChild(this.progressText);
-    this.progressContainer.appendChild(progressBarWrapper);
+    this.progressContainer.appendChild(this.progressList);
 
     // ボディに追加
     document.body.appendChild(this.progressContainer);
   }
 
-  show(text: string = "処理中..."): void {
-    if (this.progressText) {
-      this.progressText.textContent = text;
+  // 新しい進捗を追加
+  addProgress(id: string, message: string, total: number = 100): void {
+    if (this.activeProgresses.has(id)) {
+      return; // 既に存在する場合は何もしない
     }
-    if (this.progressContainer) {
+
+    const progressItem = new ProgressItem(id, message, total);
+    this.activeProgresses.set(id, progressItem);
+
+    // DOM要素を作成してリストに追加
+    const progressElement = this.createProgressElement(progressItem);
+    if (this.progressList) {
+      this.progressList.appendChild(progressElement);
+    }
+
+    // モーダルを表示
+    this.show();
+    
+    // サイズを調整
+    this.adjustModalSize();
+  }
+
+  // 進捗を更新
+  updateProgress(id: string, current: number, message?: string): void {
+    const progressItem = this.activeProgresses.get(id);
+    if (!progressItem) return;
+
+    progressItem.update(current, message);
+    this.updateProgressElement(id, progressItem);
+  }
+
+  // 進捗を完了
+  completeProgress(id: string): void {
+    const progressItem = this.activeProgresses.get(id);
+    if (!progressItem) return;
+
+    progressItem.complete();
+    
+    // 1秒後に進捗を削除
+    setTimeout(() => {
+      this.removeProgress(id);
+    }, 1000);
+  }
+
+  // 進捗を削除
+  removeProgress(id: string): void {
+    const progressItem = this.activeProgresses.get(id);
+    if (!progressItem) return;
+
+    // DOM要素を削除
+    const element = document.getElementById(`progress-item-${id}`);
+    if (element) {
+      element.remove();
+    }
+
+    // マップから削除
+    this.activeProgresses.delete(id);
+
+    // サイズを調整
+    if (this.activeProgresses.size > 0) {
+      this.adjustModalSize();
+    }
+
+    // 全ての進捗が完了した場合はモーダルを隠す
+    if (this.activeProgresses.size === 0) {
+      this.hide();
+    }
+  }
+
+  // 進捗要素を作成
+  private createProgressElement(progressItem: ProgressItem): HTMLElement {
+    const element = document.createElement("div");
+    element.id = `progress-item-${progressItem.id}`;
+    element.className = "progress-item";
+
+    const messageElement = document.createElement("div");
+    messageElement.className = "progress-message";
+    messageElement.textContent = progressItem.message;
+
+    const progressBarWrapper = document.createElement("div");
+    progressBarWrapper.className = "progress-bar-wrapper";
+
+    const progressBar = document.createElement("div");
+    progressBar.className = "progress-bar";
+    progressBar.style.width = "0%";
+
+    const progressPercentage = document.createElement("div");
+    progressPercentage.className = "progress-percentage";
+    progressPercentage.textContent = "0%";
+
+    progressBarWrapper.appendChild(progressBar);
+    progressBarWrapper.appendChild(progressPercentage);
+
+    element.appendChild(messageElement);
+    element.appendChild(progressBarWrapper);
+
+    return element;
+  }
+
+  // 進捗要素を更新
+  private updateProgressElement(id: string, progressItem: ProgressItem): void {
+    const element = document.getElementById(`progress-item-${id}`);
+    if (!element) return;
+
+    const messageElement = element.querySelector(".progress-message");
+    const progressBar = element.querySelector(".progress-bar") as HTMLElement;
+    const progressPercentage = element.querySelector(".progress-percentage");
+
+    if (messageElement) {
+      messageElement.textContent = progressItem.getDisplayMessage();
+    }
+
+    if (progressBar) {
+      progressBar.style.width = `${progressItem.getPercentage()}%`;
+    }
+
+    if (progressPercentage) {
+      progressPercentage.textContent = `${Math.round(progressItem.getPercentage())}%`;
+    }
+
+    // 完了時のスタイル
+    if (progressItem.isCompleted()) {
+      element.classList.add("completed");
+    }
+  }
+
+  // モーダルを表示
+  show(): void {
+    if (this.progressContainer && !this.isVisible) {
       this.progressContainer.classList.remove("hidden");
-      // bodyクラスを更新してレイアウト調整
-      document.body.classList.remove("progress-hidden");
+      this.progressContainer.classList.remove("minimized");
+      this.progressContainer.style.display = "flex";
+      this.progressContainer.style.visibility = "visible";
+      this.isVisible = true;
+      
+      // モーダルサイズを調整
+      this.adjustModalSize();
     }
+  }
+
+  // モーダルサイズを調整
+  private adjustModalSize(): void {
+    if (!this.progressContainer || !this.progressList) return;
+    
+    // 一時的に高さ制限を解除してコンテンツの自然な高さを測定
+    this.progressContainer.style.maxHeight = 'none';
+    this.progressList.style.maxHeight = 'none';
+    
+    // 少し遅延させてレイアウトが確定してから調整
+    setTimeout(() => {
+      if (!this.progressContainer || !this.progressList) return;
+      
+      const windowHeight = window.innerHeight;
+      const maxModalHeight = windowHeight * 0.8; // 画面高さの80%まで
+      const containerRect = this.progressContainer.getBoundingClientRect();
+      
+      if (containerRect.height > maxModalHeight) {
+        this.progressContainer.style.maxHeight = `${maxModalHeight}px`;
+        // パディングのみ考慮
+        const padding = 32; // 上下のパディング
+        this.progressList.style.maxHeight = `${maxModalHeight - padding}px`;
+      } else {
+        this.progressContainer.style.maxHeight = '80vh';
+        this.progressList.style.maxHeight = 'none';
+      }
+    }, 10);
+  }
+
+  // モーダルを隠す
+  hide(): void {
+    if (this.progressContainer && this.isVisible) {
+      this.progressContainer.classList.add("hidden");
+      this.progressContainer.style.display = "none";
+      this.progressContainer.style.visibility = "hidden";
+      this.isVisible = false;
+    }
+  }
+
+  // ヘッダーが削除されたため、最小化・展開機能は削除されました
+
+  // ドラッグ機能は削除されました（モーダルサイズ調整の問題を解決するため）
+}
+
+// 個別の進捗アイテムクラス
+class ProgressItem {
+  public id: string;
+  public message: string;
+  private total: number;
+  private current: number;
+  private completed: boolean;
+
+  constructor(id: string, message: string, total: number = 100) {
+    this.id = id;
+    this.message = message;
+    this.total = total;
+    this.current = 0;
+    this.completed = false;
+  }
+
+  update(current: number, message?: string): void {
+    this.current = Math.min(current, this.total);
+    if (message) {
+      this.message = message;
+    }
+  }
+
+  complete(): void {
+    this.current = this.total;
+    this.completed = true;
+  }
+
+  getPercentage(): number {
+    return this.total > 0 ? (this.current / this.total) * 100 : 0;
+  }
+
+  getDisplayMessage(): string {
+    if (this.completed) {
+      return `${this.message} - 完了`;
+    }
+    return `${this.message} (${this.current}/${this.total} - ${Math.round(this.getPercentage())}%)`;
+  }
+
+  isCompleted(): boolean {
+    return this.completed;
+  }
+}
+
+// 元の進捗バー管理クラス（後方互換性のため、統一モーダルを使用）
+export class ProgressBarManager {
+  private progressId: string;
+  private unifiedManager: UnifiedProgressManager;
+  private currentCount: number = 0;
+  private totalCount: number = 0;
+  private baseMessage: string = "";
+
+  constructor() {
+    this.progressId = `legacy-progress-${Date.now()}`;
+    this.unifiedManager = UnifiedProgressManager.getInstance();
+  }
+
+  show(text: string = "処理中..."): void {
+    // 0/0の場合は表示しない
+    if (text.includes('(0/0')) {
+      return;
+    }
+    
+    this.baseMessage = text;
+    this.unifiedManager.addProgress(this.progressId, text, 100);
   }
 
   hide(): void {
-    if (this.progressContainer) {
-      this.progressContainer.classList.add("hidden");
-      // bodyクラスを更新してレイアウト調整
-      document.body.classList.add("progress-hidden");
-    }
-    this.updateProgress(0);
+    this.unifiedManager.removeProgress(this.progressId);
+    this.currentCount = 0;
+    this.totalCount = 0;
+    this.baseMessage = "";
   }
 
+  // 最小化・展開機能は削除されました（ヘッダーがないため）
+
   updateProgress(percentage: number, text?: string): void {
-    if (this.progressBar) {
-      this.progressBar.style.width = `${Math.max(
-        0,
-        Math.min(100, percentage)
-      )}%`;
+    if (text) {
+      this.baseMessage = text;
     }
-    if (text && this.progressText) {
-      // パーセンテージを表示に含める
-      const percentText = percentage > 0 ? ` (${Math.round(percentage)}%)` : '';
-      this.progressText.textContent = text + percentText;
-    }
+    this.unifiedManager.updateProgress(this.progressId, percentage, this.baseMessage);
   }
 
   // app.jsで使用されているshowProgressメソッドを追加（後方互換性のため）
   showProgress(text: string, percentage: number = 0): void {
     this.show(text);
-    this.updateProgress(percentage);
+    this.updateProgress(percentage, text);
   }
 }
 
@@ -219,22 +469,197 @@ export class FormatUtils {
   }
 }
 
-// プログレス管理（後方互換性のため）
-export class ProgressManager extends ProgressBarManager {
-  // 継承によって後方互換性を保つ
-  
-  // 進捗情報から割合を計算するメソッドを追加
-  updateProgressFromData(current: number, total: number, baseText: string, currentItem?: string): void {
-    const percentage = total > 0 ? (current / total) * 100 : 0;
-    let progressText = `${baseText} (${current}/${total})`;
+// プログレス管理（後方互換性のため、統一モーダルを使用）
+export class ProgressManager {
+  private progressId: string;
+  private unifiedManager: UnifiedProgressManager;
+  private currentCount: number = 0;
+  private totalCount: number = 0;
+  private baseMessage: string = "";
+
+  constructor() {
+    this.progressId = `legacy-manager-${Date.now()}`;
+    this.unifiedManager = UnifiedProgressManager.getInstance();
+  }
+
+  // 処理開始時に総数を設定
+  startProgress(total: number, message: string): void {
+    this.currentCount = 0;
+    this.totalCount = total;
+    this.baseMessage = message;
     
-    if (currentItem) {
-      // ファイル名が長い場合は短縮表示
-      const shortItem = currentItem.length > 50 ? currentItem.substring(0, 47) + '...' : currentItem;
-      progressText += ` - ${shortItem}`;
+    // 0/0の場合は表示しない
+    if (this.totalCount > 0) {
+      this.unifiedManager.addProgress(this.progressId, message, total);
+    }
+  }
+
+  // 処理が1つ完了するたびに呼び出し
+  processItem(currentItem?: string): void {
+    this.currentCount++;
+    this.updateDisplay(currentItem);
+  }
+
+  // 処理完了時
+  completeProgress(): void {
+    this.currentCount = this.totalCount;
+    this.updateDisplay();
+    this.unifiedManager.completeProgress(this.progressId);
+  }
+
+  // 表示を更新
+  private updateDisplay(currentItem?: string): void {
+    // 0/0の場合は表示しない
+    if (this.totalCount === 0) {
+      return;
     }
     
-    this.updateProgress(percentage, progressText);
+    let displayText = `${this.baseMessage}`;
+    
+    if (currentItem && this.currentCount < this.totalCount) {
+      // ファイル名が長い場合は短縮
+      const shortItem = currentItem.length > 40 ? currentItem.substring(0, 37) + '...' : currentItem;
+      displayText += ` - ${shortItem}`;
+    }
+    
+    this.unifiedManager.updateProgress(this.progressId, this.currentCount, displayText);
+  }
+
+  // 従来の互換性のためのメソッド（非推奨）
+  updateProgressFromData(current: number, total: number, baseText: string, currentItem?: string): void {
+    this.currentCount = current;
+    this.totalCount = total;
+    this.baseMessage = baseText;
+    
+    // 0/0の場合は表示しない
+    if (this.totalCount > 0) {
+      this.updateDisplay(currentItem);
+    }
+  }
+
+  // 基本的な進捗表示メソッド
+  show(text: string = "処理中..."): void {
+    if (!text.includes('/') && !text.includes('%')) {
+      // 基本メッセージのみを設定し、既存の進捗状態を保持
+      if (this.totalCount === 0) {
+        this.baseMessage = text;
+        this.unifiedManager.addProgress(this.progressId, text, 100);
+      } else {
+        // 既に進捗が開始されている場合は、baseMessageを変更せずに表示を更新
+        this.updateDisplay();
+      }
+    } else {
+      // 0/0が含まれている場合はスキップ
+      if (!text.includes('(0/0')) {
+        this.baseMessage = text;
+        this.unifiedManager.addProgress(this.progressId, text, 100);
+      }
+    }
+  }
+
+  hide(): void {
+    this.unifiedManager.removeProgress(this.progressId);
+    this.currentCount = 0;
+    this.totalCount = 0;
+    this.baseMessage = "";
+  }
+
+  updateProgress(percentage: number, text?: string): void {
+    if (text) {
+      this.baseMessage = text;
+    }
+    this.unifiedManager.updateProgress(this.progressId, percentage, this.baseMessage);
+  }
+
+  showProgress(text: string, percentage: number = 0): void {
+    this.show(text);
+    this.updateProgress(percentage, text);
+  }
+}
+
+// 拡張進捗管理クラス（統一進捗モーダル対応）
+export class EnhancedProgressManager {
+  private currentCount: number = 0;
+  private totalCount: number = 0;
+  private baseMessage: string = "";
+  private progressId: string = "";
+  private unifiedManager: UnifiedProgressManager;
+
+  constructor(id?: string) {
+    this.unifiedManager = UnifiedProgressManager.getInstance();
+    this.progressId = id || `progress-${Date.now()}`;
+  }
+
+  // 処理開始時に総数を設定
+  startProgress(total: number, message: string, progressId?: string): string {
+    if (progressId) {
+      this.progressId = progressId;
+    }
+    
+    this.currentCount = 0;
+    this.totalCount = total;
+    this.baseMessage = message;
+    
+    // 統一モーダルに進捗を追加
+    this.unifiedManager.addProgress(this.progressId, message, total);
+    
+    return this.progressId;
+  }
+
+  // 処理が1つ完了するたびに呼び出し
+  processItem(currentItem?: string): void {
+    this.currentCount++;
+    this.updateDisplay(currentItem);
+  }
+
+  // 処理完了時
+  completeProgress(): void {
+    this.currentCount = this.totalCount;
+    this.updateDisplay();
+    
+    // 統一モーダルで進捗を完了
+    this.unifiedManager.completeProgress(this.progressId);
+  }
+
+  // 表示を更新
+  private updateDisplay(currentItem?: string): void {
+    // 0/0の場合は表示しない
+    if (this.totalCount === 0) {
+      return;
+    }
+    
+    let displayText = this.baseMessage;
+    
+    if (currentItem && this.currentCount < this.totalCount) {
+      // ファイル名が長い場合は短縮
+      const shortItem = currentItem.length > 40 ? currentItem.substring(0, 37) + '...' : currentItem;
+      displayText += `\n${shortItem}`;
+    }
+    
+    this.unifiedManager.updateProgress(this.progressId, this.currentCount, displayText);
+  }
+
+  // 進捗を隠す
+  hide(): void {
+    this.unifiedManager.removeProgress(this.progressId);
+    this.currentCount = 0;
+    this.totalCount = 0;
+    this.baseMessage = "";
+  }
+
+  // 進捗IDを取得
+  getProgressId(): string {
+    return this.progressId;
+  }
+
+  // 進捗の状態を取得
+  getProgress(): { current: number; total: number; percentage: number } {
+    const percentage = this.totalCount > 0 ? (this.currentCount / this.totalCount) * 100 : 0;
+    return {
+      current: this.currentCount,
+      total: this.totalCount,
+      percentage: Math.round(percentage)
+    };
   }
 }
 

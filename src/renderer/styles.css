@@ -311,52 +311,122 @@ body {
     box-shadow: 0 4px 12px rgba(48, 209, 88, 0.4) !important;
 }
 
-/* Progress Bar */
-.progress-container {
+/* Progress Modal - 画面下中央に表示（ドラッグ可能） */
+.progress-modal {
     position: fixed;
-    top: 60px; /* ヘッダーの高さ分下に配置 */
-    left: 0;
-    right: 0;
-    z-index: 1000; /* ヘッダーのz-indexより低く設定 */
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10000;
     background: var(--bg-secondary);
-    border-bottom: 1px solid var(--border-color);
-    padding: 16px 20px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-    backdrop-filter: blur(8px);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 16px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+    backdrop-filter: blur(10px);
+    min-width: 320px;
+    max-width: 400px;
+    width: 400px; /* 固定幅で計算を簡単に */
+    transition: all 0.3s ease;
+    animation: slideInUp 0.3s ease;
+    user-select: none; /* ドラッグ時のテキスト選択を防止 */
 }
 
-.progress-container.hidden {
+.progress-modal.hidden {
     display: none;
 }
 
-/* プログレスバーが表示されているときのコンテンツ調整 */
-body:not(.progress-hidden) .main-content {
-    margin-top: 80px; /* プログレスバーの高さ分調整 */
+.progress-modal.minimized {
+    min-width: 200px;
+    max-width: 250px;
+    padding: 12px;
 }
 
-body.progress-hidden .main-content {
-    margin-top: 0;
+.progress-modal.minimized .progress-bar-wrapper {
+    display: none;
+}
+
+@keyframes slideInUp {
+    from {
+        transform: translateY(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+.progress-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    cursor: move;
+    padding: 4px 0;
+    border-radius: 8px;
+    transition: background-color 0.2s ease;
+}
+
+.progress-modal-header:hover {
+    background-color: var(--bg-tertiary);
+}
+
+.progress-modal-header:active {
+    cursor: grabbing;
+}
+
+.progress-close-btn {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    min-width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+    padding: 0 6px;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.progress-close-btn:hover {
+    background: var(--accent-color);
+    color: white;
+    border-color: var(--accent-color);
 }
 
 .progress-text {
-    font-size: 14px;
+    font-size: 13px;
     color: var(--text-primary);
-    margin-bottom: 8px;
     font-weight: 500;
+    flex: 1;
+    margin-right: 8px;
+    line-height: 1.4;
+    word-break: break-word;
+    white-space: pre-line; /* 改行文字を有効にする */
+    max-height: 60px; /* 最大高さを制限 */
+    overflow-y: auto; /* 必要に応じてスクロール */
 }
 
 .progress-bar-wrapper {
-    height: 6px;
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: 3px;
-    overflow: hidden;
     position: relative;
+    height: 8px;
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 8px;
 }
 
 .progress-bar {
     height: 100%;
-    background: linear-gradient(90deg, #007AFF, #5856D6);
-    border-radius: 3px;
+    background: linear-gradient(90deg, var(--accent-color), var(--success-color));
+    border-radius: 4px;
     transition: width 0.3s ease;
     width: 0%;
     position: relative;
@@ -369,7 +439,11 @@ body.progress-hidden .main-content {
     left: 0;
     right: 0;
     bottom: 0;
-    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+    background: linear-gradient(90deg, 
+        transparent, 
+        rgba(255, 255, 255, 0.3), 
+        transparent
+    );
     animation: progressShimmer 2s infinite;
 }
 
@@ -378,13 +452,182 @@ body.progress-hidden .main-content {
     100% { transform: translateX(100%); }
 }
 
+.progress-percentage {
+    text-align: center;
+    font-size: 11px;
+    color: var(--text-secondary);
+    font-weight: 600;
+}
+
+/* Dark theme progress modal enhancements */
+[data-theme="dark"] .progress-modal {
+    background: rgba(42, 42, 42, 0.95);
+    border-color: rgba(255, 255, 255, 0.1);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+[data-theme="dark"] .progress-close-btn {
+    background: rgba(51, 51, 51, 0.8);
+    border-color: rgba(255, 255, 255, 0.1);
+}
+
+[data-theme="dark"] .progress-close-btn:hover {
+    background: var(--accent-color);
+    border-color: var(--accent-color);
+}
+
+/* レスポンシブ対応 */
+@media (max-width: 768px) {
+    .progress-modal {
+        bottom: 10px;
+        right: 10px;
+        left: 10px;
+        min-width: auto;
+        max-width: none;
+    }
+    
+    .progress-modal.minimized {
+        right: 10px;
+        left: auto;
+        min-width: 180px;
+        max-width: 200px;
+    }
+}
+
 /* Legacy progress bar styles */
 .progress-info {
     display: flex;
     justify-content: space-between;
     margin-bottom: 4px;
-    font-size: 12px;
+}
+
+/* 統一進捗モーダル用スタイル */
+.unified-progress-modal {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10000;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+    backdrop-filter: blur(10px);
+    min-width: 350px;
+    max-width: 600px;
+    width: auto;
+    min-height: auto;
+    max-height: 80vh;
+    transition: all 0.3s ease;
+    animation: slideInUp 0.3s ease;
+    user-select: none;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 16px;
+}
+
+.unified-progress-modal.hidden {
+    display: none;
+}
+
+.progress-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-height: none;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+}
+
+.progress-item {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 12px;
+    transition: all 0.3s ease;
+    flex-shrink: 0;
+    min-height: auto;
+}
+
+.progress-item.completed {
+    background: rgba(52, 199, 89, 0.1);
+    border-color: rgba(52, 199, 89, 0.3);
+}
+
+.progress-message {
+    font-size: 13px;
+    color: var(--text-primary);
+    font-weight: 500;
+    margin-bottom: 8px;
+    line-height: 1.4;
+    word-break: break-word;
+    white-space: pre-line;
+}
+
+.progress-item .progress-bar-wrapper {
+    position: relative;
+    height: 6px;
+    background: var(--bg-primary);
+    border-radius: 3px;
+    overflow: hidden;
+    margin-bottom: 6px;
+}
+
+.progress-item .progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent-color), var(--success-color));
+    border-radius: 3px;
+    transition: width 0.3s ease;
+    width: 0%;
+    position: relative;
+}
+
+.progress-item .progress-percentage {
+    text-align: right;
+    font-size: 10px;
     color: var(--text-secondary);
+    font-weight: 600;
+}
+
+/* Dark theme unified progress modal */
+[data-theme="dark"] .unified-progress-modal {
+    background: rgba(42, 42, 42, 0.95);
+    border-color: rgba(255, 255, 255, 0.1);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+[data-theme="dark"] .progress-item {
+    background: rgba(51, 51, 51, 0.8);
+    border-color: rgba(255, 255, 255, 0.1);
+}
+
+[data-theme="dark"] .progress-item.completed {
+    background: rgba(48, 209, 88, 0.1);
+    border-color: rgba(48, 209, 88, 0.3);
+}
+
+[data-theme="dark"] .progress-item .progress-bar-wrapper {
+    background: rgba(26, 26, 26, 0.8);
+}
+
+/* レスポンシブ対応 */
+@media (max-width: 768px) {
+    .unified-progress-modal {
+        bottom: 10px;
+        right: 10px;
+        left: 10px;
+        min-width: auto;
+        max-width: none;
+    }
+    
+    .unified-progress-modal.minimized {
+        right: 10px;
+        left: auto;
+        min-width: 180px;
+        max-width: 200px;
+    }
 }
 
 .progress-fill {
