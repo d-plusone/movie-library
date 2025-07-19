@@ -844,53 +844,6 @@ export class UIRenderer {
     }
   }
 
-  // 一括タグダイアログを表示
-  showBulkTagDialog(videos: Video[], availableTags: string[]): void {
-    const modal = document.getElementById("bulkTagApplyDialog");
-    if (!modal) {
-      console.error("bulkTagApplyDialog element not found!");
-      return;
-    }
-
-    modal.style.display = "block";
-    modal.setAttribute("is-open", "true");
-
-    // ビデオリストを更新
-    const videosList = modal.querySelector("#selectedVideosList");
-    if (videosList) {
-      videosList.innerHTML = videos
-        .map(
-          (video) =>
-            `<label><input type="checkbox" name="selectedVideos" value="${
-              video.id
-            }"> ${FormatUtils.escapeHtml(video.title)}</label>`
-        )
-        .join("");
-    }
-
-    // タグリストを更新
-    const tagsList = modal.querySelector("#availableTagsList");
-    if (tagsList) {
-      tagsList.innerHTML = availableTags
-        .map(
-          (tag) =>
-            `<option value="${FormatUtils.escapeHtml(
-              tag
-            )}">${FormatUtils.escapeHtml(tag)}</option>`
-        )
-        .join("");
-    }
-  }
-
-  // 一括タグダイアログを非表示
-  hideBulkTagDialog(): void {
-    const modal = document.getElementById("bulkTagApplyDialog");
-    if (modal) {
-      modal.style.display = "none";
-      modal.removeAttribute("is-open");
-    }
-  }
-
   // 評価表示を更新
   updateDetailsRatingDisplay(rating: number): void {
     const ratingStars = document.querySelectorAll(".rating-input .star");
@@ -904,6 +857,248 @@ export class UIRenderer {
         starElement.classList.remove("active");
       }
     });
+  }
+
+  // 一括タグダイアログを表示
+  showBulkTagApplyDialog(filteredVideos: Video[], allTags: Tag[]): void {
+    console.log("showBulkTagApplyDialog called");
+    const bulkTagApplyDialog = DOMUtils.getElementById("bulkTagApplyDialog");
+    const bulkTagApplyTable = DOMUtils.getElementById(
+      "bulkTagApplyTable"
+    ) as HTMLTableElement;
+
+    console.log("bulkTagApplyDialog element:", bulkTagApplyDialog);
+    console.log("bulkTagApplyTable element:", bulkTagApplyTable);
+
+    if (!bulkTagApplyDialog || !bulkTagApplyTable) {
+      console.error("Bulk tag apply dialog elements not found");
+      return;
+    }
+
+    console.log("Current videos count:", filteredVideos.length);
+
+    if (filteredVideos.length === 0) {
+      alert("表示する動画がありません。");
+      return;
+    }
+
+    console.log("All tags:", allTags);
+
+    // Clear existing table content
+    const thead = bulkTagApplyTable.querySelector(
+      "thead"
+    ) as HTMLTableSectionElement;
+    const tbody = bulkTagApplyTable.querySelector(
+      "tbody"
+    ) as HTMLTableSectionElement;
+
+    // Clear and rebuild header
+    if (thead) thead.innerHTML = "";
+    if (tbody) tbody.innerHTML = "";
+
+    // ヘッダー行を作成
+    const headerRow = document.createElement("tr");
+
+    // 動画名ヘッダー
+    const videoNameHeader = document.createElement("th");
+    videoNameHeader.className = "video-name-header sticky-header";
+    videoNameHeader.textContent = "動画名";
+    headerRow.appendChild(videoNameHeader);
+
+    // タグ列ヘッダー（タグ名 + 全選択チェックボックス）
+    allTags.forEach((tag: Tag) => {
+      const th = document.createElement("th");
+      th.className = "tag-column-header sticky-header";
+      th.title = `${tag.name} (${tag.count}個の動画で使用)`;
+
+      // タグヘッダーのコンテンツコンテナ
+      const headerContent = document.createElement("div");
+      headerContent.className = "tag-header-content";
+
+      // タグ名
+      const tagNameDiv = document.createElement("div");
+      tagNameDiv.className = "tag-name-text";
+      tagNameDiv.textContent = tag.name;
+      headerContent.appendChild(tagNameDiv);
+
+      // 全選択チェックボックスコンテナ
+      const checkboxContainer = document.createElement("div");
+      checkboxContainer.className = "select-all-checkbox-container";
+
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.className = "select-all-checkbox";
+      checkbox.dataset.tagName = tag.name;
+      checkbox.title = `${tag.name}の全選択/全解除`;
+
+      // 全選択チェックボックスのイベントリスナー
+      checkbox.addEventListener("change", (e: Event) => {
+        const target = e.target as HTMLInputElement;
+        const isChecked = target.checked;
+        const tagName = target.dataset.tagName;
+
+        if (!tagName) return;
+
+        // このタグの全てのチェックボックスを更新
+        const tagCheckboxes = bulkTagApplyTable.querySelectorAll(
+          `.tag-checkbox[data-tag-name="${tagName}"]`
+        ) as NodeListOf<HTMLInputElement>;
+
+        tagCheckboxes.forEach((cb: HTMLInputElement) => {
+          cb.checked = isChecked;
+        });
+
+        // 全選択チェックボックスの状態を更新
+        this.updateSelectAllCheckboxState(tagName);
+      });
+
+      checkboxContainer.appendChild(checkbox);
+
+      const label = document.createElement("span");
+      label.textContent = "全選択";
+      checkboxContainer.appendChild(label);
+
+      headerContent.appendChild(checkboxContainer);
+      th.appendChild(headerContent);
+      headerRow.appendChild(th);
+    });
+
+    if (thead) thead.appendChild(headerRow);
+
+    // 動画行の追加
+    filteredVideos.forEach((video: Video, index: number) => {
+      const tr = document.createElement("tr");
+
+      // 動画名セル（サムネイル + タイトル）
+      const videoNameCell = document.createElement("td");
+      videoNameCell.className = "video-name-cell";
+
+      // サムネイル画像
+      const thumbnail = document.createElement("img");
+      thumbnail.className = "bulk-dialog-thumbnail";
+      thumbnail.alt = "サムネイル";
+
+      // サムネイルパスの設定（thumbnailPath と thumbnail_path の両方をチェック）
+      const thumbPath = video.thumbnailPath || video.thumbnail_path;
+      if (thumbPath && thumbPath !== "N/A") {
+        thumbnail.src = `file://${thumbPath}`;
+      } else {
+        // デフォルト画像またはプレースホルダー
+        thumbnail.style.background =
+          "linear-gradient(135deg, var(--bg-tertiary), var(--bg-primary))";
+        thumbnail.style.display = "flex";
+        thumbnail.style.alignItems = "center";
+        thumbnail.style.justifyContent = "center";
+        thumbnail.style.fontSize = "10px";
+        thumbnail.style.color = "var(--text-secondary)";
+        thumbnail.innerHTML = "No Image";
+        thumbnail.alt = "No thumbnail";
+      }
+
+      // エラー時のフォールバック
+      thumbnail.onerror = () => {
+        thumbnail.style.background =
+          "linear-gradient(135deg, var(--bg-tertiary), var(--bg-primary))";
+        thumbnail.style.display = "flex";
+        thumbnail.style.alignItems = "center";
+        thumbnail.style.justifyContent = "center";
+        thumbnail.style.fontSize = "10px";
+        thumbnail.style.color = "var(--text-secondary)";
+        thumbnail.innerHTML = "No Image";
+        thumbnail.alt = "No thumbnail";
+      };
+
+      videoNameCell.appendChild(thumbnail);
+
+      // タイトルテキスト
+      const titleSpan = document.createElement("span");
+      titleSpan.className = "video-title-text";
+      titleSpan.textContent = video.title || video.filename;
+      titleSpan.title = video.title || video.filename;
+      videoNameCell.appendChild(titleSpan);
+
+      tr.appendChild(videoNameCell);
+
+      // タグチェックボックスセル
+      allTags.forEach((tag: Tag) => {
+        const td = document.createElement("td");
+        td.className = "tag-checkbox-cell";
+
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.className = "tag-checkbox";
+        checkbox.dataset.videoId = video.id.toString();
+        checkbox.dataset.tagName = tag.name;
+
+        // 動画が既にこのタグを持っているかチェック
+        if (video.tags && video.tags.includes(tag.name)) {
+          checkbox.checked = true;
+        }
+
+        // 個別チェックボックスの変更時に全選択状態を更新
+        checkbox.addEventListener("change", () => {
+          this.updateSelectAllCheckboxState(tag.name);
+        });
+
+        td.appendChild(checkbox);
+        tr.appendChild(td);
+      });
+
+      if (tbody) tbody.appendChild(tr);
+    });
+
+    // 初期状態で全選択チェックボックスの状態を設定
+    allTags.forEach((tag: Tag) => {
+      this.updateSelectAllCheckboxState(tag.name);
+    });
+
+    bulkTagApplyDialog.style.display = "flex";
+    bulkTagApplyDialog.setAttribute("is-open", "true");
+  }
+
+  // 一括タグダイアログを非表示
+  hideBulkTagApplyDialog(): void {
+    const bulkTagApplyDialog = DOMUtils.getElementById("bulkTagApplyDialog");
+    if (bulkTagApplyDialog) {
+      bulkTagApplyDialog.style.display = "none";
+      bulkTagApplyDialog.removeAttribute("is-open");
+    }
+  }
+
+  // 全選択チェックボックスの状態を更新するヘルパーメソッド
+  updateSelectAllCheckboxState(tagName: string): void {
+    const bulkTagApplyTable = DOMUtils.getElementById(
+      "bulkTagApplyTable"
+    ) as HTMLTableElement;
+    if (!bulkTagApplyTable) return;
+
+    const selectAllCheckbox = bulkTagApplyTable.querySelector(
+      `.select-all-checkbox[data-tag-name="${tagName}"]`
+    ) as HTMLInputElement;
+    const tagCheckboxes = bulkTagApplyTable.querySelectorAll(
+      `.tag-checkbox[data-tag-name="${tagName}"]`
+    ) as NodeListOf<HTMLInputElement>;
+
+    if (!selectAllCheckbox || tagCheckboxes.length === 0) return;
+
+    const checkedCount = Array.from(tagCheckboxes).filter(
+      (cb: HTMLInputElement) => cb.checked
+    ).length;
+    const totalCount = tagCheckboxes.length;
+
+    if (checkedCount === 0) {
+      // 全て未選択
+      selectAllCheckbox.checked = false;
+      selectAllCheckbox.indeterminate = false;
+    } else if (checkedCount === totalCount) {
+      // 全て選択
+      selectAllCheckbox.checked = true;
+      selectAllCheckbox.indeterminate = false;
+    } else {
+      // 部分選択
+      selectAllCheckbox.checked = false;
+      selectAllCheckbox.indeterminate = true;
+    }
   }
 
   // エラーダイアログを表示
