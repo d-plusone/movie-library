@@ -129,8 +129,38 @@ jobs:
         if: matrix.os == 'macos-latest'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 開発用ビルド: 署名なしで許可
           CSC_IDENTITY_AUTO_DISCOVERY: false
-        run: npm run build:optimized -- --publish=always
+          # デバッグ情報を有効化
+          DEBUG: electron-builder
+          # 本格的なリリースでは以下を有効にする:
+          # CSC_LINK: ${{ secrets.CSC_LINK }}
+          # CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        run: |
+          echo "Building macOS Universal Binary..."
+          echo "Current architecture: $(uname -m)"
+          echo "Target: Universal Binary (Intel + Apple Silicon)"
+          
+          # ユニバーサルバイナリビルド
+          npm run build:optimized -- --publish=always
+          
+          # ビルド結果の確認
+          echo "Build results:"
+          ls -la dist/
+          
+          # ユニバーサルバイナリの確認
+          if [ -f "dist/mac-universal/Movie Library.app/Contents/MacOS/Movie Library" ]; then
+            echo "Universal binary architectures:"
+            lipo -archs "dist/mac-universal/Movie Library.app/Contents/MacOS/Movie Library"
+          fi
+          
+          # DMGファイルの確認
+          for dmg in dist/*-universal.dmg; do
+            if [ -f "$dmg" ]; then
+              echo "Generated universal DMG: $(basename "$dmg")"
+              echo "Size: $(ls -lh "$dmg" | awk '{print $5}')"
+            fi
+          done
 
       - name: Build/release Electron app (Windows)
         if: matrix.os == 'windows-latest'
