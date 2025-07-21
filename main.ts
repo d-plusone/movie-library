@@ -8,6 +8,7 @@ import {
   MenuItemConstructorOptions,
 } from "electron";
 import path from "path";
+import { spawn, exec } from "child_process";
 import { promises as fs } from "fs";
 import * as chokidar from "chokidar";
 import DatabaseManager from "./src/database/DatabaseManager.js";
@@ -136,6 +137,18 @@ class MovieLibraryApp {
         this.db.close();
       }
     });
+
+    // Windows用の追加終了処理
+    if (process.platform === 'win32') {
+      this.mainWindow.on('close', (event) => {
+        // Windowsでのクリーンな終了を保証
+        setTimeout(() => {
+          if (process.platform === 'win32') {
+            process.exit(0);
+          }
+        }, 1000);
+      });
+    }
   }
 
   createMenu(): void {
@@ -904,6 +917,30 @@ class MovieLibraryApp {
       }
     }
   }
+
+  // アプリケーションのクリーンアップメソッド
+  public cleanup(): void {
+    console.log("Cleaning up application resources...");
+    
+    // すべてのwatcherを停止
+    this.watchers.forEach((watcher) => {
+      try {
+        watcher.close();
+      } catch (error) {
+        console.error("Error closing watcher:", error);
+      }
+    });
+    this.watchers.clear();
+    
+    // データベース接続を閉じる
+    try {
+      if (this.db) {
+        this.db.close();
+      }
+    } catch (error) {
+      console.error("Error closing database:", error);
+    }
+  }
 }
 
 const movieApp = new MovieLibraryApp();
@@ -945,10 +982,72 @@ app.whenReady().then(async () => {
 
 app.on("window-all-closed", () => {
   // すべてのプラットフォームでアプリを完全に終了
+  console.log("All windows closed, quitting application");
+  
+  // リソースのクリーンアップ
+  if (movieApp.watchers) {
+    movieApp.watchers.forEach((watcher) => {
+      try {
+        watcher.close();
+      } catch (error) {
+        console.error("Error closing watcher:", error);
+      }
+    });
+  }
+  
+  // プロセスを確実に終了
   app.quit();
+  
+  // Windows用の強制終了処理
+  if (process.platform === 'win32') {
+    setTimeout(() => {
+      process.exit(0);
+    }, 2000);
+  }
 });
 
-app.on("before-quit", () => {
+app.on("before-quit", (event) => {
+  console.log("Application is about to quit");
+  
   // Close all watchers
-  movieApp.watchers.forEach((watcher) => watcher.close());
+  if (movieApp.watchers) {
+    movieApp.watchers.forEach((watcher) => {
+      try {
+        watcher.close();
+      } catch (error) {
+        console.error("Error closing watcher during quit:", error);
+      }
+    });
+  }
+  
+  // データベース接続のクリーンアップ
+  try {
+    movieApp.cleanup();
+  } catch (error) {
+    console.error("Error during cleanup:", error);
+  }
 });
+
+// Windows用の追加終了処理
+if (process.platform === 'win32') {
+  app.on('will-quit', (event) => {
+    console.log("Windows: Application will quit");
+  });
+  
+  // プロセス終了時の処理
+  process.on('SIGINT', () => {
+    console.log('Received SIGINT, shutting down gracefully');
+    app.quit();
+  });
+  
+  process.on('SIGTERM', () => {
+    console.log('Received SIGTERM, shutting down gracefully');
+    app.quit();
+  });
+  
+  // Windows特有の終了シグナル
+  process.on('SIGHUP', () => {
+    console.log('Received SIGHUP, shutting down gracefully');
+    app.quit();
+  });
+}

@@ -139,6 +139,7 @@
         "win": {
             "icon": "assets/icon.ico",
             "artifactName": "${productName}-${version}-${arch}.${ext}",
+            "requestedExecutionLevel": "asInvoker",
             "target": [
                 {
                     "target": "nsis",
@@ -152,7 +153,16 @@
             "oneClick": false,
             "allowToChangeInstallationDirectory": true,
             "createDesktopShortcut": true,
-            "createStartMenuShortcut": true
+            "createStartMenuShortcut": true,
+            "allowElevation": true,
+            "runAfterFinish": true,
+            "deleteAppDataOnUninstall": true,
+            "perMachine": false,
+            "displayLanguageSelector": false,
+            "installerIcon": "assets/icon.ico",
+            "uninstallerIcon": "assets/icon.ico",
+            "uninstallDisplayName": "${productName}",
+            "include": "installer/installer.nsh"
         }
     }
 }

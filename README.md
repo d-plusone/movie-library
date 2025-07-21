@@ -215,6 +215,33 @@ npm install
 - アプリを完全に終了して再起動
 - `movie-library.db` ファイルを削除（データは失われます）
 
+### Windows アンインストールの問題
+
+通常のアンインストールが失敗する場合:
+
+1. **force-uninstall ツールを使用**:
+   - `tools/force-uninstall.bat` を管理者権限で実行
+   - または `tools/force-uninstall.ps1` (PowerShell版)
+
+2. **詳細なトラブルシューティング**:
+   - [WINDOWS_UNINSTALL_GUIDE.md](WINDOWS_UNINSTALL_GUIDE.md) を参照
+
+## 📁 プロジェクト構造
+
+```
+movie-library/
+├── src/                    # ソースコード
+├── assets/                 # アイコンなどのアセット
+├── tools/                  # ユーティリティツール
+│   ├── force-uninstall.bat # Windows強制アンインストール(バッチ)
+│   ├── force-uninstall.ps1 # Windows強制アンインストール(PowerShell)
+│   └── README.md           # ツールの説明
+├── installer/              # インストーラースクリプト
+│   ├── installer.nsh       # NSIS カスタムスクリプト
+│   └── README.md           # インストーラーの説明
+└── docs/                   # ドキュメント
+```
+
 ## 📄 ライセンス
 
 MIT License - 詳細は [LICENSE](LICENSE) ファイルを参照してください。
