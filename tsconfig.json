@@ -25,7 +25,10 @@
             "@/*": [
                 "src/*"
             ]
-        }
+        },
+        // 未使用の要素を検出
+        "noUnusedLocals": true,
+        "noUnusedParameters": true
     },
     "include": [
         "src/**/*.ts",

@@ -25,7 +25,7 @@ export class NotificationManager {
     if (this.recentMessages.has(messageKey)) {
       return;
     }
-    
+
     this.recentMessages.add(messageKey);
     setTimeout(() => {
       this.recentMessages.delete(messageKey);
@@ -107,9 +107,9 @@ export class UnifiedProgressManager {
 
   constructor() {
     this.createProgressModal();
-    
+
     // ウィンドウリサイズ時のサイズ調整
-    window.addEventListener('resize', () => {
+    window.addEventListener("resize", () => {
       if (this.isVisible && this.progressContainer) {
         this.adjustModalSize();
       }
@@ -122,22 +122,22 @@ export class UnifiedProgressManager {
     if (existingUnified) {
       existingUnified.remove();
     }
-    
+
     // 古い形式のプログレスモーダルも削除
     const existingLegacy = document.getElementById("progressContainer");
     if (existingLegacy) {
       existingLegacy.remove();
     }
-    
+
     // 他の古いプログレスモーダルも削除
-    const oldModals = document.querySelectorAll('.progress-modal');
-    oldModals.forEach(modal => modal.remove());
+    const oldModals = document.querySelectorAll(".progress-modal");
+    oldModals.forEach((modal) => modal.remove());
 
     // 統一進捗モーダルを作成（ヘッダー・ドラッグ機能なし）
     this.progressContainer = document.createElement("div");
     this.progressContainer.id = "unifiedProgressModal";
     this.progressContainer.className = "unified-progress-modal hidden";
-    
+
     // 初期位置を明示的に設定
     this.progressContainer.style.position = "fixed";
     this.progressContainer.style.left = "50%";
@@ -167,7 +167,12 @@ export class UnifiedProgressManager {
   }
 
   // 内部的な進捗追加メソッド
-  private _addProgress(id: string, message: string, total: number, isOwner: boolean): void {
+  private _addProgress(
+    id: string,
+    message: string,
+    total: number,
+    isOwner: boolean
+  ): void {
     if (this.activeProgresses.has(id)) {
       return; // 既に存在する場合は何もしない
     }
@@ -187,7 +192,7 @@ export class UnifiedProgressManager {
 
     // モーダルを表示
     this.show();
-    
+
     // サイズを調整
     this.adjustModalSize();
   }
@@ -221,7 +226,7 @@ export class UnifiedProgressManager {
     if (!progressItem) return;
 
     progressItem.complete();
-    
+
     // 1秒後に進捗を削除
     setTimeout(() => {
       this.removeProgress(id);
@@ -303,7 +308,9 @@ export class UnifiedProgressManager {
     }
 
     if (progressPercentage) {
-      progressPercentage.textContent = `${Math.round(progressItem.getPercentage())}%`;
+      progressPercentage.textContent = `${Math.round(
+        progressItem.getPercentage()
+      )}%`;
     }
 
     // 完了時のスタイル
@@ -319,16 +326,16 @@ export class UnifiedProgressManager {
       this.progressContainer.style.left = "50%";
       this.progressContainer.style.transform = "translateX(-50%)";
       this.progressContainer.style.bottom = "20px";
-      
+
       this.progressContainer.classList.remove("hidden");
       this.progressContainer.classList.remove("minimized");
       this.progressContainer.style.display = "flex";
       this.progressContainer.style.visibility = "visible";
       this.isVisible = true;
-      
+
       // レイアウトを強制的に再計算させる
       this.progressContainer.offsetHeight;
-      
+
       // モーダルサイズを調整
       this.adjustModalSize();
     }
@@ -337,27 +344,27 @@ export class UnifiedProgressManager {
   // モーダルサイズを調整
   private adjustModalSize(): void {
     if (!this.progressContainer || !this.progressList) return;
-    
+
     // 一時的に高さ制限を解除してコンテンツの自然な高さを測定
-    this.progressContainer.style.maxHeight = 'none';
-    this.progressList.style.maxHeight = 'none';
-    
+    this.progressContainer.style.maxHeight = "none";
+    this.progressList.style.maxHeight = "none";
+
     // 少し遅延させてレイアウトが確定してから調整
     setTimeout(() => {
       if (!this.progressContainer || !this.progressList) return;
-      
+
       const windowHeight = window.innerHeight;
       const maxModalHeight = windowHeight * 0.8; // 画面高さの80%まで
       const containerRect = this.progressContainer.getBoundingClientRect();
-      
+
       if (containerRect.height > maxModalHeight) {
         this.progressContainer.style.maxHeight = `${maxModalHeight}px`;
         // パディングのみ考慮
         const padding = 32; // 上下のパディング
         this.progressList.style.maxHeight = `${maxModalHeight - padding}px`;
       } else {
-        this.progressContainer.style.maxHeight = '80vh';
-        this.progressList.style.maxHeight = 'none';
+        this.progressContainer.style.maxHeight = "80vh";
+        this.progressList.style.maxHeight = "none";
       }
     }, 10);
   }
@@ -419,7 +426,9 @@ class ProgressItem {
     if (this.completed) {
       return `${this.message} - 完了`;
     }
-    return `${this.message} (${this.current}/${this.total} - ${Math.round(this.getPercentage())}%)`;
+    return `${this.message} (${this.current}/${this.total} - ${Math.round(
+      this.getPercentage()
+    )}%)`;
   }
 
   isCompleted(): boolean {
@@ -431,8 +440,9 @@ class ProgressItem {
 export class ProgressBarManager {
   private progressId: string;
   private unifiedManager: UnifiedProgressManager;
-  private currentCount: number = 0;
-  private totalCount: number = 0;
+  // 将来的に使用する可能性があるためコメントアウト
+  // private currentCount: number = 0;
+  // private totalCount: number = 0;
   private baseMessage: string = "";
 
   constructor() {
@@ -442,18 +452,18 @@ export class ProgressBarManager {
 
   show(text: string = "処理中..."): void {
     // 0/0の場合は表示しない
-    if (text.includes('(0/0')) {
+    if (text.includes("(0/0")) {
       return;
     }
-    
+
     this.baseMessage = text;
     this.unifiedManager.addProgress(this.progressId, text, 100);
   }
 
   hide(): void {
     this.unifiedManager.removeProgress(this.progressId);
-    this.currentCount = 0;
-    this.totalCount = 0;
+    // this.currentCount = 0;
+    // this.totalCount = 0;
     this.baseMessage = "";
   }
 
@@ -463,7 +473,11 @@ export class ProgressBarManager {
     if (text) {
       this.baseMessage = text;
     }
-    this.unifiedManager.updateProgress(this.progressId, percentage, this.baseMessage);
+    this.unifiedManager.updateProgress(
+      this.progressId,
+      percentage,
+      this.baseMessage
+    );
   }
 
   // app.jsで使用されているshowProgressメソッドを追加（後方互換性のため）
@@ -487,14 +501,17 @@ export class FormatUtils {
       .padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   }
 
-  static formatFileSize(bytes: number): string {
-    if (bytes === 0) return "0 Bytes";
+  static formatFileSize(bytes: number | bigint): string {
+    // bigintの場合はnumberに変換（JavaScriptの安全な整数範囲内で処理）
+    const numBytes = typeof bytes === "bigint" ? Number(bytes) : bytes;
+
+    if (numBytes === 0) return "0 Bytes";
 
     const k = 1024;
     const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    const i = Math.floor(Math.log(numBytes) / Math.log(k));
 
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+    return parseFloat((numBytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
   }
 
   static getFileExtension(filename: string): string {
@@ -540,7 +557,7 @@ export class ProgressManager {
     this.currentCount = 0;
     this.totalCount = total;
     this.baseMessage = message;
-    
+
     // 0/0の場合は表示しない
     if (this.totalCount > 0) {
       this.unifiedManager.addProgress(this.progressId, message, total);
@@ -566,24 +583,36 @@ export class ProgressManager {
     if (this.totalCount === 0) {
       return;
     }
-    
+
     let displayText = `${this.baseMessage}`;
-    
+
     if (currentItem && this.currentCount < this.totalCount) {
       // ファイル名が長い場合は短縮
-      const shortItem = currentItem.length > 40 ? currentItem.substring(0, 37) + '...' : currentItem;
+      const shortItem =
+        currentItem.length > 40
+          ? currentItem.substring(0, 37) + "..."
+          : currentItem;
       displayText += ` - ${shortItem}`;
     }
-    
-    this.unifiedManager.updateProgress(this.progressId, this.currentCount, displayText);
+
+    this.unifiedManager.updateProgress(
+      this.progressId,
+      this.currentCount,
+      displayText
+    );
   }
 
   // 従来の互換性のためのメソッド（非推奨）
-  updateProgressFromData(current: number, total: number, baseText: string, currentItem?: string): void {
+  updateProgressFromData(
+    current: number,
+    total: number,
+    baseText: string,
+    currentItem?: string
+  ): void {
     this.currentCount = current;
     this.totalCount = total;
     this.baseMessage = baseText;
-    
+
     // 0/0の場合は表示しない
     if (this.totalCount > 0) {
       this.updateDisplay(currentItem);
@@ -592,7 +621,7 @@ export class ProgressManager {
 
   // 基本的な進捗表示メソッド
   show(text: string = "処理中..."): void {
-    if (!text.includes('/') && !text.includes('%')) {
+    if (!text.includes("/") && !text.includes("%")) {
       // 基本メッセージのみを設定し、既存の進捗状態を保持
       if (this.totalCount === 0) {
         this.baseMessage = text;
@@ -603,7 +632,7 @@ export class ProgressManager {
       }
     } else {
       // 0/0が含まれている場合はスキップ
-      if (!text.includes('(0/0')) {
+      if (!text.includes("(0/0")) {
         this.baseMessage = text;
         this.unifiedManager.addProgress(this.progressId, text, 100);
       }
@@ -621,7 +650,11 @@ export class ProgressManager {
     if (text) {
       this.baseMessage = text;
     }
-    this.unifiedManager.updateProgress(this.progressId, percentage, this.baseMessage);
+    this.unifiedManager.updateProgress(
+      this.progressId,
+      percentage,
+      this.baseMessage
+    );
   }
 
   showProgress(text: string, percentage: number = 0): void {
@@ -648,14 +681,14 @@ export class EnhancedProgressManager {
     if (progressId) {
       this.progressId = progressId;
     }
-    
+
     this.currentCount = 0;
     this.totalCount = total;
     this.baseMessage = message;
-    
+
     // 統一モーダルに進捗を追加
     this.unifiedManager.addProgress(this.progressId, message, total);
-    
+
     return this.progressId;
   }
 
@@ -669,7 +702,7 @@ export class EnhancedProgressManager {
   completeProgress(): void {
     this.currentCount = this.totalCount;
     this.updateDisplay();
-    
+
     // 統一モーダルで進捗を完了
     this.unifiedManager.completeProgress(this.progressId);
   }
@@ -680,16 +713,23 @@ export class EnhancedProgressManager {
     if (this.totalCount === 0) {
       return;
     }
-    
+
     let displayText = this.baseMessage;
-    
+
     if (currentItem && this.currentCount < this.totalCount) {
       // ファイル名が長い場合は短縮
-      const shortItem = currentItem.length > 40 ? currentItem.substring(0, 37) + '...' : currentItem;
+      const shortItem =
+        currentItem.length > 40
+          ? currentItem.substring(0, 37) + "..."
+          : currentItem;
       displayText += `\n${shortItem}`;
     }
-    
-    this.unifiedManager.updateProgress(this.progressId, this.currentCount, displayText);
+
+    this.unifiedManager.updateProgress(
+      this.progressId,
+      this.currentCount,
+      displayText
+    );
   }
 
   // 進捗を隠す
@@ -707,11 +747,12 @@ export class EnhancedProgressManager {
 
   // 進捗の状態を取得
   getProgress(): { current: number; total: number; percentage: number } {
-    const percentage = this.totalCount > 0 ? (this.currentCount / this.totalCount) * 100 : 0;
+    const percentage =
+      this.totalCount > 0 ? (this.currentCount / this.totalCount) * 100 : 0;
     return {
       current: this.currentCount,
       total: this.totalCount,
-      percentage: Math.round(percentage)
+      percentage: Math.round(percentage),
     };
   }
 }
@@ -919,14 +960,17 @@ export class KeyboardManager {
 }
 
 // ファイルサイズフォーマット関数
-export function formatFileSize(bytes: number): string {
-  if (bytes === 0) return "0 B";
+export function formatFileSize(bytes: number | bigint): string {
+  // bigintの場合はnumberに変換（JavaScriptの安全な整数範囲内で処理）
+  const numBytes = typeof bytes === "bigint" ? Number(bytes) : bytes;
+
+  if (numBytes === 0) return "0 B";
 
   const k = 1024;
   const sizes = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  const i = Math.floor(Math.log(numBytes) / Math.log(k));
 
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
+  return parseFloat((numBytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
 }
 
 // 時間フォーマット関数
@@ -1268,7 +1312,7 @@ export const Utils = {
   },
 
   // デバウンス関数
-  debounce<T extends (...args: any[]) => any>(
+  debounce<T extends (...args: Parameters<T>) => ReturnType<T>>(
     func: T,
     wait: number
   ): (...args: Parameters<T>) => void {
@@ -1284,7 +1328,7 @@ export const Utils = {
   },
 
   // スロットル関数
-  throttle<T extends (...args: any[]) => any>(
+  throttle<T extends (...args: Parameters<T>) => ReturnType<T>>(
     func: T,
     limit: number
   ): (...args: Parameters<T>) => void {

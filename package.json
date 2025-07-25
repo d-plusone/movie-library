@@ -16,19 +16,23 @@
         "release": "npm run build:ts && electron-builder --publish=always",
         "clean": "rimraf dist node_modules/.cache",
         "clean:ts": "rimraf dist-ts",
-        "build:ts": "npm run clean:ts && npm run build:ts:main && npm run build:ts:renderer",
+        "build:ts": "npm run clean:ts && npm run build:ts:main && npm run build:ts:renderer && npm run copy:prisma",
         "build:ts:main": "tsc --project tsconfig.json",
         "build:ts:renderer": "tsc --project tsconfig.renderer.json",
+        "copy:prisma": "mkdir -p dist-ts/generated && cp -r generated/prisma dist-ts/generated/",
         "build:ts:watch": "npm run clean:ts && npm run build:ts && npm run watch",
         "watch": "tsc --watch",
         "type-check": "tsc --noEmit",
+        "lint": "eslint src/**/*.ts main.ts preload.ts --fix",
+        "lint:check": "eslint src/**/*.ts main.ts preload.ts",
         "version:patch": "npm version patch && git push --follow-tags",
         "version:minor": "npm version minor && git push --follow-tags",
         "version:major": "npm version major && git push --follow-tags",
         "postinstall": "electron-builder install-app-deps",
-        "rebuild": "npm rebuild better-sqlite3 --build-from-source",
-        "rebuild:electron": "npx electron-rebuild -f -w better-sqlite3",
-        "rebuild:win": "npm rebuild better-sqlite3 --target_platform=win32 --target_arch=x64"
+        "prisma:generate": "prisma generate",
+        "prisma:migrate": "prisma migrate dev",
+        "prisma:studio": "prisma studio",
+        "prisma:push": "prisma db push"
     },
     "keywords": [
         "electron",
@@ -40,22 +44,26 @@
     "license": "MIT",
     "devDependencies": {
         "@electron/rebuild": "^3.6.0",
-        "@types/better-sqlite3": "^7.6.13",
         "@types/fluent-ffmpeg": "^2.1.27",
         "@types/node": "^24.0.14",
+        "@typescript-eslint/eslint-plugin": "^8.38.0",
+        "@typescript-eslint/parser": "^8.38.0",
         "electron": "^27.0.0",
         "electron-builder": "^24.6.4",
         "electron-webpack": "^2.8.2",
+        "eslint": "^9.31.0",
+        "eslint-plugin-unused-imports": "^4.1.4",
         "rimraf": "^5.0.10",
         "ts-node": "^10.9.2",
         "typescript": "^5.8.3"
     },
     "dependencies": {
-        "better-sqlite3": "^11.3.0",
+        "@prisma/client": "^6.12.0",
         "chokidar": "^3.5.3",
         "ffmpeg-static": "^5.2.0",
         "ffprobe-static": "^3.1.0",
-        "fluent-ffmpeg": "^2.1.2"
+        "fluent-ffmpeg": "^2.1.2",
+        "prisma": "^6.12.0"
     },
     "build": {
         "appId": "com.yourcompany.movielibrary",
@@ -77,8 +85,7 @@
         "afterPack": "scripts/after-pack.js",
         "asarUnpack": [
             "node_modules/ffmpeg-static/ffmpeg",
-            "node_modules/ffprobe-static/bin/ffprobe",
-            "node_modules/better-sqlite3/build/**/*"
+            "node_modules/ffprobe-static/bin/ffprobe"
         ],
         "files": [
             "dist-ts/**/*",
@@ -93,10 +100,6 @@
             "node_modules/ffprobe-static/index.js",
             "node_modules/fluent-ffmpeg/index.js",
             "node_modules/fluent-ffmpeg/lib/**/*",
-            "node_modules/better-sqlite3/lib/**/*",
-            "node_modules/better-sqlite3/build/**/*",
-            "!node_modules/better-sqlite3/deps/**/*",
-            "!node_modules/better-sqlite3/test/**/*",
             "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme,HISTORY.md,CHANGES.md,AUTHORS,CONTRIBUTORS}",
             "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples,spec,specs,doc,docs,documentation}/**/*",
             "!**/node_modules/*/{.github,.vscode,.idea,coverage}/**/*",

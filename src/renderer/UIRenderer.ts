@@ -1,18 +1,15 @@
 import { FormatUtils, DOMUtils } from "./Utils.js";
-import { Video, Tag, Directory, ThumbnailSettings } from "./VideoManager.js";
-
-type ViewType = "grid" | "list";
-
-interface ThumbnailInfo {
-  src: string;
-  label: string;
-}
-
-interface Filter {
-  tags: string[];
-  directories: string[];
-  rating: number;
-}
+import {
+  Video,
+  Tag,
+  Directory,
+  ChapterThumbnail,
+  VideoStats,
+  ThumbnailSettings,
+  Filter,
+  ViewType,
+  ThumbnailInfo,
+} from "../types/types.js";
 
 /**
  * UI描画を担当するクラス
@@ -78,7 +75,10 @@ export class UIRenderer {
   }
 
   // 動画リストを描画
-  renderVideoList(filteredVideos: Video[], playVideoCallback?: (path: string) => Promise<void>): number {
+  renderVideoList(
+    filteredVideos: Video[],
+    playVideoCallback?: (path: string) => Promise<void>
+  ): number {
     const videoList = document.getElementById("videoList");
 
     if (!videoList) {
@@ -98,7 +98,11 @@ export class UIRenderer {
     }
 
     filteredVideos.forEach((video, index) => {
-      const videoElement = this.createVideoElement(video, index, playVideoCallback);
+      const videoElement = this.createVideoElement(
+        video,
+        index,
+        playVideoCallback
+      );
       videoList.appendChild(videoElement);
     });
 
@@ -117,15 +121,23 @@ export class UIRenderer {
   }
 
   // 動画要素を作成
-  createVideoElement(video: Video, index: number, playVideoCallback?: (path: string) => Promise<void>): HTMLElement {
+  createVideoElement(
+    video: Video,
+    index: number,
+    playVideoCallback?: (path: string) => Promise<void>
+  ): HTMLElement {
     const div = document.createElement("div");
     div.className = "video-item";
     div.dataset.index = index.toString();
     div.dataset.videoId = video.id.toString();
 
-    const thumbnailSrc = video.thumbnail_path
-      ? `file://${video.thumbnail_path}?t=${Date.now()}`
+    const thumbnailSrc = video.thumbnailPath
+      ? `file://${video.thumbnailPath}?t=${Date.now()}`
       : "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIwIiBoZWlnaHQ9IjE4MCIgdmlld0JveD0iMCAwIDMyMCAxODAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMjAiIGhlaWdodD0iMTgwIiBmaWxsPSIjRjVGNUY3Ii8+CjxwYXRoIGQ9Ik0xMjggNzJMMTkyIDEwOEwxMjggMTQ0VjcyWiIgZmlsbD0iIzk5OTk5OSIvPgo8L3N2Zz4K";
+
+    console.log(
+      `UIRenderer: Creating video element for ${video.filename}, thumbnailPath: ${video.thumbnailPath}, thumbnailSrc: ${thumbnailSrc}`
+    );
 
     const duration = FormatUtils.formatDuration(video.duration ?? 0);
     const fileSize = FormatUtils.formatFileSize(video.size ?? 0);
@@ -155,7 +167,7 @@ export class UIRenderer {
         <div>サイズ: ${fileSize}</div>
         <div>解像度: ${video.width ?? 0}x${video.height ?? 0}</div>
         <div>追加日: ${FormatUtils.formatDate(
-          video.added_at ?? new Date().toISOString()
+          video.addedAt ? video.addedAt.toISOString() : new Date().toISOString()
         )}</div>
     `;
 
@@ -229,51 +241,45 @@ export class UIRenderer {
       ];
 
       // Add chapter thumbnails if available (up to 5)
-      if (video.chapter_thumbnails) {
-        let chapters: any[] = [];
+      if (video.chapterThumbnails) {
+        let chapters: ChapterThumbnail[] = [];
 
-        if (Array.isArray(video.chapter_thumbnails)) {
-          chapters = video.chapter_thumbnails;
-        } else if (typeof video.chapter_thumbnails === "string") {
+        if (Array.isArray(video.chapterThumbnails)) {
+          chapters = video.chapterThumbnails;
+        } else if (typeof video.chapterThumbnails === "string") {
           try {
-            const parsed = JSON.parse(video.chapter_thumbnails);
+            const parsed = JSON.parse(video.chapterThumbnails);
             if (Array.isArray(parsed)) {
-              chapters = parsed;
+              chapters = parsed as ChapterThumbnail[];
             } else if (typeof parsed === "object" && parsed !== null) {
-              chapters = Object.values(parsed).filter(
-                (item: any) =>
-                  item &&
-                  typeof item === "object" &&
-                  (item.path || item.thumbnail_path)
-              );
+              chapters = Object.values(parsed) as ChapterThumbnail[];
             }
           } catch (error) {
-            console.warn("Failed to parse chapter_thumbnails:", error);
+            console.warn("Failed to parse chapterThumbnails:", error);
           }
         } else if (
-          typeof video.chapter_thumbnails === "object" &&
-          video.chapter_thumbnails !== null
+          typeof video.chapterThumbnails === "object" &&
+          video.chapterThumbnails !== null
         ) {
-          chapters = Object.values(video.chapter_thumbnails).filter(
-            (item: any) =>
-              item &&
-              typeof item === "object" &&
-              (item.path || item.thumbnail_path)
-          );
+          chapters = Object.values(
+            video.chapterThumbnails
+          ) as ChapterThumbnail[];
         }
 
         // Add valid chapter thumbnails (up to 5)
         const validChapters = chapters
           .filter(
-            (item: any) =>
-              item &&
-              typeof item === "object" &&
-              (item.path || item.thumbnail_path)
+            (chapter): chapter is ChapterThumbnail =>
+              chapter &&
+              typeof chapter.path === "string" &&
+              typeof chapter.timestamp === "number"
           )
           .slice(0, 5);
 
-        validChapters.forEach((chapter: any, index: number) => {
-          const chapterPath = chapter.path || chapter.thumbnail_path;
+        validChapters.forEach((chapter: ChapterThumbnail, index: number) => {
+          console.log(`Chapter ${index}:`, chapter); // チャプターデータをログ出力
+          const chapterPath = chapter.path; // チャプターは path プロパティを使用
+          console.log(`Chapter ${index} path:`, chapterPath);
           if (chapterPath) {
             thumbnails.push({
               src: `file://${chapterPath}?t=${Date.now()}`,
@@ -624,31 +630,30 @@ export class UIRenderer {
     );
     if (!chapterContainer) return;
 
+    // ChapterThumbnailの型ガード関数
     // 新しいチャプターデータを解析
-    let newChapters: any[] = [];
-    if (video.chapter_thumbnails) {
+    let newChapters: ChapterThumbnail[] = [];
+    if (video.chapterThumbnails) {
       try {
-        if (Array.isArray(video.chapter_thumbnails)) {
-          newChapters = video.chapter_thumbnails;
-        } else if (typeof video.chapter_thumbnails === "string") {
-          const parsed = JSON.parse(video.chapter_thumbnails);
+        if (Array.isArray(video.chapterThumbnails)) {
+          newChapters = video.chapterThumbnails;
+        } else if (typeof video.chapterThumbnails === "string") {
+          const parsed = JSON.parse(video.chapterThumbnails);
           if (Array.isArray(parsed)) {
-            newChapters = parsed;
+            newChapters = parsed as ChapterThumbnail[];
           } else if (typeof parsed === "object" && parsed !== null) {
-            newChapters = Object.values(parsed).filter(
-              (item: any) => item && (item.path || item.thumbnail_path)
-            );
+            newChapters = Object.values(parsed) as ChapterThumbnail[];
           }
         } else if (
-          typeof video.chapter_thumbnails === "object" &&
-          video.chapter_thumbnails !== null
+          typeof video.chapterThumbnails === "object" &&
+          video.chapterThumbnails !== null
         ) {
-          newChapters = Object.values(video.chapter_thumbnails).filter(
-            (item: any) => item && (item.path || item.thumbnail_path)
-          );
+          newChapters = Object.values(
+            video.chapterThumbnails
+          ) as ChapterThumbnail[];
         }
       } catch (error) {
-        console.warn("Failed to parse chapter_thumbnails:", error);
+        console.warn("Failed to parse chapterThumbnails:", error);
         return;
       }
     }
@@ -667,8 +672,8 @@ export class UIRenderer {
       const existingDiv = existingChapters[i] as HTMLElement;
       const existingImg = existingDiv.querySelector("img") as HTMLImageElement;
       const chapter = chaptersToShow[i];
-      const chapterPath = chapter.path || chapter.thumbnail_path;
-      
+      const chapterPath = chapter.path;
+
       if (existingImg && chapterPath) {
         const newSrc = `file://${chapterPath}?t=${Date.now()}`;
         if (existingImg.src !== newSrc) {
@@ -681,7 +686,7 @@ export class UIRenderer {
     // 新しい要素が必要な場合は追加
     for (let i = existingCount; i < newCount; i++) {
       const chapter = chaptersToShow[i];
-      const chapterPath = chapter.path || chapter.thumbnail_path;
+      const chapterPath = chapter.path;
       if (!chapterPath) continue;
 
       const chapterDiv = document.createElement("div");
@@ -789,8 +794,8 @@ export class UIRenderer {
     const mainThumbnailImg = document.getElementById(
       "detailsMainThumbnail"
     ) as HTMLImageElement;
-    if (mainThumbnailImg && video.thumbnail_path) {
-      const newSrc = `file://${video.thumbnail_path}?t=${Date.now()}`;
+    if (mainThumbnailImg && video.thumbnailPath) {
+      const newSrc = `file://${video.thumbnailPath}?t=${Date.now()}`;
       if (mainThumbnailImg.src !== newSrc) {
         mainThumbnailImg.src = newSrc;
         mainThumbnailImg.alt = video.title;
@@ -816,10 +821,22 @@ export class UIRenderer {
 
     // ファイル情報を更新（値が変わった場合のみ）
     this.updateElementTextIfChanged("detailsFilePath", video.path);
-    this.updateElementTextIfChanged("detailsFileSize", FormatUtils.formatFileSize(video.size ?? 0));
-    this.updateElementTextIfChanged("detailsDuration", FormatUtils.formatDuration(video.duration ?? 0));
-    this.updateElementTextIfChanged("detailsResolution", `${video.width ?? 0}x${video.height ?? 0}`);
-    this.updateElementTextIfChanged("detailsFps", `${this.formatFps(video.fps ?? 0)} fps`);
+    this.updateElementTextIfChanged(
+      "detailsFileSize",
+      FormatUtils.formatFileSize(video.size ?? 0)
+    );
+    this.updateElementTextIfChanged(
+      "detailsDuration",
+      FormatUtils.formatDuration(video.duration ?? 0)
+    );
+    this.updateElementTextIfChanged(
+      "detailsResolution",
+      `${video.width ?? 0}x${video.height ?? 0}`
+    );
+    this.updateElementTextIfChanged(
+      "detailsFps",
+      `${this.formatFps(video.fps ?? 0)} fps`
+    );
     this.updateElementTextIfChanged("detailsCodec", video.codec || "不明");
 
     // タグリストを更新
@@ -890,8 +907,10 @@ export class UIRenderer {
   // 評価表示を更新
   updateDetailsRatingDisplay(rating: number): void {
     const ratingStars = document.querySelectorAll(".rating-input .star");
-    const clearButton = document.querySelector(".clear-rating-btn") as HTMLElement;
-    
+    const clearButton = document.querySelector(
+      ".clear-rating-btn"
+    ) as HTMLElement;
+
     ratingStars.forEach((star, index) => {
       const starElement = star as HTMLElement;
       if (index < rating) {
@@ -912,10 +931,10 @@ export class UIRenderer {
   // 詳細画面の評価ホバー表示を更新
   updateDetailsRatingHover(rating: number, isHover: boolean): void {
     const ratingStars = document.querySelectorAll(".rating-input .star");
-    
+
     ratingStars.forEach((star, index) => {
       const starElement = star as HTMLElement;
-      
+
       if (isHover) {
         // ホバー時：一時的なプレビュー表示
         if (index < rating && rating > 0) {
@@ -1054,7 +1073,7 @@ export class UIRenderer {
     if (thead) thead.appendChild(headerRow);
 
     // 動画行の追加
-    filteredVideos.forEach((video: Video, index: number) => {
+    filteredVideos.forEach((video: Video, _index: number) => {
       const tr = document.createElement("tr");
 
       // 動画名セル（サムネイル + タイトル）
@@ -1066,8 +1085,8 @@ export class UIRenderer {
       thumbnail.className = "bulk-dialog-thumbnail";
       thumbnail.alt = "サムネイル";
 
-      // サムネイルパスの設定（thumbnailPath と thumbnail_path の両方をチェック）
-      const thumbPath = video.thumbnailPath || video.thumbnail_path;
+      // サムネイルパスの設定（thumbnailPathのみを使用）
+      const thumbPath = video.thumbnailPath;
       if (thumbPath && thumbPath !== "N/A") {
         thumbnail.src = `file://${thumbPath}`;
       } else {
@@ -1195,7 +1214,7 @@ export class UIRenderer {
   }
 
   // チャプターダイアログを表示
-  showChapterDialog(video: Video, chapters: any[]): void {
+  showChapterDialog(video: Video, chapters: ChapterThumbnail[]): void {
     // 既存のダイアログがあれば削除
     const existingDialog = document.querySelector(".chapter-dialog-overlay");
     if (existingDialog) {
@@ -1205,13 +1224,13 @@ export class UIRenderer {
     // メインサムネイルを含む全サムネイルリストを作成
     const allThumbnails = [
       {
-        path: video.thumbnail_path,
+        path: video.thumbnailPath,
         timestamp: 0,
         title: "メインサムネイル",
         isMain: true,
       },
       ...chapters.map((chapter, index) => ({
-        path: chapter.path || chapter.thumbnail_path,
+        path: chapter.path,
         timestamp: chapter.timestamp || 0,
         title: `Chapter ${index + 1}`,
         isMain: false,
@@ -1366,7 +1385,7 @@ export class UIRenderer {
   }
 
   // 統計情報を更新
-  updateStats(stats: any): void {
+  updateStats(stats: VideoStats): void {
     const statsElements = {
       totalVideos: document.getElementById("totalVideos"),
       totalSize: document.getElementById("totalSize"),
@@ -1374,7 +1393,7 @@ export class UIRenderer {
     };
 
     if (statsElements.totalVideos) {
-      statsElements.totalVideos.textContent = stats.totalCount.toString();
+      statsElements.totalVideos.textContent = stats.totalVideos.toString();
     }
     if (statsElements.totalSize) {
       statsElements.totalSize.textContent = FormatUtils.formatFileSize(
@@ -1389,7 +1408,7 @@ export class UIRenderer {
   }
 
   // サムネイル設定を描画
-  renderThumbnailSettings(settings: any): void {
+  renderThumbnailSettings(settings: ThumbnailSettings): void {
     const thumbnailCountInput = document.getElementById(
       "thumbnailCount"
     ) as HTMLInputElement;
@@ -1420,30 +1439,39 @@ export class UIRenderer {
   // FPSを適切な桁数で表示するヘルパーメソッド
   private formatFps(fps: number): string {
     if (fps === 0) return "0";
-    
+
     // 整数かチェック
     if (fps % 1 === 0) {
       return fps.toString();
     }
-    
+
     // 小数点第一位までで十分かチェック
     const firstDecimal = Math.round(fps * 10) / 10;
     if (Math.abs(fps - firstDecimal) < 0.001) {
       return firstDecimal.toString();
     }
-    
+
     // 小数点第二位まで表示
     return (Math.round(fps * 100) / 100).toString();
   }
 
   // 動画を再生（OSの既定のアプリケーションで開く）
-  async playVideo(videoPath: string, playVideoCallback: (path: string) => Promise<void>): Promise<void> {
+  async playVideo(
+    videoPath: string,
+    playVideoCallback: (path: string) => Promise<void>
+  ): Promise<void> {
     await playVideoCallback(videoPath);
   }
 
   // 選択された動画を再生
-  async playSelectedVideo(videos: Video[], playVideoCallback: (path: string) => Promise<void>): Promise<void> {
-    if (this.selectedVideoIndex >= 0 && this.selectedVideoIndex < videos.length) {
+  async playSelectedVideo(
+    videos: Video[],
+    playVideoCallback: (path: string) => Promise<void>
+  ): Promise<void> {
+    if (
+      this.selectedVideoIndex >= 0 &&
+      this.selectedVideoIndex < videos.length
+    ) {
       const selectedVideo = videos[this.selectedVideoIndex];
       await this.playVideo(selectedVideo.path, playVideoCallback);
     }

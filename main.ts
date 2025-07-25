@@ -8,47 +8,29 @@ import {
   MenuItemConstructorOptions,
 } from "electron";
 import path from "path";
-import { spawn, exec } from "child_process";
 import { promises as fs } from "fs";
 import * as chokidar from "chokidar";
-import DatabaseManager from "./src/database/DatabaseManager.js";
+import PrismaDatabaseManager from "./src/database/PrismaDatabaseManager.js";
 import VideoScanner from "./src/scanner/VideoScanner.js";
 import ThumbnailGenerator from "./src/thumbnail/ThumbnailGenerator.js";
-
-interface ProcessedVideo {
-  id?: number;
-  path: string;
-  filename: string;
-  title: string;
-  duration?: number;
-  size: number;
-  width: number;
-  height: number;
-  fps: number;
-  codec?: string;
-  bitrate: number;
-  createdAt: string;
-  modifiedAt: string;
-  isNewVideo: boolean;
-  needsThumbnails: boolean;
-}
-
-interface DirectoryRecord {
-  id: number;
-  path: string;
-  name: string;
-  added_at: string;
-}
+import { ProcessedVideo } from "./src/types/types.js";
 
 class MovieLibraryApp {
   private mainWindow: BrowserWindow | null = null;
-  private db: DatabaseManager;
+  private db: PrismaDatabaseManager;
   private videoScanner: VideoScanner;
   private thumbnailGenerator: ThumbnailGenerator;
   public watchers: Map<string, chokidar.FSWatcher> = new Map();
 
   constructor() {
-    this.db = new DatabaseManager();
+    // Electronアプリのデータディレクトリを取得
+    const userData = app.getPath("userData");
+    const dbPath = path.join(userData, "movie-library.db");
+
+    // Prismaの環境変数を設定
+    process.env.DATABASE_URL = `file:${dbPath}`;
+
+    this.db = new PrismaDatabaseManager();
     this.videoScanner = new VideoScanner(this.db);
     this.thumbnailGenerator = new ThumbnailGenerator(this.db);
   }
@@ -95,7 +77,7 @@ class MovieLibraryApp {
 
     // 開発モードでのみキーボードショートカットで開発者ツールを開く
     if (process.env.NODE_ENV === "development" || !app.isPackaged) {
-      this.mainWindow.webContents.on("before-input-event", (event, input) => {
+      this.mainWindow.webContents.on("before-input-event", (_event, input) => {
         // macOS: Cmd+Option+I または F12
         if (
           process.platform === "darwin" &&
@@ -116,7 +98,7 @@ class MovieLibraryApp {
     }
 
     // Development mode
-    if (process.env.NODE_ENV === "development") {
+    if (process.env.NODE_ENV === "development" || !app.isPackaged) {
       this.mainWindow.webContents.openDevTools();
     }
 
@@ -128,7 +110,7 @@ class MovieLibraryApp {
     });
 
     // ウィンドウを閉じる前の処理
-    this.mainWindow.on("close", (event) => {
+    this.mainWindow.on("close", (_event) => {
       console.log("Window is being closed");
       // すべてのwatcherを停止
       this.watchers.forEach((watcher) => watcher.close());
@@ -140,7 +122,7 @@ class MovieLibraryApp {
 
     // Windows用の追加終了処理
     if (process.platform === "win32") {
-      this.mainWindow.on("close", (event) => {
+      this.mainWindow.on("close", (_event) => {
         // Windowsでのクリーンな終了を保証
         setTimeout(() => {
           if (process.platform === "win32") {
@@ -304,29 +286,35 @@ class MovieLibraryApp {
     });
 
     // Add directory
-    ipcMain.handle("add-directory", async (event, directoryPath: string) => {
+    ipcMain.handle("add-directory", async (_event, directoryPath: string) => {
       const id = await this.db.addDirectory(directoryPath);
       this.startWatching(directoryPath);
       return id;
     });
 
     // Remove directory
-    ipcMain.handle("remove-directory", async (event, directoryPath: string) => {
-      const result = await this.db.removeDirectory(directoryPath);
-      this.stopWatching(directoryPath);
-      return result;
-    });
+    ipcMain.handle(
+      "remove-directory",
+      async (_event, directoryPath: string) => {
+        const result = await this.db.removeDirectory(directoryPath);
+        this.stopWatching(directoryPath);
+        return result;
+      }
+    );
 
     // Check directory exists
-    ipcMain.handle("check-directory-exists", async (event, dirPath: string) => {
-      try {
-        const fs = await import("fs");
-        await fs.promises.access(dirPath, fs.constants.F_OK);
-        return true;
-      } catch (error) {
-        return false;
+    ipcMain.handle(
+      "check-directory-exists",
+      async (_event, dirPath: string) => {
+        try {
+          const fs = await import("fs");
+          await fs.promises.access(dirPath, fs.constants.F_OK);
+          return true;
+        } catch (_error) {
+          return false;
+        }
       }
-    });
+    );
 
     // Scan directories (improved comprehensive scan)
     ipcMain.handle("scan-directories", async () => {
@@ -676,7 +664,7 @@ class MovieLibraryApp {
     });
 
     // Update thumbnail settings
-    ipcMain.handle("update-thumbnail-settings", async (event, settings) => {
+    ipcMain.handle("update-thumbnail-settings", async (_event, settings) => {
       this.thumbnailGenerator.updateSettings(settings);
       return true;
     });
@@ -694,48 +682,48 @@ class MovieLibraryApp {
     });
 
     // Update video
-    ipcMain.handle("update-video", async (event, videoId: number, data) => {
-      return await this.db.updateVideo(videoId, data);
+    ipcMain.handle("update-video", async (_event, videoId: string, data) => {
+      return await this.db.updateVideo(parseInt(videoId), data);
     });
 
     // Add tag to video
     ipcMain.handle(
       "add-tag-to-video",
-      async (event, videoId: number, tagName: string) => {
-        return await this.db.addTagToVideo(videoId, tagName);
+      async (_event, videoId: string, tagName: string) => {
+        return await this.db.addTagToVideo(parseInt(videoId), tagName);
       }
     );
 
     // Remove tag from video
     ipcMain.handle(
       "remove-tag-from-video",
-      async (event, videoId: number, tagName: string) => {
-        return await this.db.removeTagFromVideo(videoId, tagName);
+      async (_event, videoId: string, tagName: string) => {
+        return await this.db.removeTagFromVideo(parseInt(videoId), tagName);
       }
     );
 
     // Update tag
     ipcMain.handle(
       "update-tag",
-      async (event, oldName: string, newName: string) => {
+      async (_event, oldName: string, newName: string) => {
         return await this.db.updateTag(oldName, newName);
       }
     );
 
     // Delete tag
-    ipcMain.handle("delete-tag", async (event, tagName: string) => {
+    ipcMain.handle("delete-tag", async (_event, tagName: string) => {
       return await this.db.deleteTag(tagName);
     });
 
     // Open video
-    ipcMain.handle("open-video", async (event, videoPath: string) => {
+    ipcMain.handle("open-video", async (_event, videoPath: string) => {
       await shell.openPath(videoPath);
     });
 
     // Check for video updates
     ipcMain.handle(
       "has-video-updates",
-      async (event, lastCheckTime: number) => {
+      async (_event, lastCheckTime: number) => {
         return await this.db.hasVideoUpdates(lastCheckTime);
       }
     );
@@ -743,8 +731,8 @@ class MovieLibraryApp {
     // Regenerate main thumbnail
     ipcMain.handle(
       "regenerate-main-thumbnail",
-      async (event, videoId: number) => {
-        const video = await this.db.getVideo(videoId);
+      async (_event, videoId: string) => {
+        const video = await this.db.getVideo(parseInt(videoId));
         if (!video || video.duration === undefined) {
           throw new Error("Video not found or invalid duration");
         }
@@ -917,7 +905,7 @@ class MovieLibraryApp {
 
         // 存在する場合は監視を開始
         this.startWatching(directory.path);
-      } catch (error) {
+      } catch (_error) {
         // 存在しない場合はリストに追加
         console.log("Directory no longer exists:", directory.path);
         removedDirectories.push(directory.path);
@@ -1033,7 +1021,7 @@ app.on("window-all-closed", () => {
   }
 });
 
-app.on("before-quit", (event) => {
+app.on("before-quit", (_event) => {
   console.log("Application is about to quit");
 
   // Close all watchers
@@ -1057,7 +1045,7 @@ app.on("before-quit", (event) => {
 
 // Windows用の追加終了処理
 if (process.platform === "win32") {
-  app.on("will-quit", (event) => {
+  app.on("will-quit", (_event) => {
     console.log("Windows: Application will quit");
   });
 

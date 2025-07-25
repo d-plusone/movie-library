@@ -2,45 +2,16 @@ import { promises as fs } from "fs";
 import path from "path";
 import ffmpeg from "fluent-ffmpeg";
 import { app } from "electron";
-import DatabaseManager from "../database/DatabaseManager";
-
-interface ThumbnailSettings {
-  quality: number;
-  width: number;
-  height: number;
-}
-
-interface ChapterThumbnail {
-  path: string;
-  timestamp: number;
-  index: number;
-}
-
-interface Video {
-  id: number;
-  path: string;
-  duration: number;
-  thumbnail_path?: string;
-  chapter_thumbnails?: string;
-  chapterThumbnails?: ChapterThumbnail[];
-}
-
-interface ThumbnailResult {
-  mainThumbnail: string;
-  chapterThumbnails: ChapterThumbnail[];
-}
-
-interface RegenerateResult {
-  thumbnailPath: string;
-  timestamp: number;
-  formattedTimestamp: string;
-}
-
-interface ThumbnailOptions {
-  width?: number;
-  height?: number;
-  quality?: number;
-}
+import PrismaDatabaseManager, {
+  type VideoRecord,
+} from "../database/PrismaDatabaseManager";
+import {
+  ThumbnailSettings,
+  ChapterThumbnail,
+  ThumbnailResult,
+  RegenerateResult,
+  ThumbnailOptions,
+} from "../types/types.js";
 
 // Function to detect if running in development mode
 function isDevelopment(): boolean {
@@ -100,7 +71,7 @@ function getFfmpegPath(): string | null {
           require("fs").accessSync(ffmpegPath, require("fs").constants.F_OK);
           console.log("Found ffmpeg at:", ffmpegPath);
           return ffmpegPath;
-        } catch (error) {
+        } catch (_error) {
           console.log("ffmpeg not found at:", ffmpegPath);
         }
       }
@@ -110,7 +81,7 @@ function getFfmpegPath(): string | null {
         const ffmpegStatic = require("ffmpeg-static");
         console.log("Fallback ffmpeg path:", ffmpegStatic);
         return ffmpegStatic;
-      } catch (error) {
+      } catch (_error) {
         console.error("Could not find ffmpeg binary");
         return null;
       }
@@ -181,7 +152,7 @@ function getFfprobePath(): string | null {
           require("fs").accessSync(ffprobePath, require("fs").constants.F_OK);
           console.log("Found ffprobe at:", ffprobePath);
           return ffprobePath;
-        } catch (error) {
+        } catch (_error) {
           console.log("ffprobe not found at:", ffprobePath);
         }
       }
@@ -191,7 +162,7 @@ function getFfprobePath(): string | null {
         const ffprobeStatic = require("ffprobe-static");
         console.log("Fallback ffprobe path:", ffprobeStatic.path);
         return ffprobeStatic.path;
-      } catch (error) {
+      } catch (_error) {
         console.error("Could not find ffprobe binary");
         return null;
       }
@@ -230,11 +201,11 @@ try {
 }
 
 class ThumbnailGenerator {
-  private db: DatabaseManager;
+  private db: PrismaDatabaseManager;
   private thumbnailsDir: string;
   private settings: ThumbnailSettings;
 
-  constructor(database: DatabaseManager) {
+  constructor(database: PrismaDatabaseManager) {
     this.db = database;
     this.thumbnailsDir = path.join(app.getPath("userData"), "thumbnails");
     this.settings = {
@@ -253,7 +224,7 @@ class ThumbnailGenerator {
     }
   }
 
-  async generateThumbnails(video: Video): Promise<ThumbnailResult> {
+  async generateThumbnails(video: VideoRecord): Promise<ThumbnailResult> {
     try {
       const videoId = video.id || video.path.replace(/[^a-zA-Z0-9]/g, "_");
       const mainThumbnailPath = path.join(
@@ -374,20 +345,22 @@ class ThumbnailGenerator {
     });
   }
 
-  async deleteThumbnails(video: Video): Promise<void> {
+  async deleteThumbnails(video: VideoRecord): Promise<void> {
     try {
       // Delete main thumbnail
-      if (video.thumbnail_path) {
+      if (video.thumbnailPath) {
         try {
-          await fs.unlink(video.thumbnail_path);
+          await fs.unlink(video.thumbnailPath);
         } catch (error) {
           console.error("Error deleting main thumbnail:", error);
         }
       }
 
       // Delete chapter thumbnails
-      if (video.chapter_thumbnails) {
-        const chapterThumbnails = JSON.parse(video.chapter_thumbnails);
+      if (video.chapterThumbnails) {
+        const chapterThumbnails = Array.isArray(video.chapterThumbnails)
+          ? video.chapterThumbnails
+          : JSON.parse(video.chapterThumbnails as string);
         for (const chapter of chapterThumbnails) {
           try {
             await fs.unlink(chapter.path);
@@ -410,12 +383,14 @@ class ThumbnailGenerator {
 
       // Collect all used thumbnail paths
       for (const video of videos) {
-        if (video.thumbnail_path) {
-          usedThumbnails.add(path.basename(video.thumbnail_path));
+        if (video.thumbnailPath) {
+          usedThumbnails.add(path.basename(video.thumbnailPath));
         }
 
-        if (video.chapter_thumbnails) {
-          const chapterThumbnails = JSON.parse(video.chapter_thumbnails);
+        if (video.chapterThumbnails) {
+          const chapterThumbnails = Array.isArray(video.chapterThumbnails)
+            ? video.chapterThumbnails
+            : JSON.parse(video.chapterThumbnails as string);
           for (const chapter of chapterThumbnails) {
             usedThumbnails.add(path.basename(chapter.path));
           }
@@ -460,7 +435,7 @@ class ThumbnailGenerator {
     }
   }
 
-  async regenerateMainThumbnail(video: Video): Promise<RegenerateResult> {
+  async regenerateMainThumbnail(video: VideoRecord): Promise<RegenerateResult> {
     try {
       const videoId = video.id || video.path.replace(/[^a-zA-Z0-9]/g, "_");
       const mainThumbnailPath = path.join(
@@ -540,58 +515,67 @@ class ThumbnailGenerator {
   }
 
   // 不要なサムネイル画像を削除
-  async cleanupThumbnails(): Promise<{ removedFiles: number; totalSize: number }> {
+  async cleanupThumbnails(): Promise<{
+    removedFiles: number;
+    totalSize: number;
+  }> {
     console.log("Starting thumbnail cleanup...");
-    
+
     try {
       // データベースから全動画を取得
       const videos = await this.db.getVideos();
       const validThumbnailPaths = new Set<string>();
-      
+
       // 有効なサムネイルパスを収集
       for (const video of videos) {
-        if (video.thumbnail_path && await this.fileExists(video.thumbnail_path)) {
-          validThumbnailPaths.add(video.thumbnail_path);
+        if (
+          video.thumbnailPath &&
+          (await this.fileExists(video.thumbnailPath))
+        ) {
+          validThumbnailPaths.add(video.thumbnailPath);
         }
-        
+
         // チャプターサムネイルも収集
-        if (video.chapter_thumbnails) {
+        if (video.chapterThumbnails) {
           try {
-            const chapters = typeof video.chapter_thumbnails === 'string' 
-              ? JSON.parse(video.chapter_thumbnails) 
-              : video.chapter_thumbnails;
-            
+            const chapters = Array.isArray(video.chapterThumbnails)
+              ? video.chapterThumbnails
+              : JSON.parse(video.chapterThumbnails as string);
+
             if (Array.isArray(chapters)) {
               for (const chapter of chapters) {
-                const chapterPath = chapter.path || chapter.thumbnail_path;
-                if (chapterPath && await this.fileExists(chapterPath)) {
+                const chapterPath = chapter.path;
+                if (chapterPath && (await this.fileExists(chapterPath))) {
                   validThumbnailPaths.add(chapterPath);
                 }
               }
             }
-          } catch (error) {
-            console.warn("Failed to parse chapter thumbnails for video:", video.id);
+          } catch (_error) {
+            console.warn(
+              "Failed to parse chapter thumbnails for video:",
+              video.id
+            );
           }
         }
       }
-      
+
       // サムネイルディレクトリ内の全ファイルを取得
       const thumbnailDirs = [
         this.thumbnailsDir,
-        path.join(path.dirname(this.thumbnailsDir), "chapters")
+        path.join(path.dirname(this.thumbnailsDir), "chapters"),
       ];
-      
+
       let removedFiles = 0;
       let totalSize = 0;
-      
+
       for (const thumbnailDir of thumbnailDirs) {
         if (await this.directoryExists(thumbnailDir)) {
           const files = await fs.readdir(thumbnailDir);
-          
+
           for (const file of files) {
             const filePath = path.join(thumbnailDir, file);
             const stats = await fs.stat(filePath);
-            
+
             if (stats.isFile() && !validThumbnailPaths.has(filePath)) {
               try {
                 totalSize += stats.size;
@@ -605,9 +589,13 @@ class ThumbnailGenerator {
           }
         }
       }
-      
-      console.log(`Cleanup completed: removed ${removedFiles} files, freed ${this.formatBytes(totalSize)}`);
-      
+
+      console.log(
+        `Cleanup completed: removed ${removedFiles} files, freed ${this.formatBytes(
+          totalSize
+        )}`
+      );
+
       return { removedFiles, totalSize };
     } catch (error) {
       console.error("Error during thumbnail cleanup:", error);
@@ -634,11 +622,11 @@ class ThumbnailGenerator {
   }
 
   private formatBytes(bytes: number): string {
-    if (bytes === 0) return '0 Bytes';
+    if (bytes === 0) return "0 Bytes";
     const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const sizes = ["Bytes", "KB", "MB", "GB"];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
   }
 }
 

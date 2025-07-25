@@ -79,3 +79,5 @@ thumbnails/
 *.db
 *.sqlite
 *.sqlite3
+
+/generated/prisma

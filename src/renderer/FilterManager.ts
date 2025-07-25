@@ -3,31 +3,12 @@
  * 評価、タグ、ディレクトリフィルターとその永続化を担当
  */
 
+import { Video, Directory, SortState } from "../types/types.js";
+
 export interface FilterState {
   rating: number;
   tags: string[];
   directories: string[];
-}
-
-export interface SortState {
-  field: string;
-  order: "ASC" | "DESC";
-}
-
-export interface Video {
-  id: number;
-  path: string;
-  title: string;
-  filename: string;
-  description?: string;
-  rating?: number;
-  tags?: string[];
-  [key: string]: any; // その他のプロパティ
-}
-
-export interface Directory {
-  path: string;
-  added_at: string;
 }
 
 export class FilterManager {
@@ -110,7 +91,7 @@ export class FilterManager {
   }
 
   // 検索クエリを更新
-  updateSearch(query: string): void {
+  updateSearch(_query: string): void {
     // 検索クエリは外部で管理されているが、フィルタ状態保存のためにここでも保存
     this.saveFilterState();
     this.notifyFilterChange();

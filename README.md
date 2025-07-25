@@ -214,15 +214,16 @@ npm install
 
 - アプリを完全に終了して再起動
 - `movie-library.db` ファイルを削除（データは失われます）
-- better-sqlite3のネイティブモジュールの再ビルド: `npm run rebuild:electron`
+- better-sqlite3 のネイティブモジュールの再ビルド: `npm run rebuild:electron`
 
 ### Windows アンインストールの問題
 
 通常のアンインストールが失敗する場合:
 
 1. **force-uninstall ツールを使用**:
+
    - `tools/force-uninstall.bat` を管理者権限で実行
-   - または `tools/force-uninstall.ps1` (PowerShell版)
+   - または `tools/force-uninstall.ps1` (PowerShell 版)
 
 2. **詳細なトラブルシューティング**:
    - [WINDOWS_UNINSTALL_GUIDE.md](WINDOWS_UNINSTALL_GUIDE.md) を参照

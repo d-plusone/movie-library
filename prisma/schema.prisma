@@ -1,0 +1,63 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Video {
+  id                Int        @id @default(autoincrement())
+  path              String     @unique
+  filename          String
+  title             String
+  duration          Int        @default(0)
+  size              BigInt     @default(0)
+  width             Int        @default(0)
+  height            Int        @default(0)
+  fps               Int        @default(0)
+  codec             String     @default("")
+  bitrate           Int        @default(0)
+  rating            Int        @default(0)
+  thumbnailPath     String?    @map("thumbnail_path")
+  chapterThumbnails String     @default("[]") @map("chapter_thumbnails")
+  description       String?
+  createdAt         String     @map("created_at")
+  modifiedAt        String     @map("modified_at")
+  addedAt           DateTime   @default(now()) @map("added_at")
+  updatedAt         DateTime   @updatedAt @map("updated_at")
+  videoTags         VideoTag[]
+
+  @@map("videos")
+}
+
+model Directory {
+  id      Int      @id @default(autoincrement())
+  path    String   @unique
+  name    String
+  addedAt DateTime @default(now()) @map("added_at")
+
+  @@map("directories")
+}
+
+model Tag {
+  id        Int        @id @default(autoincrement())
+  name      String     @unique
+  color     String     @default("#007AFF")
+  createdAt DateTime   @default(now()) @map("created_at")
+  videoTags VideoTag[]
+
+  @@map("tags")
+}
+
+model VideoTag {
+  videoId Int   @map("video_id")
+  tagId   Int   @map("tag_id")
+  tag     Tag   @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  video   Video @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@id([videoId, tagId])
+  @@map("video_tags")
+}

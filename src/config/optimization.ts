@@ -1,11 +1,6 @@
 // 軽量化のためのFFMPEG最適化設定
 
-export interface ThumbnailSettings {
-  quality: number;
-  scale: string;
-  format: string;
-  compression: string;
-}
+import { ThumbnailSettings } from "../types/types.js";
 
 export interface FFmpegOptimization {
   removeMetadata: boolean;

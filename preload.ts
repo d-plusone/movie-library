@@ -1,19 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-
-interface ThumbnailSettings {
-  quality?: number;
-  scale?: string;
-  format?: string;
-  [key: string]: any;
-}
-
-interface VideoUpdateData {
-  title?: string;
-  rating?: number;
-  description?: string;
-  thumbnailPath?: string;
-  chapterThumbnails?: any[];
-}
+import type { ThumbnailSettings, VideoUpdateData } from "./src/types/types";
 
 interface ElectronAPI {
   // Video operations
@@ -109,22 +95,22 @@ const electronAPI: ElectronAPI = {
 
   // Event listeners
   onScanProgress: (callback: (data: any) => void) => {
-    ipcRenderer.on("scan-progress", (event, data) => callback(data));
+    ipcRenderer.on("scan-progress", (_event, data) => callback(data));
   },
   onRescanProgress: (callback: (data: any) => void) => {
-    ipcRenderer.on("rescan-progress", (event, data) => callback(data));
+    ipcRenderer.on("rescan-progress", (_event, data) => callback(data));
   },
   onThumbnailProgress: (callback: (data: any) => void) => {
-    ipcRenderer.on("thumbnail-progress", (event, data) => callback(data));
+    ipcRenderer.on("thumbnail-progress", (_event, data) => callback(data));
   },
   onVideoAdded: (callback: (filePath: string) => void) => {
-    ipcRenderer.on("video-added", (event, filePath) => callback(filePath));
+    ipcRenderer.on("video-added", (_event, filePath) => callback(filePath));
   },
   onVideoRemoved: (callback: (filePath: string) => void) => {
-    ipcRenderer.on("video-removed", (event, filePath) => callback(filePath));
+    ipcRenderer.on("video-removed", (_event, filePath) => callback(filePath));
   },
   onDirectoryRemoved: (callback: (dirPath: string) => void) => {
-    ipcRenderer.on("directory-removed", (event, dirPath) => callback(dirPath));
+    ipcRenderer.on("directory-removed", (_event, dirPath) => callback(dirPath));
   },
   onOpenSettings: (callback: () => void) => {
     ipcRenderer.on("open-settings", () => callback());

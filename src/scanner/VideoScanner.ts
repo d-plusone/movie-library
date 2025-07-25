@@ -3,81 +3,26 @@ import path from "path";
 import ffmpeg from "fluent-ffmpeg";
 import ffmpegStatic from "ffmpeg-static";
 import ffprobeStatic from "ffprobe-static";
-import DatabaseManager from "../database/DatabaseManager";
+import PrismaDatabaseManager, {
+  type VideoRecord,
+} from "../database/PrismaDatabaseManager";
+import {
+  VideoMetadata,
+  ProgressCallback,
+  ProcessedVideo,
+} from "../types/types.js";
+
+// Prismaの型をインポート（interfaceを削除して直接型を使用）
 
 // Set ffmpeg and ffprobe paths
 ffmpeg.setFfmpegPath(ffmpegStatic!);
 ffmpeg.setFfprobePath(ffprobeStatic.path);
 
-interface ProcessedVideo {
-  id?: number;
-  path: string;
-  filename: string;
-  title: string;
-  duration?: number;
-  size: number;
-  width: number;
-  height: number;
-  fps: number;
-  codec?: string;
-  bitrate: number;
-  createdAt: string;
-  modifiedAt: string;
-  isNewVideo: boolean;
-  needsThumbnails: boolean;
-}
-
-interface ExistingVideo {
-  id: number;
-  path: string;
-  filename: string;
-  title?: string;
-  duration?: number;
-  size?: number;
-  width?: number;
-  height?: number;
-  fps?: number;
-  codec?: string;
-  bitrate?: number;
-  created_at?: string;
-  modified_at?: string;
-  rating: number;
-  thumbnail_path?: string;
-  chapter_thumbnails: string;
-  description?: string;
-  added_at: string;
-  updated_at: string;
-}
-
-interface VideoMetadata {
-  format: {
-    duration?: number | string;
-    bit_rate?: number | string;
-    size?: number | string;
-    format_name?: string;
-  };
-  streams: Array<{
-    index?: number;
-    codec_type?: string;
-    codec_name?: string;
-    width?: number;
-    height?: number;
-    r_frame_rate?: string;
-    avg_frame_rate?: string;
-    duration?: number | string;
-    bit_rate?: number | string;
-  }>;
-}
-
-interface ProgressCallback {
-  (progress: { current: number; total: number; file: string }): void;
-}
-
 class VideoScanner {
-  private db: DatabaseManager;
+  private db: PrismaDatabaseManager;
   private supportedExtensions: string[];
 
-  constructor(database: DatabaseManager) {
+  constructor(database: PrismaDatabaseManager) {
     this.db = database;
     this.supportedExtensions = [
       ".mp4",
@@ -100,17 +45,17 @@ class VideoScanner {
 
   isVideoFile(filePath: string): boolean {
     const fileName = path.basename(filePath);
-    
+
     // macOSの隠しファイル（Resource Fork）をスキップ
     if (fileName.startsWith("._")) {
       return false;
     }
-    
+
     // 隠しファイル（ドットファイル）をスキップ
     if (fileName.startsWith(".")) {
       return false;
     }
-    
+
     // システムファイルをスキップ
     const systemFiles = [
       ".DS_Store",
@@ -122,7 +67,7 @@ class VideoScanner {
     if (systemFiles.includes(fileName)) {
       return false;
     }
-    
+
     const ext = path.extname(filePath).toLowerCase();
     return this.supportedExtensions.includes(ext);
   }
@@ -173,18 +118,17 @@ class VideoScanner {
       newVideos: [] as ProcessedVideo[],
       updatedVideos: [] as ProcessedVideo[],
       deletedVideos: [] as string[],
-      reprocessedVideos: [] as ProcessedVideo[]
+      reprocessedVideos: [] as ProcessedVideo[],
     };
 
     // 1. 現在のデータベース内の全動画を取得
     const existingVideos = await this.getAllExistingVideos();
-    const existingPaths = new Set(existingVideos.map(v => v.path));
 
     // 2. 現在のファイルシステムから全動画ファイルを取得
     const allCurrentFiles: string[] = [];
     for (const dir of directories) {
       const files = await this.getAllFiles(dir);
-      allCurrentFiles.push(...files.filter(file => this.isVideoFile(file)));
+      allCurrentFiles.push(...files.filter((file) => this.isVideoFile(file)));
     }
     const currentPaths = new Set(allCurrentFiles);
 
@@ -197,8 +141,8 @@ class VideoScanner {
     }
 
     // 4. 問題のある動画を検出（メタデータが不完全）
-    const problematicVideos = existingVideos.filter(video => 
-      currentPaths.has(video.path) && this.isVideoProblematic(video)
+    const problematicVideos = existingVideos.filter(
+      (video) => currentPaths.has(video.path) && this.isVideoProblematic(video)
     );
 
     // 5. 新規・更新・問題動画の処理
@@ -216,7 +160,7 @@ class VideoScanner {
           });
         }
 
-        const existingVideo = existingVideos.find(v => v.path === filePath);
+        const existingVideo = existingVideos.find((v) => v.path === filePath);
         const stats = await fs.stat(filePath);
 
         if (!existingVideo) {
@@ -226,7 +170,9 @@ class VideoScanner {
             result.newVideos.push(video);
             console.log(`New video detected: ${filePath}`);
           }
-        } else if (existingVideo.modified_at !== stats.mtime.toISOString()) {
+        } else if (
+          existingVideo.modifiedAt.getTime() !== stats.mtime.getTime()
+        ) {
           // 更新された動画
           const video = await this.processFile(filePath);
           if (video) {
@@ -258,7 +204,11 @@ class VideoScanner {
           console.log(`Reprocessed video: ${problematicVideo.path}`);
         }
       } catch (error) {
-        console.error("Error reprocessing problematic video:", problematicVideo.path, error);
+        console.error(
+          "Error reprocessing problematic video:",
+          problematicVideo.path,
+          error
+        );
       }
     }
 
@@ -266,23 +216,28 @@ class VideoScanner {
   }
 
   // 動画に問題があるかチェック
-  private isVideoProblematic(video: any): boolean {
+  private isVideoProblematic(video: VideoRecord): boolean {
     return (
-      !video.width || video.width === 0 ||
-      !video.height || video.height === 0 ||
-      !video.duration || video.duration === 0 ||
-      !video.codec || video.codec === "unknown" ||
-      !video.fps || video.fps === 0
+      !video.width ||
+      video.width === 0 ||
+      !video.height ||
+      video.height === 0 ||
+      !video.duration ||
+      video.duration === 0 ||
+      !video.codec ||
+      video.codec === "unknown" ||
+      !video.fps ||
+      video.fps === 0
     );
   }
 
   // データベース内の全動画を取得
-  private async getAllExistingVideos(): Promise<any[]> {
+  private async getAllExistingVideos(): Promise<VideoRecord[]> {
     try {
       // DatabaseManagerのgetVideosメソッドを使用
       return await this.db.getVideos();
     } catch (error) {
-      console.error('Error getting existing videos:', error);
+      console.error("Error getting existing videos:", error);
       throw error;
     }
   }
@@ -299,10 +254,12 @@ class VideoScanner {
 
           // 隠しディレクトリやシステムディレクトリをスキップ
           if (entry.isDirectory()) {
-            if (entry.name.startsWith(".") || 
-                entry.name === "__MACOSX" || 
-                entry.name === "System Volume Information" ||
-                entry.name === "$RECYCLE.BIN") {
+            if (
+              entry.name.startsWith(".") ||
+              entry.name === "__MACOSX" ||
+              entry.name === "System Volume Information" ||
+              entry.name === "$RECYCLE.BIN"
+            ) {
               continue;
             }
             await scanDir(fullPath);
@@ -319,7 +276,10 @@ class VideoScanner {
     return files;
   }
 
-  async processFile(filePath: string, forceReprocess: boolean = false): Promise<ProcessedVideo | null> {
+  async processFile(
+    filePath: string,
+    forceReprocess: boolean = false
+  ): Promise<ProcessedVideo | null> {
     try {
       // 再度ファイル名をチェック（念のため）
       const fileName = path.basename(filePath);
@@ -336,42 +296,49 @@ class VideoScanner {
       if (
         !forceReprocess &&
         existingVideo &&
-        existingVideo.modified_at === stats.mtime.toISOString()
+        existingVideo.modifiedAt.getTime() === stats.mtime.getTime()
       ) {
         return {
           ...existingVideo,
           title: existingVideo.title || existingVideo.filename,
-          size: existingVideo.size || 0,
+          size: existingVideo.size || BigInt(0),
           width: existingVideo.width || 0,
           height: existingVideo.height || 0,
           fps: existingVideo.fps || 0,
           bitrate: existingVideo.bitrate || 0,
-          createdAt: existingVideo.created_at || "",
-          modifiedAt: existingVideo.modified_at || "",
+          createdAt: existingVideo.createdAt,
+          modifiedAt:
+            existingVideo.modifiedAt instanceof Date
+              ? existingVideo.modifiedAt
+              : new Date(),
           isNewVideo: false,
           needsThumbnails: false,
         };
       }
 
       const metadata = await this.getVideoMetadata(filePath);
-      
+
       // ビデオストリームを明示的に探す
-      const videoStream = metadata.streams.find(stream => stream.codec_type === 'video');
-      
+      const videoStream = metadata.streams.find(
+        (stream) => stream.codec_type === "video"
+      );
+
       // ビデオストリームが見つからない場合は最初のストリームを使用（フォールバック）
       const streamToUse = videoStream || metadata.streams[0];
-      
+
       let videoData;
-      
+
       if (!streamToUse) {
-        console.warn(`No usable stream found in file: ${filePath}, using file info only`);
+        console.warn(
+          `No usable stream found in file: ${filePath}, using file info only`
+        );
         // ストリームが見つからない場合でも基本的なファイル情報で動画として追加
         videoData = {
           path: filePath,
           filename: path.basename(filePath),
           title: path.basename(filePath, path.extname(filePath)),
           duration: this.parseDuration(metadata.format.duration),
-          size: stats.size,
+          size: BigInt(stats.size),
           width: 0,
           height: 0,
           fps: 0,
@@ -386,15 +353,15 @@ class VideoScanner {
           width: streamToUse.width,
           height: streamToUse.height,
           fps: streamToUse.r_frame_rate,
-          codec: streamToUse.codec_name
+          codec: streamToUse.codec_name,
         });
-        
+
         videoData = {
           path: filePath,
           filename: path.basename(filePath),
           title: path.basename(filePath, path.extname(filePath)),
           duration: this.parseDuration(metadata.format.duration),
-          size: stats.size,
+          size: BigInt(stats.size),
           width: streamToUse.width || 0,
           height: streamToUse.height || 0,
           fps: this.parseFps(streamToUse.r_frame_rate),
@@ -420,69 +387,75 @@ class VideoScanner {
     }
   }
 
-  async checkExistingVideo(filePath: string): Promise<ExistingVideo | null> {
+  async checkExistingVideo(filePath: string): Promise<VideoRecord | null> {
     try {
       // DatabaseManagerのgetVideoByPathメソッドを使用
       return await this.db.getVideoByPath(filePath);
     } catch (error) {
-      console.error('Error checking existing video:', error);
+      console.error("Error checking existing video:", error);
       throw error;
     }
   }
 
   async getVideoMetadata(filePath: string): Promise<VideoMetadata> {
     return new Promise((resolve, reject) => {
-      const { spawn } = require('child_process');
+      const { spawn } = require("child_process");
       const ffprobePath = ffprobeStatic.path;
-      
+
       const ffprobe = spawn(ffprobePath, [
-        '-v', 'quiet',
-        '-print_format', 'json',
-        '-show_format',
-        '-show_streams',
-        filePath
+        "-v",
+        "quiet",
+        "-print_format",
+        "json",
+        "-show_format",
+        "-show_streams",
+        filePath,
       ]);
-      
-      let stdout = '';
-      let stderr = '';
-      
-      ffprobe.stdout.on('data', (data: Buffer) => {
+
+      let stdout = "";
+      let stderr = "";
+
+      ffprobe.stdout.on("data", (data: Buffer) => {
         stdout += data.toString();
       });
-      
-      ffprobe.stderr.on('data', (data: Buffer) => {
+
+      ffprobe.stderr.on("data", (data: Buffer) => {
         stderr += data.toString();
       });
-      
-      ffprobe.on('close', (code: number) => {
+
+      ffprobe.on("close", (code: number) => {
         if (code !== 0) {
-          console.error('FFprobe error for file:', filePath, stderr);
+          console.error("FFprobe error for file:", filePath, stderr);
           reject(new Error(`FFprobe exited with code ${code}: ${stderr}`));
         } else {
           try {
             const metadata = JSON.parse(stdout);
-            console.log('FFprobe metadata for:', path.basename(filePath), {
+            console.log("FFprobe metadata for:", path.basename(filePath), {
               streamsCount: metadata.streams?.length || 0,
-              streams: metadata.streams?.map((s: any) => ({
+              streams: metadata.streams?.map((s) => ({
                 index: s.index,
                 codec_type: s.codec_type,
                 codec_name: s.codec_name,
                 width: s.width,
                 height: s.height,
                 r_frame_rate: s.r_frame_rate,
-                duration: s.duration
-              }))
+                duration: s.duration,
+              })),
             });
             resolve(metadata as VideoMetadata);
           } catch (parseError) {
-            console.error('Failed to parse FFprobe output:', parseError, stdout);
+            console.error(
+              "Failed to parse FFprobe output:",
+              parseError,
+              stdout
+            );
             reject(parseError);
           }
         }
       });
-      
-      ffprobe.on('error', (error: Error) => {
-        console.error('FFprobe spawn error for file:', filePath, error);
+
+      ffprobe.on("error", (error: Error) => {
+        console.error("FFprobe spawn error for file:", filePath, error);
         reject(error);
       });
     });
@@ -490,16 +463,16 @@ class VideoScanner {
 
   parseFps(frameRate?: string): number {
     if (!frameRate) {
-      console.warn('Frame rate is undefined or empty');
+      console.warn("Frame rate is undefined or empty");
       return 0;
     }
 
     try {
       // Handle different frame rate formats
-      if (frameRate.includes('/')) {
-        const [numerator, denominator] = frameRate.split('/').map(Number);
+      if (frameRate.includes("/")) {
+        const [numerator, denominator] = frameRate.split("/").map(Number);
         if (denominator === 0) {
-          console.warn('Frame rate denominator is 0:', frameRate);
+          console.warn("Frame rate denominator is 0:", frameRate);
           return 0;
         }
         const fps = numerator / denominator;
@@ -511,30 +484,30 @@ class VideoScanner {
         return isNaN(fps) ? 0 : Math.round(fps * 100) / 100;
       }
     } catch (error) {
-      console.error('Error parsing frame rate:', frameRate, error);
+      console.error("Error parsing frame rate:", frameRate, error);
       return 0;
     }
   }
 
   parseDuration(duration?: number | string): number {
     if (!duration) return 0;
-    
-    if (typeof duration === 'string') {
+
+    if (typeof duration === "string") {
       const parsed = parseFloat(duration);
       return isNaN(parsed) ? 0 : parsed;
     }
-    
+
     return duration;
   }
 
   parseBitrate(bitrate?: number | string): number {
     if (!bitrate) return 0;
-    
-    if (typeof bitrate === 'string') {
+
+    if (typeof bitrate === "string") {
       const parsed = parseInt(bitrate);
       return isNaN(parsed) ? 0 : parsed;
     }
-    
+
     return bitrate;
   }
 
@@ -578,20 +551,22 @@ class VideoScanner {
       deletedVideos: [] as string[],
       totalProcessed: 0,
       totalUpdated: 0,
-      totalErrors: 0
+      totalErrors: 0,
     };
 
-    console.log("Starting force rescan of all videos in directories:", directories);
+    console.log(
+      "Starting force rescan of all videos in directories:",
+      directories
+    );
 
     // 1. 現在のデータベース内の全動画を取得
     const existingVideos = await this.getAllExistingVideos();
-    const existingPaths = new Set(existingVideos.map(v => v.path));
 
     // 2. 現在のファイルシステムから全動画ファイルを取得
     const allCurrentFiles: string[] = [];
     for (const dir of directories) {
       const files = await this.getAllFiles(dir);
-      allCurrentFiles.push(...files.filter(file => this.isVideoFile(file)));
+      allCurrentFiles.push(...files.filter((file) => this.isVideoFile(file)));
     }
     const currentPaths = new Set(allCurrentFiles);
 
@@ -621,27 +596,29 @@ class VideoScanner {
           });
         }
 
-        console.log(`Force rescanning video ${processedCount}/${totalFiles}: ${filePath}`);
+        console.log(
+          `Force rescanning video ${processedCount}/${totalFiles}: ${filePath}`
+        );
 
         // 既存の動画データがあるかチェック
-        const existingVideo = existingVideos.find(v => v.path === filePath);
-        
+        const existingVideo = existingVideos.find((v) => v.path === filePath);
+
         // ファイルを強制的に再処理（既存データがあっても無視）
         const video = await this.processFile(filePath, true); // 強制処理フラグを追加
 
         if (video) {
           result.processedVideos.push(video);
-          
+
           // 既存データと比較して更新があったかチェック
           if (existingVideo) {
             // メタデータの違いをチェック
-            const hasChanges = 
+            const hasChanges =
               existingVideo.duration !== video.duration ||
               existingVideo.width !== video.width ||
               existingVideo.height !== video.height ||
               existingVideo.size !== video.size ||
               existingVideo.title !== video.title;
-            
+
             if (hasChanges) {
               result.updatedVideos.push(video);
               result.totalUpdated++;
@@ -654,7 +631,6 @@ class VideoScanner {
             console.log(`New video processed: ${filePath}`);
           }
         }
-
       } catch (error) {
         result.totalErrors++;
         console.error(`Error processing video file: ${filePath}`, error);
@@ -665,7 +641,7 @@ class VideoScanner {
       totalProcessed: result.totalProcessed,
       totalUpdated: result.totalUpdated,
       totalErrors: result.totalErrors,
-      deletedVideos: result.deletedVideos.length
+      deletedVideos: result.deletedVideos.length,
     });
 
     return result;

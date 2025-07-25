@@ -5,6 +5,7 @@ This directory contains scripts used during the build process to create Windows 
 ## Files
 
 ### installer.nsh
+
 Custom NSIS (Nullsoft Scriptable Install System) script that enhances the Windows installer with:
 
 - **Process Management**: Automatically terminates running Movie Library processes before installation/uninstallation
@@ -19,6 +20,7 @@ These scripts are automatically used by electron-builder during the build proces
 ## Build Integration
 
 The installer script is integrated into the build process via:
+
 ```json
 "nsis": {
   "include": "installer/installer.nsh"
@@ -28,6 +30,7 @@ The installer script is integrated into the build process via:
 ## Customization
 
 You can modify `installer.nsh` to:
+
 - Add custom installation steps
 - Modify cleanup behavior
 - Add additional registry entries
@@ -36,6 +39,7 @@ You can modify `installer.nsh` to:
 ## NSIS Macros
 
 The script defines several macros:
+
 - `customUnInstallCheck`: Process termination before uninstall
 - `customUnInit`: Deep cleanup after uninstall
 - `preInit`: Pre-installation checks
@@ -44,6 +48,7 @@ The script defines several macros:
 ## Testing
 
 When testing installer changes:
+
 1. Build the Windows installer: `npm run build:win`
 2. Test installation on a clean Windows system
 3. Test uninstallation to ensure clean removal

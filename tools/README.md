@@ -5,14 +5,17 @@ This directory contains utility tools for Movie Library.
 ## Uninstall Tools
 
 ### force-uninstall.bat
+
 A Windows batch script for forcefully uninstalling Movie Library when the normal uninstaller fails.
 
 **Usage:**
+
 1. Right-click on `force-uninstall.bat`
 2. Select "Run as administrator"
 3. Follow the prompts
 
 **Features:**
+
 - Force terminates all Movie Library processes
 - Removes all application directories
 - Cleans registry entries
@@ -20,14 +23,17 @@ A Windows batch script for forcefully uninstalling Movie Library when the normal
 - Comprehensive cleanup
 
 ### force-uninstall.ps1
+
 A PowerShell script version of the force uninstaller with enhanced error handling.
 
 **Usage:**
+
 1. Open PowerShell as Administrator
 2. Set execution policy: `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser`
 3. Run: `.\force-uninstall.ps1`
 
 **Features:**
+
 - Same functionality as the batch script
 - Better error reporting
 - Colored output
@@ -36,6 +42,7 @@ A PowerShell script version of the force uninstaller with enhanced error handlin
 ## When to Use These Tools
 
 Use these tools if:
+
 - Normal uninstallation through Windows "Add or Remove Programs" fails
 - You get "Cannot uninstall" errors
 - The application appears to be partially installed
@@ -55,6 +62,7 @@ Use these tools if:
 ## Troubleshooting
 
 If the scripts don't work:
+
 1. Restart your computer and try again
 2. Run Windows in Safe Mode and execute the script
 3. Use third-party uninstaller tools

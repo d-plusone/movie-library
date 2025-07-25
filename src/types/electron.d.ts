@@ -1,55 +1,84 @@
-// TypeScript global declarations for Electron API
+import type {
+  Video,
+  Directory,
+  Tag,
+  ThumbnailSettings,
+  ScanResult,
+  ScanProgress,
+  ThumbnailProgress,
+  ProgressManager,
+  ThemeManager,
+} from "./types";
 
-export interface Video {
-  id: string;
-  filename: string;
-  title: string;
-  path: string;
-  size: number;
-  duration: number;
-  width: number;
-  height: number;
-  thumbnail_path?: string;
-  chapter_thumbnails?: ChapterThumbnail[] | string;
-  tags?: string[];
-  rating?: number;
-  description?: string;
-  added_at: string;
-  fileSize?: number;
-  filePath?: string;
+// Electron API専用の型拡張（IDが文字列の場合など）
+export interface ElectronVideo extends Omit<Video, "id"> {
+  id: string; // Electron APIではIDは文字列
 }
 
-export interface ChapterThumbnail {
-  path: string;
-  timestamp: number;
-  thumbnail_path?: string;
+export interface ElectronDirectory extends Omit<Directory, "id"> {
+  id?: string;
 }
 
-export interface ThumbnailInfo {
-  src: string;
-  label: string;
+export interface ElectronTag extends Omit<Tag, "id"> {
+  id?: string;
 }
 
-export interface Tag {
-  name: string;
-  count: number;
-}
+// Electron Main Process API
+declare global {
+  interface Window {
+    electronAPI: {
+      // Video operations
+      getVideos(): Promise<ElectronVideo[]>;
+      updateVideo(id: string, data: Partial<ElectronVideo>): Promise<void>;
+      openVideo(path: string): Promise<void>;
+      loadVideos(forceReload?: boolean): Promise<ElectronVideo[]>;
+      playVideo(path: string): Promise<void>;
+      hasVideoUpdates(lastCheckTime: number): Promise<boolean>;
 
-export interface Directory {
-  path: string;
-  name: string;
-}
+      // Directory operations
+      getDirectories(): Promise<ElectronDirectory[]>;
+      addDirectory(directoryPath?: string): Promise<ElectronDirectory[]>;
+      removeDirectory(directoryPath: string): Promise<void>;
+      chooseDirectory(): Promise<string[]>;
+      scanDirectories(): Promise<ScanResult>;
+      rescanAllVideos(): Promise<ScanResult>;
 
-export interface Filter {
-  tags: string[];
-  rating: number;
-  searchQuery: string;
-}
+      // Tag operations
+      getTags(): Promise<ElectronTag[]>;
+      addTagToVideo(videoId: string, tagName: string): Promise<void>;
+      removeTagFromVideo(videoId: string, tagName: string): Promise<void>;
+      deleteTag(tagName: string): Promise<void>;
+      updateTag(oldName: string, newName: string): Promise<void>;
 
-export interface ThumbnailSettings {
-  quality: number;
-  width: number;
-  height: number;
+      // Thumbnail operations
+      generateThumbnails(): Promise<void>;
+      updateThumbnailSettings(settings: ThumbnailSettings): Promise<void>;
+      regenerateAllThumbnails(): Promise<void>;
+      regenerateMainThumbnail(videoId: string): Promise<ElectronVideo>;
+      cleanupThumbnails(): Promise<void>;
+
+      // Progress callbacks
+      onScanProgress(callback: (data: ScanProgress) => void): void;
+      onThumbnailProgress(callback: (data: ThumbnailProgress) => void): void;
+      onRescanProgress(callback: (data: ScanProgress) => void): void;
+
+      // Event listeners
+      onVideoAdded(callback: (filePath: string) => void): void;
+      onVideoRemoved(callback: (filePath: string) => void): void;
+      onDirectoryRemoved(callback: (dirPath: string) => void): void;
+      onOpenSettings(callback: () => void): void;
+      onOpenAddDirectory(callback: () => void): void;
+
+      // Utility methods
+      checkDirectoryExists(dirPath: string): Promise<boolean>;
+
+      // Theme management
+      theme: ThemeManager;
+
+      // Progress management
+      progress: ProgressManager;
+    };
+  }
 }
 
 export interface ScanProgress {
@@ -86,8 +115,8 @@ export interface ElectronAPI {
   addDirectory(directoryPath?: string): Promise<Directory[]>;
   removeDirectory(directoryPath: string): Promise<void>;
   chooseDirectory(): Promise<string[]>;
-  scanDirectories(): Promise<void>;
-  rescanAllVideos(): Promise<any>;
+  scanDirectories(): Promise<ScanResult>;
+  rescanAllVideos(): Promise<ScanResult>;
 
   // Tag operations
   getTags(): Promise<Tag[]>;
@@ -131,8 +160,8 @@ export interface NotificationManager {
 export interface ProgressManager {
   showProgress(message: string, progress: number): void;
   hideProgress(): void;
-  handleScanProgress(data: ScanProgress): any;
-  handleThumbnailProgress(data: ThumbnailProgress): any;
+  handleScanProgress(data: ScanProgress): void;
+  handleThumbnailProgress(data: ThumbnailProgress): void;
 }
 
 export interface ThemeManager {
