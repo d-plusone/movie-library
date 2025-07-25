@@ -1,32 +1,41 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { ThumbnailSettings, VideoUpdateData } from "./src/types/types";
+import type { 
+  ThumbnailSettings, 
+  VideoUpdateData, 
+  Video, 
+  Directory, 
+  Tag, 
+  ScanResult,
+  ScanProgress,
+  ThumbnailProgress 
+} from "./src/types/types";
 
 interface ElectronAPI {
   // Video operations
-  getVideos: () => Promise<any[]>;
-  getVideo: (id: number) => Promise<any>;
+  getVideos: () => Promise<Video[]>;
+  getVideo: (id: number) => Promise<Video>;
   updateVideo: (id: number, data: VideoUpdateData) => Promise<boolean>;
-  searchVideos: (query: string) => Promise<any[]>;
+  searchVideos: (query: string) => Promise<Video[]>;
   openVideo: (filePath: string) => Promise<void>;
   hasVideoUpdates: (lastCheckTime: number) => Promise<boolean>;
 
   // Directory operations
-  getDirectories: () => Promise<any[]>;
+  getDirectories: () => Promise<Directory[]>;
   addDirectory: (path: string) => Promise<number>;
   removeDirectory: (path: string) => Promise<boolean>;
   chooseDirectory: () => Promise<string[]>;
-  scanDirectories: () => Promise<any[]>;
-  rescanAllVideos: () => Promise<any>;
+  scanDirectories: () => Promise<ScanResult>;
+  rescanAllVideos: () => Promise<ScanResult>;
 
   // Thumbnail operations
-  generateThumbnails: () => Promise<any[]>;
-  regenerateAllThumbnails: () => Promise<any[]>;
-  regenerateMainThumbnail: (videoId: number) => Promise<any>;
+  generateThumbnails: () => Promise<void>;
+  regenerateAllThumbnails: () => Promise<void>;
+  regenerateMainThumbnail: (videoId: number) => Promise<Video>;
   updateThumbnailSettings: (settings: ThumbnailSettings) => Promise<boolean>;
   cleanupThumbnails: () => Promise<void>;
 
   // Tag operations
-  getTags: () => Promise<any[]>;
+  getTags: () => Promise<Tag[]>;
   addTagToVideo: (videoId: number, tagName: string) => Promise<boolean>;
   removeTagFromVideo: (videoId: number, tagName: string) => Promise<boolean>;
   deleteTag: (tagName: string) => Promise<boolean>;
@@ -36,9 +45,9 @@ interface ElectronAPI {
   checkDirectoryExists: (dirPath: string) => Promise<boolean>;
 
   // Event listeners
-  onScanProgress: (callback: (data: any) => void) => void;
-  onRescanProgress: (callback: (data: any) => void) => void;
-  onThumbnailProgress: (callback: (data: any) => void) => void;
+  onScanProgress: (callback: (data: ScanProgress) => void) => void;
+  onRescanProgress: (callback: (data: ScanProgress) => void) => void;
+  onThumbnailProgress: (callback: (data: ThumbnailProgress) => void) => void;
   onVideoAdded: (callback: (filePath: string) => void) => void;
   onVideoRemoved: (callback: (filePath: string) => void) => void;
   onDirectoryRemoved: (callback: (dirPath: string) => void) => void;
@@ -94,13 +103,13 @@ const electronAPI: ElectronAPI = {
     ipcRenderer.invoke("check-directory-exists", dirPath),
 
   // Event listeners
-  onScanProgress: (callback: (data: any) => void) => {
+  onScanProgress: (callback: (data: ScanProgress) => void) => {
     ipcRenderer.on("scan-progress", (_event, data) => callback(data));
   },
-  onRescanProgress: (callback: (data: any) => void) => {
+  onRescanProgress: (callback: (data: ScanProgress) => void) => {
     ipcRenderer.on("rescan-progress", (_event, data) => callback(data));
   },
-  onThumbnailProgress: (callback: (data: any) => void) => {
+  onThumbnailProgress: (callback: (data: ThumbnailProgress) => void) => {
     ipcRenderer.on("thumbnail-progress", (_event, data) => callback(data));
   },
   onVideoAdded: (callback: (filePath: string) => void) => {

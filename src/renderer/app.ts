@@ -6,7 +6,6 @@ import {
   Directory,
   ChapterThumbnail,
   SortState,
-  ThumbnailData,
   BulkTagChange,
 } from "../types/types.js";
 import {
@@ -37,7 +36,7 @@ class MovieLibraryApp {
   private currentSort: SortState = { field: "created_at", order: "DESC" };
 
   // Thumbnail and tooltip state
-  private currentThumbnails: ThumbnailData[] = [];
+  private currentThumbnails: ChapterThumbnail[] = [];
   private currentThumbnailIndex: number = 0;
   private tooltipTimeout: NodeJS.Timeout | null = null;
   private tooltipInterval: NodeJS.Timeout | null = null;
@@ -381,7 +380,7 @@ class MovieLibraryApp {
           "ディレクトリをチェック中"
         );
         showedProgress = true;
-        await this.checkDirectoriesExistence(directories as any);
+        await this.checkDirectoriesExistence(directories);
         console.log(
           "Directory existence check completed, calling completeProgress"
         );
@@ -671,6 +670,11 @@ class MovieLibraryApp {
       "click",
       this.closeSettingsModal.bind(this)
     );
+    this.safeAddEventListener(
+      "addDirectorySettingsBtn",
+      "click",
+      this.addDirectory.bind(this)
+    );
 
     // Bulk tag management
     this.safeAddEventListener(
@@ -856,12 +860,20 @@ class MovieLibraryApp {
     const target = e.target as HTMLElement;
     const videoItem = target.closest(".video-item") as HTMLElement;
 
-    if (videoItem && target.classList.contains("thumbnail")) {
-      const videoId = parseInt(videoItem.dataset.videoId!);
-      const video = this.filteredVideos.find((v) => v.id === videoId);
+    if (videoItem) {
+      // チェック対象を拡張：video-thumbnail内の画像要素または video-thumbnail要素自体
+      const isThumbnailElement =
+        target.classList.contains("video-thumbnail") ||
+        target.classList.contains("thumbnail-image") ||
+        (target.tagName === "IMG" && target.closest(".video-thumbnail"));
 
-      if (video) {
-        this.showThumbnailTooltip(target, video);
+      if (isThumbnailElement) {
+        const videoId = parseInt(videoItem.dataset.videoId!);
+        const video = this.filteredVideos.find((v) => v.id === videoId);
+
+        if (video) {
+          this.showThumbnailTooltip(target, video);
+        }
       }
     }
   }
@@ -869,7 +881,13 @@ class MovieLibraryApp {
   private handleVideoListMouseLeave(e: Event): void {
     const target = e.target as HTMLElement;
 
-    if (target.classList.contains("thumbnail")) {
+    // チェック対象を拡張：video-thumbnail内の画像要素または video-thumbnail要素自体
+    const isThumbnailElement =
+      target.classList.contains("video-thumbnail") ||
+      target.classList.contains("thumbnail-image") ||
+      (target.tagName === "IMG" && target.closest(".video-thumbnail"));
+
+    if (isThumbnailElement) {
       this.hideThumbnailTooltip();
     }
   }
@@ -1546,6 +1564,13 @@ class MovieLibraryApp {
       this.renderAll();
       this.applyFiltersAndSort();
 
+      // 設定ダイアログが開いている場合は、ディレクトリリストも更新
+      const settingsModal = document.getElementById("settingsModal");
+      if (settingsModal && settingsModal.hasAttribute("is-open")) {
+        const directories = this.videoManager.getDirectories();
+        this.uiRenderer.renderSettingsDirectories(directories);
+      }
+
       this.notificationManager.show("データを更新しました", "success");
     } catch (error) {
       console.error("Error refreshing data:", error);
@@ -2117,8 +2142,24 @@ class MovieLibraryApp {
       // UIを更新（詳細画面のみ）
       this.uiRenderer.updateDetailsRatingDisplay(rating);
 
-      // 動画リストの該当アイテムの評価表示のみ更新
-      this.updateVideoItemRating(this.currentVideo.id, rating);
+      // filteredVideosの該当動画も更新
+      const videoInList = this.filteredVideos.find(
+        (v) => v.id === this.currentVideo!.id
+      );
+      if (videoInList) {
+        videoInList.rating = rating;
+      }
+
+      // VideoManagerのデータも更新
+      const videoInManager = this.videoManager
+        .getVideos()
+        .find((v) => v.id === this.currentVideo!.id);
+      if (videoInManager) {
+        videoInManager.rating = rating;
+      }
+
+      // 動画リスト全体を再描画して即座に反映
+      this.renderVideoList();
 
       // 適切な通知メッセージを表示
       if (rating === 0) {
@@ -2135,26 +2176,13 @@ class MovieLibraryApp {
     }
   }
 
-  // 動画リストの特定のアイテムの評価表示を更新
-  private updateVideoItemRating(videoId: number, rating: number): void {
-    const videoElement = document.querySelector(`[data-video-id="${videoId}"]`);
-    if (videoElement) {
-      const ratingElement = videoElement.querySelector(
-        ".video-rating, .video-rating-overlay"
-      );
-      if (ratingElement) {
-        ratingElement.textContent = "⭐".repeat(rating);
-      }
-    }
-  }
-
   private showThumbnailTooltip(element: HTMLElement, video: Video): void {
     this.hideThumbnailTooltip();
 
     // チャプターサムネイルがない場合は何もしない
     if (!video.chapterThumbnails) return;
 
-    let chapterThumbnails: ThumbnailData[];
+    let chapterThumbnails: ChapterThumbnail[];
     try {
       chapterThumbnails =
         typeof video.chapterThumbnails === "string"
@@ -2578,6 +2606,9 @@ class MovieLibraryApp {
 
   // 設定関連
   private openSettingsModal(): void {
+    // 設定ダイアログを表示する前にディレクトリリストを更新
+    const directories = this.videoManager.getDirectories();
+    this.uiRenderer.renderSettingsDirectories(directories);
     this.uiRenderer.showSettingsModal();
   }
 
@@ -2606,6 +2637,7 @@ class MovieLibraryApp {
           quality: parseInt(qualityInput.value),
           size: sizeInput.value,
         };
+        console.log("App.ts - Saving thumbnail settings:", settings);
         await this.videoManager.updateThumbnailSettings(settings);
       }
 

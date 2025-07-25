@@ -3,7 +3,12 @@
  * 評価、タグ、ディレクトリフィルターとその永続化を担当
  */
 
-import { Video, Directory, SortState } from "../types/types.js";
+import {
+  Video,
+  Directory,
+  SortState,
+  FilterStateData,
+} from "../types/types.js";
 
 export interface FilterState {
   rating: number;
@@ -183,15 +188,11 @@ export class FilterManager {
 
     // ソート
     filteredVideos.sort((a, b) => {
-      let aValue: any = a[currentSort.field];
-      let bValue: any = b[currentSort.field];
+      let aValue: string = a[currentSort.field];
+      let bValue: string = b[currentSort.field];
 
-      if (typeof aValue === "string") {
-        aValue = aValue.toLowerCase();
-      }
-      if (typeof bValue === "string") {
-        bValue = bValue.toLowerCase();
-      }
+      aValue = aValue.toLowerCase();
+      bValue = bValue.toLowerCase();
 
       if (aValue < bValue) {
         return currentSort.order === "ASC" ? -1 : 1;
@@ -217,7 +218,7 @@ export class FilterManager {
   }
 
   // 外部から状態を復元するメソッド（app.tsから使用）
-  restoreState(filterData: any): void {
+  restoreState(filterData: FilterStateData): void {
     if (filterData.selectedDirectories) {
       this.selectedDirectories = filterData.selectedDirectories;
     }

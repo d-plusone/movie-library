@@ -88,11 +88,24 @@ export interface ThumbnailInfo {
   label: string;
 }
 
+export interface ThumbnailSettings {
+  quality?: number;
+  width?: number;
+  height?: number;
+  size?: string; // "1280x720" or "854x480" format
+}
+
 export interface Filter {
   tags: string[];
   directories: string[];
   rating: number;
   searchQuery?: string;
+}
+
+export interface FilterStateData {
+  selectedDirectories?: string[];
+  selectedTags?: string[];
+  ratingFilter?: number;
 }
 
 export interface VideoStats {

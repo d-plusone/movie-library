@@ -330,7 +330,10 @@ class ThumbnailGenerator {
   }
 
   updateSettings(newSettings: Partial<ThumbnailSettings>): void {
+    console.log("ThumbnailGenerator - Current settings:", this.settings);
+    console.log("ThumbnailGenerator - New settings:", newSettings);
     this.settings = { ...this.settings, ...newSettings };
+    console.log("ThumbnailGenerator - Updated settings:", this.settings);
   }
 
   async generateHighQualityThumbnail(

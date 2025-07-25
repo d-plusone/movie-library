@@ -13,7 +13,7 @@ import * as chokidar from "chokidar";
 import PrismaDatabaseManager from "./src/database/PrismaDatabaseManager.js";
 import VideoScanner from "./src/scanner/VideoScanner.js";
 import ThumbnailGenerator from "./src/thumbnail/ThumbnailGenerator.js";
-import { ProcessedVideo } from "./src/types/types.js";
+import { ProcessedVideo, ThumbnailResult } from "./src/types/types.js";
 
 class MovieLibraryApp {
   private mainWindow: BrowserWindow | null = null;
@@ -97,10 +97,10 @@ class MovieLibraryApp {
       });
     }
 
-    // Development mode
-    if (process.env.NODE_ENV === "development" || !app.isPackaged) {
-      this.mainWindow.webContents.openDevTools();
-    }
+    // Development mode - DevTools can be opened with F12
+    // if (process.env.NODE_ENV === "development" || !app.isPackaged) {
+    //   this.mainWindow.webContents.openDevTools();
+    // }
 
     // ウィンドウが閉じられたときの処理
     this.mainWindow.on("closed", () => {
@@ -428,7 +428,7 @@ class MovieLibraryApp {
       console.log("Starting automatic thumbnail generation after rescan...");
       try {
         const videos = await this.db.getVideos(); // 全動画を取得
-        const results: any[] = [];
+        const results: ThumbnailResult[] = [];
         let processedVideos = 0;
         const totalVideos = videos.length;
 
@@ -454,7 +454,7 @@ class MovieLibraryApp {
 
             if (video.duration !== undefined) {
               const thumbnailResult =
-                await this.thumbnailGenerator.generateThumbnails(video as any);
+                await this.thumbnailGenerator.generateThumbnails(video);
               results.push(thumbnailResult);
             }
 
@@ -518,7 +518,7 @@ class MovieLibraryApp {
     // Generate thumbnails
     ipcMain.handle("generate-thumbnails", async () => {
       const videos = await this.db.getVideosWithoutThumbnails();
-      const results: any[] = [];
+      const results: ThumbnailResult[] = [];
       let processedVideos = 0;
       const totalVideos = videos.length;
 
@@ -542,7 +542,7 @@ class MovieLibraryApp {
 
           if (video.duration !== undefined) {
             const result = await this.thumbnailGenerator.generateThumbnails(
-              video as any
+              video
             );
             results.push(result);
           }
@@ -590,7 +590,7 @@ class MovieLibraryApp {
     // Regenerate all thumbnails
     ipcMain.handle("regenerate-all-thumbnails", async () => {
       const videos = await this.db.getVideos();
-      const results: any[] = [];
+      const results: ThumbnailResult[] = [];
       let processedVideos = 0;
       const totalVideos = videos.length;
 
@@ -614,7 +614,7 @@ class MovieLibraryApp {
 
           if (video.duration !== undefined) {
             const result = await this.thumbnailGenerator.generateThumbnails(
-              video as any
+              video
             );
             results.push(result);
           }
@@ -736,9 +736,7 @@ class MovieLibraryApp {
         if (!video || video.duration === undefined) {
           throw new Error("Video not found or invalid duration");
         }
-        return await this.thumbnailGenerator.regenerateMainThumbnail(
-          video as any
-        );
+        return await this.thumbnailGenerator.regenerateMainThumbnail(video);
       }
     );
   }
@@ -746,7 +744,7 @@ class MovieLibraryApp {
   async generateThumbnailsForSingleVideo(video: ProcessedVideo): Promise<void> {
     try {
       if (video.id !== undefined) {
-        await this.thumbnailGenerator.generateThumbnails(video as any);
+        await this.thumbnailGenerator.generateThumbnails(video);
         console.log("Thumbnails generated for:", video.path);
       }
     } catch (error) {

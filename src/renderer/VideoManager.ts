@@ -328,12 +328,23 @@ export class VideoManager {
   async updateThumbnailSettings(settings: ThumbnailSettings): Promise<void> {
     try {
       // electronAPIに合わせて型を変換
-      const electronSettings = {
+      let electronSettings = {
         quality: settings.quality || 1,
         width: settings.width || 320,
         height: settings.height || 180,
         ...settings,
       };
+
+      // sizeプロパティがある場合は、widthとheightに変換
+      if (settings.size && typeof settings.size === "string") {
+        const sizeParts = settings.size.split("x");
+        if (sizeParts.length === 2) {
+          electronSettings.width = parseInt(sizeParts[0]);
+          electronSettings.height = parseInt(sizeParts[1]);
+        }
+      }
+
+      console.log("Updating thumbnail settings:", electronSettings);
       await window.electronAPI.updateThumbnailSettings(electronSettings);
     } catch (error) {
       console.error("VideoManager - Error updating thumbnail settings:", error);
