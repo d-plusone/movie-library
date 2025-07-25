@@ -212,11 +212,19 @@ export interface ProcessedVideo extends Video {
   needsThumbnails: boolean;
 }
 
+export interface ScanError {
+  filePath: string;
+  error: string;
+  errorCode?: string;
+  timestamp: Date;
+}
+
 export interface ComprehensiveScanResult {
   newVideos: ProcessedVideo[];
   updatedVideos: ProcessedVideo[];
   deletedVideos: string[];
   reprocessedVideos: ProcessedVideo[];
+  errors: ScanError[];
 }
 
 export interface ForceRescanResult {
@@ -226,6 +234,7 @@ export interface ForceRescanResult {
   totalProcessed: number;
   totalUpdated: number;
   totalErrors: number;
+  errors: ScanError[];
 }
 
 // ========================================

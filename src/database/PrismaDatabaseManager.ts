@@ -32,12 +32,25 @@ class PrismaDatabaseManager {
       // 現在の作業ディレクトリを表示
       console.log("Current working directory:", process.cwd());
       console.log("Database URL from env:", process.env.DATABASE_URL);
-      
+      console.log("App packaged:", process.env.NODE_ENV !== "development");
+
       // Prismaを使用してデータベース接続をテスト
       await this.prisma.$connect();
       console.log("Prisma database connection established");
+
+      // データベースの基本情報を表示
+      const videoCount = await this.prisma.video.count();
+      const dirCount = await this.prisma.directory.count();
+      console.log(
+        `Database initialized - Videos: ${videoCount}, Directories: ${dirCount}`
+      );
     } catch (error) {
       console.error("Failed to initialize Prisma database:", error);
+      console.error("Error details:", {
+        message: error.message,
+        code: error.code,
+        stack: error.stack,
+      });
       throw error;
     }
   }

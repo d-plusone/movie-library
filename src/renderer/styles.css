@@ -326,10 +326,12 @@ body {
     backdrop-filter: blur(10px);
     min-width: 320px;
     max-width: 400px;
-    width: 400px; /* 固定幅で計算を簡単に */
+    width: 400px;
+    /* 固定幅で計算を簡単に */
     transition: all 0.3s ease;
     animation: slideInUp 0.3s ease;
-    user-select: none; /* ドラッグ時のテキスト選択を防止 */
+    user-select: none;
+    /* ドラッグ時のテキスト選択を防止 */
 }
 
 .progress-modal.hidden {
@@ -351,6 +353,7 @@ body {
         transform: translateY(100%);
         opacity: 0;
     }
+
     to {
         transform: translateY(0);
         opacity: 1;
@@ -362,6 +365,7 @@ body {
         transform: translateX(-50%) translateY(100%);
         opacity: 0;
     }
+
     to {
         transform: translateX(-50%) translateY(0);
         opacity: 1;
@@ -420,9 +424,12 @@ body {
     margin-right: 8px;
     line-height: 1.4;
     word-break: break-word;
-    white-space: pre-line; /* 改行文字を有効にする */
-    max-height: 60px; /* 最大高さを制限 */
-    overflow-y: auto; /* 必要に応じてスクロール */
+    white-space: pre-line;
+    /* 改行文字を有効にする */
+    max-height: 60px;
+    /* 最大高さを制限 */
+    overflow-y: auto;
+    /* 必要に応じてスクロール */
 }
 
 .progress-bar-wrapper {
@@ -450,17 +457,21 @@ body {
     left: 0;
     right: 0;
     bottom: 0;
-    background: linear-gradient(90deg, 
-        transparent, 
-        rgba(255, 255, 255, 0.3), 
-        transparent
-    );
+    background: linear-gradient(90deg,
+            transparent,
+            rgba(255, 255, 255, 0.3),
+            transparent);
     animation: progressShimmer 2s infinite;
 }
 
 @keyframes progressShimmer {
-    0% { transform: translateX(-100%); }
-    100% { transform: translateX(100%); }
+    0% {
+        transform: translateX(-100%);
+    }
+
+    100% {
+        transform: translateX(100%);
+    }
 }
 
 .progress-percentage {
@@ -496,7 +507,7 @@ body {
         min-width: auto;
         max-width: none;
     }
-    
+
     .progress-modal.minimized {
         right: 10px;
         left: auto;
@@ -636,7 +647,7 @@ body {
         min-width: auto;
         max-width: none;
     }
-    
+
     .unified-progress-modal.minimized {
         right: 10px;
         left: auto;
@@ -1624,7 +1635,8 @@ body {
     border-radius: 4px;
     margin-right: 8px;
     transition: all 0.2s ease;
-    display: none; /* デフォルトで非表示 */
+    display: none;
+    /* デフォルトで非表示 */
     font-weight: 500;
 }
 

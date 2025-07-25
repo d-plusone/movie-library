@@ -1,8 +1,5 @@
 import { promises as fs } from "fs";
 import path from "path";
-import ffmpeg from "fluent-ffmpeg";
-import ffmpegStatic from "ffmpeg-static";
-import ffprobeStatic from "ffprobe-static";
 import PrismaDatabaseManager, {
   type VideoRecord,
 } from "../database/PrismaDatabaseManager";
@@ -10,17 +7,14 @@ import {
   VideoMetadata,
   ProgressCallback,
   ProcessedVideo,
+  ScanError,
 } from "../types/types.js";
-
-// Prismaの型をインポート（interfaceを削除して直接型を使用）
-
-// Set ffmpeg and ffprobe paths
-ffmpeg.setFfmpegPath(ffmpegStatic!);
-ffmpeg.setFfprobePath(ffprobeStatic.path);
+import { getFfprobePath } from "../utils/ffmpeg-utils.js";
 
 class VideoScanner {
   private db: PrismaDatabaseManager;
   private supportedExtensions: string[];
+  private ffprobePath: string | null;
 
   constructor(database: PrismaDatabaseManager) {
     this.db = database;
@@ -41,6 +35,10 @@ class VideoScanner {
       ".mts",
       ".m2ts",
     ];
+
+    // Get ffprobe path from shared utility
+    this.ffprobePath = getFfprobePath();
+    console.log("VideoScanner: Using ffprobe path:", this.ffprobePath);
   }
 
   isVideoFile(filePath: string): boolean {
@@ -113,12 +111,14 @@ class VideoScanner {
     updatedVideos: ProcessedVideo[];
     deletedVideos: string[];
     reprocessedVideos: ProcessedVideo[];
+    errors: ScanError[];
   }> {
     const result = {
       newVideos: [] as ProcessedVideo[],
       updatedVideos: [] as ProcessedVideo[],
       deletedVideos: [] as string[],
       reprocessedVideos: [] as ProcessedVideo[],
+      errors: [] as ScanError[],
     };
 
     // 1. 現在のデータベース内の全動画を取得
@@ -182,6 +182,15 @@ class VideoScanner {
         }
       } catch (error) {
         console.error("Error processing file:", filePath, error);
+        result.errors.push({
+          filePath,
+          error: error instanceof Error ? error.message : String(error),
+          errorCode:
+            error instanceof Error && "code" in error
+              ? String(error.code)
+              : undefined,
+          timestamp: new Date(),
+        });
       }
     }
 
@@ -209,6 +218,15 @@ class VideoScanner {
           problematicVideo.path,
           error
         );
+        result.errors.push({
+          filePath: problematicVideo.path,
+          error: error instanceof Error ? error.message : String(error),
+          errorCode:
+            error instanceof Error && "code" in error
+              ? String(error.code)
+              : undefined,
+          timestamp: new Date(),
+        });
       }
     }
 
@@ -399,10 +417,15 @@ class VideoScanner {
 
   async getVideoMetadata(filePath: string): Promise<VideoMetadata> {
     return new Promise((resolve, reject) => {
-      const { spawn } = require("child_process");
-      const ffprobePath = ffprobeStatic.path;
+      if (!this.ffprobePath) {
+        console.error("VideoScanner: ffprobe path not initialized");
+        reject(new Error("ffprobe not found"));
+        return;
+      }
 
-      const ffprobe = spawn(ffprobePath, [
+      const { spawn } = require("child_process");
+
+      const ffprobe = spawn(this.ffprobePath, [
         "-v",
         "quiet",
         "-print_format",
@@ -426,6 +449,7 @@ class VideoScanner {
       ffprobe.on("close", (code: number) => {
         if (code !== 0) {
           console.error("FFprobe error for file:", filePath, stderr);
+          console.error("VideoScanner: ffprobe path was:", this.ffprobePath);
           reject(new Error(`FFprobe exited with code ${code}: ${stderr}`));
         } else {
           try {
@@ -456,6 +480,7 @@ class VideoScanner {
 
       ffprobe.on("error", (error: Error) => {
         console.error("FFprobe spawn error for file:", filePath, error);
+        console.error("VideoScanner: ffprobe path was:", this.ffprobePath);
         reject(error);
       });
     });
@@ -544,6 +569,7 @@ class VideoScanner {
     totalProcessed: number;
     totalUpdated: number;
     totalErrors: number;
+    errors: ScanError[];
   }> {
     const result = {
       processedVideos: [] as ProcessedVideo[],
@@ -552,6 +578,7 @@ class VideoScanner {
       totalProcessed: 0,
       totalUpdated: 0,
       totalErrors: 0,
+      errors: [] as ScanError[],
     };
 
     console.log(
@@ -634,6 +661,15 @@ class VideoScanner {
       } catch (error) {
         result.totalErrors++;
         console.error(`Error processing video file: ${filePath}`, error);
+        result.errors.push({
+          filePath,
+          error: error instanceof Error ? error.message : String(error),
+          errorCode:
+            error instanceof Error && "code" in error
+              ? String(error.code)
+              : undefined,
+          timestamp: new Date(),
+        });
       }
     }
 

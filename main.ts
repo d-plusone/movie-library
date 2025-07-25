@@ -14,6 +14,12 @@ import PrismaDatabaseManager from "./src/database/PrismaDatabaseManager.js";
 import VideoScanner from "./src/scanner/VideoScanner.js";
 import ThumbnailGenerator from "./src/thumbnail/ThumbnailGenerator.js";
 import { ProcessedVideo, ThumbnailResult } from "./src/types/types.js";
+import { initializeFFmpeg } from "./src/utils/ffmpeg-utils.js";
+
+// Initialize FFmpeg paths once at startup
+console.log("Initializing FFmpeg paths...");
+const { ffmpegPath, ffprobePath } = initializeFFmpeg();
+console.log("FFmpeg initialization result:", { ffmpegPath, ffprobePath });
 
 class MovieLibraryApp {
   private mainWindow: BrowserWindow | null = null;
@@ -23,10 +29,21 @@ class MovieLibraryApp {
   public watchers: Map<string, chokidar.FSWatcher> = new Map();
 
   constructor() {
-    // データベースファイルのパスを設定（ルートディレクトリに固定）
-    const dbPath = path.join(process.cwd(), "movie-library.db");
+    // データベースファイルのパスを設定
+    let dbPath: string;
+
+    if (app.isPackaged) {
+      // パッケージされたアプリの場合、ユーザーデータディレクトリを使用
+      const userDataPath = app.getPath("userData");
+      dbPath = path.join(userDataPath, "movie-library.db");
+    } else {
+      // 開発環境では現在のワーキングディレクトリを使用
+      dbPath = path.join(process.cwd(), "movie-library.db");
+    }
+
     process.env.DATABASE_URL = `file:${dbPath}`;
-    
+    console.log(`Database path: ${dbPath}`);
+
     this.db = new PrismaDatabaseManager();
     this.videoScanner = new VideoScanner(this.db);
     this.thumbnailGenerator = new ThumbnailGenerator(this.db);
@@ -356,7 +373,21 @@ class MovieLibraryApp {
         updatedVideos: result.updatedVideos.length,
         reprocessedVideos: result.reprocessedVideos.length,
         deletedVideos: result.deletedVideos.length,
+        errors: result.errors.length,
       });
+
+      // エラーがある場合はダイアログで詳細を表示
+      if (result.errors.length > 0) {
+        const errorDetails = result.errors
+          .map((err) => `ファイル: ${err.filePath}\nエラー: ${err.error}`)
+          .join("\n\n");
+
+        const { dialog } = require("electron");
+        dialog.showErrorBox(
+          `スキャンエラー (${result.errors.length}件)`,
+          `以下のファイルでエラーが発生しました:\n\n${errorDetails}`
+        );
+      }
 
       // 最終プログレス送信
       this.mainWindow?.webContents.send("scan-progress", {
@@ -368,6 +399,8 @@ class MovieLibraryApp {
         totalUpdated: result.updatedVideos.length,
         totalReprocessed: result.reprocessedVideos.length,
         totalDeleted: result.deletedVideos.length,
+        totalErrors: result.errors.length,
+        errors: result.errors,
       };
     });
 
@@ -415,6 +448,19 @@ class MovieLibraryApp {
         totalErrors: result.totalErrors,
         deletedVideos: result.deletedVideos.length,
       });
+
+      // エラーがある場合はダイアログで詳細を表示
+      if (result.errors.length > 0) {
+        const errorDetails = result.errors
+          .map((err) => `ファイル: ${err.filePath}\nエラー: ${err.error}`)
+          .join("\n\n");
+
+        const { dialog } = require("electron");
+        dialog.showErrorBox(
+          `再スキャンエラー (${result.errors.length}件)`,
+          `以下のファイルでエラーが発生しました:\n\n${errorDetails}`
+        );
+      }
 
       // 再スキャン完了メッセージ
       this.mainWindow?.webContents.send("rescan-progress", {
@@ -509,6 +555,7 @@ class MovieLibraryApp {
         totalReprocessed: result.totalProcessed, // 全て再処理されたので同じ値
         totalDeleted: result.deletedVideos.length,
         totalErrors: result.totalErrors,
+        errors: result.errors,
       };
     });
 
@@ -979,9 +1026,32 @@ app.whenReady().then(async () => {
     }
   }
 
-  await movieApp.initialize();
-  movieApp.createWindow();
-  await movieApp.startWatchingAllDirectories();
+  try {
+    console.log("Initializing Movie Library App...");
+    console.log("App packaged:", app.isPackaged);
+    console.log("Platform:", process.platform);
+    console.log("Architecture:", process.arch);
+
+    await movieApp.initialize();
+    console.log("App initialized successfully");
+
+    movieApp.createWindow();
+    console.log("Window created successfully");
+
+    await movieApp.startWatchingAllDirectories();
+    console.log("Directory watching started successfully");
+  } catch (error) {
+    console.error("Failed to initialize app:", error);
+
+    // エラーダイアログを表示
+    const { dialog } = require("electron");
+    dialog.showErrorBox(
+      "Initialization Error",
+      `Failed to start Movie Library: ${error.message || error}`
+    );
+
+    app.quit();
+  }
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
