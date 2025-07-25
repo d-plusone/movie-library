@@ -28,7 +28,7 @@ Mac/Electron ベースの動画管理アプリケーション。直感的な UI/
 
 - **プラットフォーム**: macOS (Intel + Apple Silicon), Windows
 - **フレームワーク**: Electron 27
-- **データベース**: SQLite3
+- **データベース**: better-sqlite3
 - **動画処理**: FFmpeg
 - **サポート形式**: MP4, AVI, MOV, MKV, WMV, FLV など（MOV ファイル完全対応）
 
@@ -180,7 +180,7 @@ git push origin --tags
 # 解決方法: 依存関係を完全に再インストール
 rm -rf node_modules package-lock.json
 npm install
-npm rebuild sqlite3
+npm rebuild better-sqlite3
 ```
 
 ### TypeScript コンパイルエラー
@@ -214,6 +214,7 @@ npm install
 
 - アプリを完全に終了して再起動
 - `movie-library.db` ファイルを削除（データは失われます）
+- better-sqlite3のネイティブモジュールの再ビルド: `npm run rebuild:electron`
 
 ### Windows アンインストールの問題
 

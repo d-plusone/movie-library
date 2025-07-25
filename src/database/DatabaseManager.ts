@@ -1,7 +1,10 @@
-import sqlite3 from "sqlite3";
+import Database from "better-sqlite3";
 import path from "path";
 import { promises as fs } from "fs";
 import { app } from "electron";
+
+// better-sqlite3の型定義
+type DatabaseInstance = Database.Database;
 
 interface VideoData {
   path: string;
@@ -67,7 +70,7 @@ interface TagRecord {
 
 class DatabaseManager {
   private dbPath: string;
-  private db: sqlite3.Database | null = null;
+  private db: DatabaseInstance | null = null;
 
   constructor() {
     const userDataPath = app.getPath("userData");
@@ -76,26 +79,18 @@ class DatabaseManager {
   }
 
   async initialize(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      this.db = new sqlite3.Database(this.dbPath, (err) => {
-        if (err) {
-          reject(err);
-        } else {
-          this.createTables().then(resolve).catch(reject);
-        }
-      });
-    });
+    try {
+      this.db = new Database(this.dbPath);
+      // Enable foreign key constraints
+      this.db.pragma('foreign_keys = ON');
+      await this.createTables();
+    } catch (error) {
+      console.error('Failed to initialize database:', error);
+      throw error;
+    }
   }
 
   async createTables(): Promise<void> {
-    // Enable foreign key constraints
-    await new Promise<void>((resolve, reject) => {
-      this.db!.run("PRAGMA foreign_keys = ON", (err) => {
-        if (err) reject(err);
-        else resolve();
-      });
-    });
-
     const sql = `
       CREATE TABLE IF NOT EXISTS videos (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -149,15 +144,7 @@ class DatabaseManager {
       CREATE INDEX IF NOT EXISTS idx_videos_created_at ON videos(created_at);
     `;
 
-    return new Promise<void>((resolve, reject) => {
-      this.db!.exec(sql, (err) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve();
-        }
-      });
-    });
+    this.db!.exec(sql);
   }
 
   async addVideo(videoData: VideoData): Promise<number> {
@@ -168,34 +155,25 @@ class DatabaseManager {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `;
 
-    return new Promise((resolve, reject) => {
-      this.db!.run(
-        sql,
-        [
-          videoData.path,
-          videoData.filename,
-          videoData.title || videoData.filename,
-          videoData.duration,
-          videoData.size,
-          videoData.width,
-          videoData.height,
-          videoData.fps,
-          videoData.codec,
-          videoData.bitrate,
-          videoData.createdAt,
-          videoData.modifiedAt,
-          videoData.thumbnailPath,
-          JSON.stringify(videoData.chapterThumbnails || []),
-        ],
-        function (err) {
-          if (err) {
-            reject(err);
-          } else {
-            resolve(this.lastID);
-          }
-        }
-      );
-    });
+    const stmt = this.db!.prepare(sql);
+    const result = stmt.run(
+      videoData.path,
+      videoData.filename,
+      videoData.title || videoData.filename,
+      videoData.duration,
+      videoData.size,
+      videoData.width,
+      videoData.height,
+      videoData.fps,
+      videoData.codec,
+      videoData.bitrate,
+      videoData.createdAt,
+      videoData.modifiedAt,
+      videoData.thumbnailPath,
+      JSON.stringify(videoData.chapterThumbnails || [])
+    );
+
+    return result.lastInsertRowid as number;
   }
 
   async getVideos(
@@ -217,22 +195,16 @@ class DatabaseManager {
       sql += ` LIMIT ${limit} OFFSET ${offset}`;
     }
 
-    return new Promise((resolve, reject) => {
-      this.db!.all(sql, [], (err, rows: any[]) => {
-        if (err) {
-          reject(err);
-        } else {
-          const videos = rows.map((row) => ({
-            ...row,
-            tags: row.tags ? row.tags.split(",") : [],
-            chapterThumbnails: row.chapter_thumbnails
-              ? JSON.parse(row.chapter_thumbnails)
-              : [],
-          }));
-          resolve(videos);
-        }
-      });
-    });
+    const stmt = this.db!.prepare(sql);
+    const rows = stmt.all() as any[];
+
+    return rows.map((row) => ({
+      ...row,
+      tags: row.tags ? row.tags.split(",") : [],
+      chapterThumbnails: row.chapter_thumbnails
+        ? JSON.parse(row.chapter_thumbnails)
+        : [],
+    }));
   }
 
   async getVideo(id: number): Promise<VideoRecord | null> {
@@ -245,23 +217,44 @@ class DatabaseManager {
       GROUP BY v.id
     `;
 
-    return new Promise((resolve, reject) => {
-      this.db!.get(sql, [id], (err, row: any) => {
-        if (err) {
-          reject(err);
-        } else if (row) {
-          resolve({
-            ...row,
-            tags: row.tags ? row.tags.split(",") : [],
-            chapterThumbnails: row.chapter_thumbnails
-              ? JSON.parse(row.chapter_thumbnails)
-              : [],
-          });
-        } else {
-          resolve(null);
-        }
-      });
-    });
+    const stmt = this.db!.prepare(sql);
+    const row = stmt.get(id) as any;
+
+    if (row) {
+      return {
+        ...row,
+        tags: row.tags ? row.tags.split(",") : [],
+        chapterThumbnails: row.chapter_thumbnails
+          ? JSON.parse(row.chapter_thumbnails)
+          : [],
+      };
+    }
+    return null;
+  }
+
+  async getVideoByPath(path: string): Promise<VideoRecord | null> {
+    const sql = `
+      SELECT v.*, GROUP_CONCAT(t.name) as tags
+      FROM videos v
+      LEFT JOIN video_tags vt ON v.id = vt.video_id
+      LEFT JOIN tags t ON vt.tag_id = t.id
+      WHERE v.path = ?
+      GROUP BY v.id
+    `;
+
+    const stmt = this.db!.prepare(sql);
+    const row = stmt.get(path) as any;
+
+    if (row) {
+      return {
+        ...row,
+        tags: row.tags ? row.tags.split(",") : [],
+        chapterThumbnails: row.chapter_thumbnails
+          ? JSON.parse(row.chapter_thumbnails)
+          : [],
+      };
+    }
+    return null;
   }
 
   async updateVideo(id: number, data: VideoUpdateData): Promise<boolean> {
@@ -298,28 +291,16 @@ class DatabaseManager {
 
     const sql = `UPDATE videos SET ${fields.join(", ")} WHERE id = ?`;
 
-    return new Promise((resolve, reject) => {
-      this.db!.run(sql, values, function (err) {
-        if (err) {
-          reject(err);
-        } else {
-          resolve(this.changes > 0);
-        }
-      });
-    });
+    const stmt = this.db!.prepare(sql);
+    const result = stmt.run(...values);
+    return result.changes > 0;
   }
 
   async removeVideo(path: string): Promise<boolean> {
     const sql = "DELETE FROM videos WHERE path = ?";
-    return new Promise((resolve, reject) => {
-      this.db!.run(sql, [path], function (err) {
-        if (err) {
-          reject(err);
-        } else {
-          resolve(this.changes > 0);
-        }
-      });
-    });
+    const stmt = this.db!.prepare(sql);
+    const result = stmt.run(path);
+    return result.changes > 0;
   }
 
   async searchVideos(query: string): Promise<VideoRecord[]> {
@@ -334,109 +315,81 @@ class DatabaseManager {
     `;
 
     const searchPattern = `%${query}%`;
+    const stmt = this.db!.prepare(sql);
+    const rows = stmt.all(searchPattern, searchPattern, searchPattern, searchPattern) as any[];
 
-    return new Promise((resolve, reject) => {
-      this.db!.all(
-        sql,
-        [searchPattern, searchPattern, searchPattern, searchPattern],
-        (err, rows: any[]) => {
-          if (err) {
-            reject(err);
-          } else {
-            const videos = rows.map((row) => ({
-              ...row,
-              tags: row.tags ? row.tags.split(",") : [],
-              chapterThumbnails: row.chapter_thumbnails
-                ? JSON.parse(row.chapter_thumbnails)
-                : [],
-            }));
-            resolve(videos);
-          }
-        }
-      );
-    });
+    return rows.map((row) => ({
+      ...row,
+      tags: row.tags ? row.tags.split(",") : [],
+      chapterThumbnails: row.chapter_thumbnails
+        ? JSON.parse(row.chapter_thumbnails)
+        : [],
+    }));
   }
 
   async getVideosWithoutThumbnails(): Promise<VideoRecord[]> {
-    const sql =
-      'SELECT * FROM videos WHERE thumbnail_path IS NULL OR thumbnail_path = ""';
-    return new Promise((resolve, reject) => {
-      this.db!.all(sql, [], (err, rows: any[]) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve(rows);
-        }
+    try {
+      console.log("getVideosWithoutThumbnails: Starting query");
+      // より安全なクエリ：COALESCEを使用してNULLを空文字列に変換
+      const sql = "SELECT * FROM videos WHERE COALESCE(thumbnail_path, '') = ''";
+      console.log("getVideosWithoutThumbnails: SQL query:", sql);
+      
+      const stmt = this.db!.prepare(sql);
+      const rows = stmt.all() as any[];
+      
+      console.log(`getVideosWithoutThumbnails: Found ${rows.length} videos without thumbnails`);
+      if (rows.length > 0) {
+        console.log("Sample videos without thumbnails:", rows.slice(0, 3).map(v => ({ id: v.id, filename: v.filename, thumbnail_path: v.thumbnail_path })));
+      }
+      
+      return rows;
+    } catch (error) {
+      console.error("Error in getVideosWithoutThumbnails:", error);
+      console.error("Error details:", {
+        message: error.message,
+        code: error.code,
+        stack: error.stack
       });
-    });
+      throw error;
+    }
   }
 
   // Directory management
   async addDirectory(directoryPath: string): Promise<number> {
     const name = path.basename(directoryPath);
     const sql = "INSERT OR IGNORE INTO directories (path, name) VALUES (?, ?)";
-    return new Promise((resolve, reject) => {
-      this.db!.run(sql, [directoryPath, name], function (err) {
-        if (err) {
-          reject(err);
-        } else {
-          resolve(this.lastID);
-        }
-      });
-    });
+    const stmt = this.db!.prepare(sql);
+    const result = stmt.run(directoryPath, name);
+    return result.lastInsertRowid as number;
   }
 
   async removeDirectory(directoryPath: string): Promise<boolean> {
     const sql = "DELETE FROM directories WHERE path = ?";
-    return new Promise((resolve, reject) => {
-      this.db!.run(sql, [directoryPath], function (err) {
-        if (err) {
-          reject(err);
-        } else {
-          resolve(this.changes > 0);
-        }
-      });
-    });
+    const stmt = this.db!.prepare(sql);
+    const result = stmt.run(directoryPath);
+    return result.changes > 0;
   }
 
   async getDirectories(): Promise<DirectoryRecord[]> {
     const sql = "SELECT * FROM directories ORDER BY name ASC";
-    return new Promise((resolve, reject) => {
-      this.db!.all(sql, [], (err, rows: any[]) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve(rows);
-        }
-      });
-    });
+    const stmt = this.db!.prepare(sql);
+    const rows = stmt.all() as any[];
+    return rows;
   }
 
   // Tag management
   async getTags(): Promise<TagRecord[]> {
     const sql = "SELECT * FROM tags ORDER BY name ASC";
-    return new Promise((resolve, reject) => {
-      this.db!.all(sql, [], (err, rows: any[]) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve(rows);
-        }
-      });
-    });
+    const stmt = this.db!.prepare(sql);
+    const rows = stmt.all() as any[];
+    return rows;
   }
 
   async addTag(name: string, color: string = "#007AFF"): Promise<number> {
     const sql = "INSERT OR IGNORE INTO tags (name, color) VALUES (?, ?)";
-    return new Promise((resolve, reject) => {
-      this.db!.run(sql, [name, color], function (err) {
-        if (err) {
-          reject(err);
-        } else {
-          resolve(this.lastID);
-        }
-      });
-    });
+    const stmt = this.db!.prepare(sql);
+    const result = stmt.run(name, color);
+    return result.lastInsertRowid as number;
   }
 
   async addTagToVideo(videoId: number, tagName: string): Promise<boolean> {
@@ -447,15 +400,9 @@ class DatabaseManager {
       INSERT OR IGNORE INTO video_tags (video_id, tag_id)
       SELECT ?, id FROM tags WHERE name = ?
     `;
-    return new Promise((resolve, reject) => {
-      this.db!.run(sql, [videoId, tagName], function (err) {
-        if (err) {
-          reject(err);
-        } else {
-          resolve(this.changes > 0);
-        }
-      });
-    });
+    const stmt = this.db!.prepare(sql);
+    const result = stmt.run(videoId, tagName);
+    return result.changes > 0;
   }
 
   async removeTagFromVideo(videoId: number, tagName: string): Promise<boolean> {
@@ -463,45 +410,25 @@ class DatabaseManager {
       DELETE FROM video_tags
       WHERE video_id = ? AND tag_id = (SELECT id FROM tags WHERE name = ?)
     `;
-    return new Promise((resolve, reject) => {
-      this.db!.run(sql, [videoId, tagName], function (err) {
-        if (err) {
-          reject(err);
-        } else {
-          resolve(this.changes > 0);
-        }
-      });
-    });
+    const stmt = this.db!.prepare(sql);
+    const result = stmt.run(videoId, tagName);
+    return result.changes > 0;
   }
 
   async deleteTag(tagName: string): Promise<boolean> {
     // With foreign key constraints enabled, deleting from tags will automatically
     // delete related records from video_tags due to ON DELETE CASCADE
     const deleteTagSql = `DELETE FROM tags WHERE name = ?`;
-
-    return new Promise((resolve, reject) => {
-      this.db!.run(deleteTagSql, [tagName], function (err) {
-        if (err) {
-          reject(err);
-        } else {
-          resolve(this.changes > 0);
-        }
-      });
-    });
+    const stmt = this.db!.prepare(deleteTagSql);
+    const result = stmt.run(tagName);
+    return result.changes > 0;
   }
 
   async updateTag(oldName: string, newName: string): Promise<boolean> {
     const sql = `UPDATE tags SET name = ? WHERE name = ?`;
-
-    return new Promise((resolve, reject) => {
-      this.db!.run(sql, [newName, oldName], function (err) {
-        if (err) {
-          reject(err);
-        } else {
-          resolve(this.changes > 0);
-        }
-      });
-    });
+    const stmt = this.db!.prepare(sql);
+    const result = stmt.run(newName, oldName);
+    return result.changes > 0;
   }
 
   // 指定時刻以降にビデオが更新されているかチェック
@@ -515,31 +442,28 @@ class DatabaseManager {
 
     const checkTimeSeconds = Math.floor(lastCheckTime / 1000);
 
-    return new Promise((resolve, reject) => {
-      this.db!.get(
-        sql,
-        [checkTimeSeconds, checkTimeSeconds],
-        (err, row: any) => {
-          if (err) {
-            console.error("Error checking video updates:", err);
-            reject(err);
-          } else {
-            console.log("hasVideoUpdates check:", {
-              lastCheckTime: new Date(lastCheckTime).toISOString(),
-              checkTimeSeconds,
-              hasUpdates: row.count > 0,
-              updateCount: row.count,
-            });
-            resolve(row.count > 0);
-          }
-        }
-      );
-    });
+    try {
+      const stmt = this.db!.prepare(sql);
+      const row = stmt.get(checkTimeSeconds, checkTimeSeconds) as any;
+      
+      console.log("hasVideoUpdates check:", {
+        lastCheckTime: new Date(lastCheckTime).toISOString(),
+        checkTimeSeconds,
+        hasUpdates: row.count > 0,
+        updateCount: row.count,
+      });
+      
+      return row.count > 0;
+    } catch (error) {
+      console.error("Error checking video updates:", error);
+      throw error;
+    }
   }
 
   close(): void {
     if (this.db) {
       this.db.close();
+      this.db = null;
     }
   }
 }

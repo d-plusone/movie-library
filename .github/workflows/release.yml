@@ -114,7 +114,7 @@ jobs:
           $env:npm_config_target_platform = "win32"
           electron-rebuild
 
-      - name: Fallback manual sqlite3 rebuild
+      - name: Fallback manual better-sqlite3 rebuild
         run: npm run rebuild
         continue-on-error: true
 

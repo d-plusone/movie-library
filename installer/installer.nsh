@@ -1,5 +1,8 @@
 # Custom NSIS script for Movie Library installer/uninstaller
 
+# LogicLibをインクルード (If文を使うために必要)
+!include "LogicLib.nsh"
+
 # アンインストール前の処理
 !macro customUnInstallCheck
     # プロセス終了をより確実にするためのスクリプト
@@ -51,14 +54,18 @@
     
     # 既存のプロセスをチェックして終了
     ExecWait 'cmd /c tasklist /fi "imagename eq Movie Library.exe" | find "Movie Library.exe" >nul 2>&1' $0
-    ${If} $0 == 0
-        MessageBox MB_YESNO|MB_ICONQUESTION "Movie Library is currently running. Do you want to close it and continue with the installation?" IDYES +2
+    IntCmp $0 0 askuser skipcheck skipcheck
+    
+    askuser:
+        MessageBox MB_YESNO|MB_ICONQUESTION "Movie Library is currently running. Do you want to close it and continue with the installation?" IDYES closeapp
         Abort
         
+    closeapp:
         DetailPrint "Closing running Movie Library..."
         ExecWait 'cmd /c taskkill /f /im "Movie Library.exe" /t 2>nul'
         Sleep 2000
-    ${EndIf}
+        
+    skipcheck:
 !macroend
 
 # アンインストーラーのカスタムセクション
@@ -85,16 +92,4 @@
 # カスタムページ：強制削除オプション
 Function .onInstSuccess
     DetailPrint "Installation completed successfully"
-FunctionEnd
-
-Function un.onInit
-    DetailPrint "Starting uninstaller..."
-    
-    # 管理者権限の確認
-    UserInfo::GetAccountType
-    Pop $0
-    ${If} $0 != "admin"
-        MessageBox MB_YESNO|MB_ICONQUESTION "Administrator privileges are recommended for complete uninstallation. Continue anyway?" IDYES +2
-        Abort
-    ${EndIf}
 FunctionEnd

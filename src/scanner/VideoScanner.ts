@@ -278,19 +278,13 @@ class VideoScanner {
 
   // データベース内の全動画を取得
   private async getAllExistingVideos(): Promise<any[]> {
-    return new Promise((resolve, reject) => {
-      (this.db as any).db.all(
-        "SELECT * FROM videos",
-        [],
-        (err: Error | null, rows: any[]) => {
-          if (err) {
-            reject(err);
-          } else {
-            resolve(rows || []);
-          }
-        }
-      );
-    });
+    try {
+      // DatabaseManagerのgetVideosメソッドを使用
+      return await this.db.getVideos();
+    } catch (error) {
+      console.error('Error getting existing videos:', error);
+      throw error;
+    }
   }
 
   async getAllFiles(directoryPath: string): Promise<string[]> {
@@ -427,19 +421,13 @@ class VideoScanner {
   }
 
   async checkExistingVideo(filePath: string): Promise<ExistingVideo | null> {
-    return new Promise((resolve, reject) => {
-      (this.db as any).db.get(
-        "SELECT * FROM videos WHERE path = ?",
-        [filePath],
-        (err: Error | null, row: ExistingVideo | undefined) => {
-          if (err) {
-            reject(err);
-          } else {
-            resolve(row || null);
-          }
-        }
-      );
-    });
+    try {
+      // DatabaseManagerのgetVideoByPathメソッドを使用
+      return await this.db.getVideoByPath(filePath);
+    } catch (error) {
+      console.error('Error checking existing video:', error);
+      throw error;
+    }
   }
 
   async getVideoMetadata(filePath: string): Promise<VideoMetadata> {
