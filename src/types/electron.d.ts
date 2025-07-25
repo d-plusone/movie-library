@@ -114,6 +114,8 @@ export interface ElectronAPI {
   onVideoAdded(callback: (filePath: string) => void): void;
   onVideoRemoved(callback: (filePath: string) => void): void;
   onDirectoryRemoved(callback: (dirPath: string) => void): void;
+  onOpenSettings(callback: () => void): void;
+  onOpenAddDirectory(callback: () => void): void;
 }
 
 declare global {

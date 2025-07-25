@@ -139,11 +139,11 @@ class MovieLibraryApp {
     });
 
     // Windows用の追加終了処理
-    if (process.platform === 'win32') {
-      this.mainWindow.on('close', (event) => {
+    if (process.platform === "win32") {
+      this.mainWindow.on("close", (event) => {
         // Windowsでのクリーンな終了を保証
         setTimeout(() => {
-          if (process.platform === 'win32') {
+          if (process.platform === "win32") {
             process.exit(0);
           }
         }, 1000);
@@ -181,20 +181,9 @@ class MovieLibraryApp {
           {
             label: "ディレクトリを追加",
             accelerator: "CmdOrCtrl+O",
-            click: async () => {
+            click: () => {
               if (this.mainWindow) {
-                const result = await dialog.showOpenDialog(this.mainWindow, {
-                  properties: ["openDirectory", "multiSelections"],
-                  title: "動画フォルダを選択",
-                });
-
-                if (!result.canceled && result.filePaths.length > 0) {
-                  for (const directoryPath of result.filePaths) {
-                    await this.db.addDirectory(directoryPath);
-                    this.startWatching(directoryPath);
-                  }
-                  this.mainWindow.webContents.send("directories-updated");
-                }
+                this.mainWindow.webContents.send("open-add-directory");
               }
             },
           },
@@ -228,13 +217,6 @@ class MovieLibraryApp {
                 { role: "delete" as const },
                 { role: "selectAll" as const },
                 { type: "separator" as const },
-                {
-                  label: "Speech",
-                  submenu: [
-                    { role: "startSpeaking" as const },
-                    { role: "stopSpeaking" as const },
-                  ],
-                },
               ]
             : [
                 { role: "delete" as const },
@@ -338,7 +320,7 @@ class MovieLibraryApp {
     // Check directory exists
     ipcMain.handle("check-directory-exists", async (event, dirPath: string) => {
       try {
-        const fs = await import('fs');
+        const fs = await import("fs");
         await fs.promises.access(dirPath, fs.constants.F_OK);
         return true;
       } catch (error) {
@@ -349,10 +331,13 @@ class MovieLibraryApp {
     // Scan directories (improved comprehensive scan)
     ipcMain.handle("scan-directories", async () => {
       const directories = await this.db.getDirectories();
-      const directoryPaths = directories.map(d => d.path);
-      
-      console.log("Starting comprehensive scan of directories:", directoryPaths);
-      
+      const directoryPaths = directories.map((d) => d.path);
+
+      console.log(
+        "Starting comprehensive scan of directories:",
+        directoryPaths
+      );
+
       // 包括的スキャンを実行
       const result = await this.videoScanner.comprehensiveScan(
         directoryPaths,
@@ -362,7 +347,7 @@ class MovieLibraryApp {
             current: progress.current,
             total: progress.total,
             message: `スキャン中: ${progress.file}`,
-            file: progress.file
+            file: progress.file,
           });
         }
       );
@@ -373,7 +358,10 @@ class MovieLibraryApp {
           await this.db.removeVideo(deletedPath);
           console.log(`Removed deleted video from database: ${deletedPath}`);
         } catch (error) {
-          console.error(`Failed to remove deleted video: ${deletedPath}`, error);
+          console.error(
+            `Failed to remove deleted video: ${deletedPath}`,
+            error
+          );
         }
       }
 
@@ -382,29 +370,32 @@ class MovieLibraryApp {
         newVideos: result.newVideos.length,
         updatedVideos: result.updatedVideos.length,
         reprocessedVideos: result.reprocessedVideos.length,
-        deletedVideos: result.deletedVideos.length
+        deletedVideos: result.deletedVideos.length,
       });
 
       // 最終プログレス送信
       this.mainWindow?.webContents.send("scan-progress", {
-        message: "スキャン完了"
+        message: "スキャン完了",
       });
 
       return {
         totalNew: result.newVideos.length,
         totalUpdated: result.updatedVideos.length,
         totalReprocessed: result.reprocessedVideos.length,
-        totalDeleted: result.deletedVideos.length
+        totalDeleted: result.deletedVideos.length,
       };
     });
 
     // Rescan all videos (force rescan of all existing videos)
     ipcMain.handle("rescan-all-videos", async () => {
       const directories = await this.db.getDirectories();
-      const directoryPaths = directories.map(d => d.path);
-      
-      console.log("Starting force rescan of all videos in directories:", directoryPaths);
-      
+      const directoryPaths = directories.map((d) => d.path);
+
+      console.log(
+        "Starting force rescan of all videos in directories:",
+        directoryPaths
+      );
+
       // 全動画の強制再スキャンを実行
       const result = await this.videoScanner.forceRescanAllVideos(
         directoryPaths,
@@ -414,7 +405,7 @@ class MovieLibraryApp {
             current: progress.current,
             total: progress.total,
             message: `再スキャン中: ${progress.file}`,
-            file: progress.file
+            file: progress.file,
           });
         }
       );
@@ -425,7 +416,10 @@ class MovieLibraryApp {
           await this.db.removeVideo(deletedPath);
           console.log(`Removed deleted video from database: ${deletedPath}`);
         } catch (error) {
-          console.error(`Failed to remove deleted video: ${deletedPath}`, error);
+          console.error(
+            `Failed to remove deleted video: ${deletedPath}`,
+            error
+          );
         }
       }
 
@@ -434,12 +428,12 @@ class MovieLibraryApp {
         totalProcessed: result.totalProcessed,
         totalUpdated: result.totalUpdated,
         totalErrors: result.totalErrors,
-        deletedVideos: result.deletedVideos.length
+        deletedVideos: result.deletedVideos.length,
       });
 
       // 再スキャン完了メッセージ
       this.mainWindow?.webContents.send("rescan-progress", {
-        message: "再スキャン完了 - サムネイル生成を開始しています..."
+        message: "再スキャン完了 - サムネイル生成を開始しています...",
       });
 
       // 自動的にサムネイル生成を実行
@@ -450,7 +444,9 @@ class MovieLibraryApp {
         let processedVideos = 0;
         const totalVideos = videos.length;
 
-        console.log(`Auto-generating thumbnails for ${totalVideos} videos after rescan`);
+        console.log(
+          `Auto-generating thumbnails for ${totalVideos} videos after rescan`
+        );
 
         for (const video of videos) {
           try {
@@ -459,15 +455,18 @@ class MovieLibraryApp {
               current: processedVideos,
               total: totalVideos,
               message: `自動サムネイル生成中: ${video.filename}`,
-              file: video.filename
+              file: video.filename,
             });
 
-            console.log(`Auto-generating thumbnail ${processedVideos + 1}/${totalVideos}: ${video.filename}`);
+            console.log(
+              `Auto-generating thumbnail ${
+                processedVideos + 1
+              }/${totalVideos}: ${video.filename}`
+            );
 
             if (video.duration !== undefined) {
-              const thumbnailResult = await this.thumbnailGenerator.generateThumbnails(
-                video as any
-              );
+              const thumbnailResult =
+                await this.thumbnailGenerator.generateThumbnails(video as any);
               results.push(thumbnailResult);
             }
 
@@ -479,10 +478,12 @@ class MovieLibraryApp {
               current: processedVideos,
               total: totalVideos,
               message: `自動サムネイル生成完了: ${video.filename}`,
-              file: video.filename
+              file: video.filename,
             });
 
-            console.log(`Auto-thumbnail generation completed ${processedVideos}/${totalVideos}: ${video.filename}`);
+            console.log(
+              `Auto-thumbnail generation completed ${processedVideos}/${totalVideos}: ${video.filename}`
+            );
           } catch (error) {
             console.error(
               "Error auto-generating thumbnails for:",
@@ -497,21 +498,23 @@ class MovieLibraryApp {
               current: processedVideos,
               total: totalVideos,
               message: `自動サムネイル生成エラー: ${video.filename}`,
-              file: video.filename
+              file: video.filename,
             });
           }
         }
 
         // 最終プログレス送信
         this.mainWindow?.webContents.send("thumbnail-progress", {
-          message: "自動サムネイル生成完了"
+          message: "自動サムネイル生成完了",
         });
 
-        console.log(`Auto thumbnail generation completed: ${processedVideos}/${totalVideos} processed`);
+        console.log(
+          `Auto thumbnail generation completed: ${processedVideos}/${totalVideos} processed`
+        );
       } catch (error) {
         console.error("Error during automatic thumbnail generation:", error);
         this.mainWindow?.webContents.send("thumbnail-progress", {
-          message: "自動サムネイル生成でエラーが発生しました"
+          message: "自動サムネイル生成でエラーが発生しました",
         });
       }
 
@@ -520,7 +523,7 @@ class MovieLibraryApp {
         totalUpdated: result.totalUpdated,
         totalReprocessed: result.totalProcessed, // 全て再処理されたので同じ値
         totalDeleted: result.deletedVideos.length,
-        totalErrors: result.totalErrors
+        totalErrors: result.totalErrors,
       };
     });
 
@@ -540,10 +543,14 @@ class MovieLibraryApp {
             current: processedVideos,
             total: totalVideos,
             message: `サムネイル生成中: ${video.filename}`,
-            file: video.filename
+            file: video.filename,
           });
 
-          console.log(`Generating thumbnail ${processedVideos + 1}/${totalVideos}: ${video.filename}`);
+          console.log(
+            `Generating thumbnail ${processedVideos + 1}/${totalVideos}: ${
+              video.filename
+            }`
+          );
 
           if (video.duration !== undefined) {
             const result = await this.thumbnailGenerator.generateThumbnails(
@@ -560,10 +567,12 @@ class MovieLibraryApp {
             current: processedVideos,
             total: totalVideos,
             message: `サムネイル生成完了: ${video.filename}`,
-            file: video.filename
+            file: video.filename,
           });
 
-          console.log(`Completed thumbnail ${processedVideos}/${totalVideos}: ${video.filename}`);
+          console.log(
+            `Completed thumbnail ${processedVideos}/${totalVideos}: ${video.filename}`
+          );
         } catch (error) {
           console.error("Error generating thumbnails for:", video.path, error);
           // エラー時もカウンターを増加
@@ -574,17 +583,19 @@ class MovieLibraryApp {
             current: processedVideos,
             total: totalVideos,
             message: `サムネイル生成エラー: ${video.filename}`,
-            file: video.filename
+            file: video.filename,
           });
         }
       }
 
       // 最終プログレス送信
       this.mainWindow?.webContents.send("thumbnail-progress", {
-        message: "サムネイル生成完了"
+        message: "サムネイル生成完了",
       });
 
-      console.log(`Thumbnail generation completed: ${processedVideos}/${totalVideos} processed`);
+      console.log(
+        `Thumbnail generation completed: ${processedVideos}/${totalVideos} processed`
+      );
       return results;
     });
 
@@ -604,10 +615,14 @@ class MovieLibraryApp {
             current: processedVideos,
             total: totalVideos,
             message: `サムネイル再生成中: ${video.filename}`,
-            file: video.filename
+            file: video.filename,
           });
 
-          console.log(`Regenerating thumbnail ${processedVideos + 1}/${totalVideos}: ${video.filename}`);
+          console.log(
+            `Regenerating thumbnail ${processedVideos + 1}/${totalVideos}: ${
+              video.filename
+            }`
+          );
 
           if (video.duration !== undefined) {
             const result = await this.thumbnailGenerator.generateThumbnails(
@@ -624,10 +639,12 @@ class MovieLibraryApp {
             current: processedVideos,
             total: totalVideos,
             message: `サムネイル再生成完了: ${video.filename}`,
-            file: video.filename
+            file: video.filename,
           });
 
-          console.log(`Completed thumbnail ${processedVideos}/${totalVideos}: ${video.filename}`);
+          console.log(
+            `Completed thumbnail ${processedVideos}/${totalVideos}: ${video.filename}`
+          );
         } catch (error) {
           console.error(
             "Error regenerating thumbnails for:",
@@ -642,17 +659,19 @@ class MovieLibraryApp {
             current: processedVideos,
             total: totalVideos,
             message: `サムネイル再生成エラー: ${video.filename}`,
-            file: video.filename
+            file: video.filename,
           });
         }
       }
 
       // 最終プログレス送信
       this.mainWindow?.webContents.send("thumbnail-progress", {
-        message: "全サムネイル再生成完了"
+        message: "全サムネイル再生成完了",
       });
 
-      console.log(`Thumbnail regeneration completed: ${processedVideos}/${totalVideos} processed`);
+      console.log(
+        `Thumbnail regeneration completed: ${processedVideos}/${totalVideos} processed`
+      );
       return results;
     });
 
@@ -764,18 +783,18 @@ class MovieLibraryApp {
       if (this.videoScanner.isVideoFile(filePath)) {
         try {
           console.log("Processing new video file:", filePath);
-          
+
           // プログレス通知を送信
           if (this.mainWindow) {
             this.mainWindow.webContents.send("scan-progress", {
-              message: `新しい動画を処理中: ${filePath.split('/').pop()}`,
+              message: `新しい動画を処理中: ${filePath.split("/").pop()}`,
               current: 0,
-              total: 1
+              total: 1,
             });
           }
-          
+
           const video = await this.videoScanner.processFile(filePath);
-          
+
           if (this.mainWindow) {
             this.mainWindow.webContents.send("video-added", filePath);
           }
@@ -786,24 +805,24 @@ class MovieLibraryApp {
               "Auto-generating thumbnails for new video:",
               video.path
             );
-            
+
             // サムネイル生成の進捗通知
             if (this.mainWindow) {
               this.mainWindow.webContents.send("thumbnail-progress", {
                 message: `サムネイル生成中: ${video.filename}`,
                 current: 0,
-                total: 1
+                total: 1,
               });
             }
-            
+
             await this.generateThumbnailsForSingleVideo(video);
-            
+
             // 完了通知
             if (this.mainWindow) {
               this.mainWindow.webContents.send("thumbnail-progress", {
                 message: `サムネイル生成完了: ${video.filename}`,
                 current: 1,
-                total: 1
+                total: 1,
               });
             }
           } else if (video && !video.needsThumbnails) {
@@ -812,7 +831,7 @@ class MovieLibraryApp {
               video.path
             );
           }
-          
+
           console.log("New video processed successfully:", filePath);
         } catch (error) {
           console.error("Error processing new video file:", filePath, error);
@@ -824,25 +843,29 @@ class MovieLibraryApp {
       if (this.videoScanner.isVideoFile(filePath)) {
         try {
           console.log("Processing video file removal:", filePath);
-          
+
           // プログレス通知を送信
           if (this.mainWindow) {
             this.mainWindow.webContents.send("scan-progress", {
-              message: `動画を削除中: ${filePath.split('/').pop()}`,
+              message: `動画を削除中: ${filePath.split("/").pop()}`,
               current: 0,
-              total: 1
+              total: 1,
             });
           }
-          
+
           await this.db.removeVideo(filePath);
-          
+
           if (this.mainWindow) {
             this.mainWindow.webContents.send("video-removed", filePath);
           }
-          
+
           console.log("Video file removal processed successfully:", filePath);
         } catch (error) {
-          console.error("Error processing video file removal:", filePath, error);
+          console.error(
+            "Error processing video file removal:",
+            filePath,
+            error
+          );
         }
       }
     });
@@ -853,17 +876,17 @@ class MovieLibraryApp {
       if (dirPath === directoryPath) {
         try {
           console.log("Directory removed:", dirPath);
-          
+
           // データベースからディレクトリを削除
           await this.db.removeDirectory(dirPath);
-          
+
           // 監視を停止
           this.stopWatching(dirPath);
-          
+
           if (this.mainWindow) {
             this.mainWindow.webContents.send("directory-removed", dirPath);
           }
-          
+
           console.log("Directory removal processed successfully:", dirPath);
         } catch (error) {
           console.error("Error processing directory removal:", dirPath, error);
@@ -885,13 +908,13 @@ class MovieLibraryApp {
   async startWatchingAllDirectories(): Promise<void> {
     const directories = await this.db.getDirectories();
     const removedDirectories: string[] = [];
-    
+
     for (const directory of directories) {
       try {
         // ディレクトリの存在をチェック
-        const fs = await import('fs');
+        const fs = await import("fs");
         await fs.promises.access(directory.path, fs.constants.F_OK);
-        
+
         // 存在する場合は監視を開始
         this.startWatching(directory.path);
       } catch (error) {
@@ -900,19 +923,23 @@ class MovieLibraryApp {
         removedDirectories.push(directory.path);
       }
     }
-    
+
     // 削除されたディレクトリがある場合の処理
     if (removedDirectories.length > 0) {
       for (const dirPath of removedDirectories) {
         try {
           await this.db.removeDirectory(dirPath);
           console.log("Removed non-existent directory from database:", dirPath);
-          
+
           if (this.mainWindow) {
             this.mainWindow.webContents.send("directory-removed", dirPath);
           }
         } catch (error) {
-          console.error("Failed to remove directory from database:", dirPath, error);
+          console.error(
+            "Failed to remove directory from database:",
+            dirPath,
+            error
+          );
         }
       }
     }
@@ -921,7 +948,7 @@ class MovieLibraryApp {
   // アプリケーションのクリーンアップメソッド
   public cleanup(): void {
     console.log("Cleaning up application resources...");
-    
+
     // すべてのwatcherを停止
     this.watchers.forEach((watcher) => {
       try {
@@ -931,7 +958,7 @@ class MovieLibraryApp {
       }
     });
     this.watchers.clear();
-    
+
     // データベース接続を閉じる
     try {
       if (this.db) {
@@ -983,7 +1010,7 @@ app.whenReady().then(async () => {
 app.on("window-all-closed", () => {
   // すべてのプラットフォームでアプリを完全に終了
   console.log("All windows closed, quitting application");
-  
+
   // リソースのクリーンアップ
   if (movieApp.watchers) {
     movieApp.watchers.forEach((watcher) => {
@@ -994,12 +1021,12 @@ app.on("window-all-closed", () => {
       }
     });
   }
-  
+
   // プロセスを確実に終了
   app.quit();
-  
+
   // Windows用の強制終了処理
-  if (process.platform === 'win32') {
+  if (process.platform === "win32") {
     setTimeout(() => {
       process.exit(0);
     }, 2000);
@@ -1008,7 +1035,7 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", (event) => {
   console.log("Application is about to quit");
-  
+
   // Close all watchers
   if (movieApp.watchers) {
     movieApp.watchers.forEach((watcher) => {
@@ -1019,7 +1046,7 @@ app.on("before-quit", (event) => {
       }
     });
   }
-  
+
   // データベース接続のクリーンアップ
   try {
     movieApp.cleanup();
@@ -1029,25 +1056,25 @@ app.on("before-quit", (event) => {
 });
 
 // Windows用の追加終了処理
-if (process.platform === 'win32') {
-  app.on('will-quit', (event) => {
+if (process.platform === "win32") {
+  app.on("will-quit", (event) => {
     console.log("Windows: Application will quit");
   });
-  
+
   // プロセス終了時の処理
-  process.on('SIGINT', () => {
-    console.log('Received SIGINT, shutting down gracefully');
+  process.on("SIGINT", () => {
+    console.log("Received SIGINT, shutting down gracefully");
     app.quit();
   });
-  
-  process.on('SIGTERM', () => {
-    console.log('Received SIGTERM, shutting down gracefully');
+
+  process.on("SIGTERM", () => {
+    console.log("Received SIGTERM, shutting down gracefully");
     app.quit();
   });
-  
+
   // Windows特有の終了シグナル
-  process.on('SIGHUP', () => {
-    console.log('Received SIGHUP, shutting down gracefully');
+  process.on("SIGHUP", () => {
+    console.log("Received SIGHUP, shutting down gracefully");
     app.quit();
   });
 }

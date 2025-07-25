@@ -229,6 +229,18 @@ class MovieLibraryApp {
         console.log("Directory removed:", dirPath);
         this.handleDirectoryRemoved(dirPath);
       });
+
+      // メニューからの設定イベント
+      window.electronAPI.onOpenSettings(() => {
+        console.log("Open settings from menu");
+        this.openSettingsModal();
+      });
+
+      // メニューからのディレクトリ追加イベント
+      window.electronAPI.onOpenAddDirectory(() => {
+        console.log("Open add directory from menu");
+        this.addDirectory();
+      });
     } catch (error) {
       console.warn("Failed to setup progress event listeners:", error);
     }

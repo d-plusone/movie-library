@@ -57,6 +57,7 @@ interface ElectronAPI {
   onVideoRemoved: (callback: (filePath: string) => void) => void;
   onDirectoryRemoved: (callback: (dirPath: string) => void) => void;
   onOpenSettings: (callback: () => void) => void;
+  onOpenAddDirectory: (callback: () => void) => void;
 
   // Remove listeners
   removeAllListeners: (channel: string) => void;
@@ -127,6 +128,9 @@ const electronAPI: ElectronAPI = {
   },
   onOpenSettings: (callback: () => void) => {
     ipcRenderer.on("open-settings", () => callback());
+  },
+  onOpenAddDirectory: (callback: () => void) => {
+    ipcRenderer.on("open-add-directory", () => callback());
   },
 
   // Remove listeners
