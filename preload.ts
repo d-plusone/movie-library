@@ -1,13 +1,13 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { 
-  ThumbnailSettings, 
-  VideoUpdateData, 
-  Video, 
-  Directory, 
-  Tag, 
+import type {
+  ThumbnailSettings,
+  VideoUpdateData,
+  Video,
+  Directory,
+  Tag,
   ScanResult,
   ScanProgress,
-  ThumbnailProgress 
+  ThumbnailProgress,
 } from "./src/types/types";
 
 interface ElectronAPI {

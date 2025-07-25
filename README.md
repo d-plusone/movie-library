@@ -32,6 +32,48 @@ Mac/Electron ベースの動画管理アプリケーション。直感的な UI/
 - **動画処理**: FFmpeg
 - **サポート形式**: MP4, AVI, MOV, MKV, WMV, FLV など（MOV ファイル完全対応）
 
+## 🛡️ 開発規約・コーディング規約
+
+### TypeScript 型安全性
+
+このプロジェクトでは**厳格な型安全性**を重視しています：
+
+- ❌ **`any` 型の使用禁止**: コードの型安全性を保つため、`any` 型の使用は禁止されています
+- ❌ **`unknown` 型の使用禁止**: 同様に `unknown` 型も使用せず、適切な型定義を行ってください
+- ✅ **適切な型定義**: `src/types/types.ts` にて一元的に型を管理し、インターフェースを活用してください
+- ✅ **型インポート**: `import type` を使用して型のみのインポートを明示してください
+
+```typescript
+// ❌ 悪い例
+function processData(data: any): any {
+  return data.someProperty;
+}
+
+// ✅ 良い例
+import type { Video, VideoUpdateData } from "../types/types";
+
+function processVideo(video: Video): VideoUpdateData {
+  return {
+    title: video.title,
+    rating: video.rating,
+  };
+}
+```
+
+### ESLint 設定
+
+- 未使用の変数・インポート・関数の警告が有効になっています
+- 型安全性を確保するためのルールが設定されています
+- コミット前には必ず `npm run lint` でチェックしてください
+
+### AI 開発者への注意
+
+AI による開発支援を受ける際は、以下の点にご注意ください：
+
+- `any` や `unknown` 型を提案された場合は、適切な型定義への置き換えを要求してください
+- 型定義は `src/types/types.ts` で一元管理されているため、まずこちらを確認してください
+- 新しい型が必要な場合は、既存の命名規則に従って追加してください
+
 ## 📦 インストール
 
 ### リリース版 (推奨)

@@ -29,6 +29,10 @@ class PrismaDatabaseManager {
 
   async initialize(): Promise<void> {
     try {
+      // 現在の作業ディレクトリを表示
+      console.log("Current working directory:", process.cwd());
+      console.log("Database URL from env:", process.env.DATABASE_URL);
+      
       // Prismaを使用してデータベース接続をテスト
       await this.prisma.$connect();
       console.log("Prisma database connection established");

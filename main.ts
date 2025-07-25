@@ -23,13 +23,10 @@ class MovieLibraryApp {
   public watchers: Map<string, chokidar.FSWatcher> = new Map();
 
   constructor() {
-    // Electronアプリのデータディレクトリを取得
-    const userData = app.getPath("userData");
-    const dbPath = path.join(userData, "movie-library.db");
-
-    // Prismaの環境変数を設定
+    // データベースファイルのパスを設定（ルートディレクトリに固定）
+    const dbPath = path.join(process.cwd(), "movie-library.db");
     process.env.DATABASE_URL = `file:${dbPath}`;
-
+    
     this.db = new PrismaDatabaseManager();
     this.videoScanner = new VideoScanner(this.db);
     this.thumbnailGenerator = new ThumbnailGenerator(this.db);
