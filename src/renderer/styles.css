@@ -843,28 +843,45 @@ body {
 
 .tag-edit-btn,
 .tag-delete-btn {
-    width: 24px;
-    height: 24px;
-    border: none;
-    border-radius: 4px;
-    background: rgba(255, 255, 255, 0.2);
-    color: var(--text-secondary);
-    cursor: pointer;
-    display: flex;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
+    gap: 4px;
+    padding: 4px 8px;
+    border: none;
+    border-radius: 6px;
     font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
     transition: all 0.2s ease;
+    min-width: 28px;
+    height: 28px;
+}
+
+.tag-edit-btn {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-secondary);
+    border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .tag-edit-btn:hover {
-    background: rgba(255, 255, 255, 0.3);
+    background: rgba(255, 255, 255, 0.2);
     color: var(--text-primary);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.tag-delete-btn {
+    background: rgba(255, 59, 48, 0.1);
+    color: var(--error-color);
+    border: 1px solid rgba(255, 59, 48, 0.2);
 }
 
 .tag-delete-btn:hover {
-    background: #ff4757;
+    background: var(--error-color);
     color: white;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(255, 59, 48, 0.3);
 }
 
 /* Directory Filter Items */
@@ -937,23 +954,30 @@ body {
 }
 
 .directory-remove-btn {
-    width: 24px;
-    height: 24px;
-    border: none;
-    border-radius: 4px;
-    background: rgba(255, 255, 255, 0.2);
-    color: var(--text-secondary);
-    cursor: pointer;
-    display: flex;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border: none;
+    border-radius: 8px;
     font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
     transition: all 0.2s ease;
+    background: rgba(255, 59, 48, 0.1);
+    color: var(--error-color);
+    border: 1px solid rgba(255, 59, 48, 0.2);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    min-width: 32px;
+    height: 32px;
 }
 
 .directory-remove-btn:hover {
-    background: #ff4757;
+    background: var(--error-color);
     color: white;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(255, 59, 48, 0.3);
 }
 
 /* Dark theme support for filter items */
@@ -977,6 +1001,53 @@ body {
     background: var(--accent-color) !important;
     color: white !important;
     border-color: var(--accent-color);
+}
+
+/* ダークテーマでの削除ボタンスタイル */
+[data-theme="dark"] .directory-remove-btn {
+    background: rgba(255, 69, 58, 0.15);
+    color: var(--error-color);
+    border: 1px solid rgba(255, 69, 58, 0.3);
+}
+
+[data-theme="dark"] .directory-remove-btn:hover {
+    background: var(--error-color);
+    color: white;
+}
+
+/* ダークテーマでのタグボタンスタイル */
+[data-theme="dark"] .tag-edit-btn {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-secondary);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+[data-theme="dark"] .tag-edit-btn:hover {
+    background: rgba(255, 255, 255, 0.15);
+    color: var(--text-primary);
+}
+
+[data-theme="dark"] .tag-delete-btn {
+    background: rgba(255, 69, 58, 0.15);
+    color: var(--error-color);
+    border: 1px solid rgba(255, 69, 58, 0.3);
+}
+
+[data-theme="dark"] .tag-delete-btn:hover {
+    background: var(--error-color);
+    color: white;
+}
+
+/* ダークテーマでの設定削除ボタン */
+[data-theme="dark"] .remove-directory-btn {
+    background: rgba(255, 69, 58, 0.15);
+    color: var(--error-color);
+    border: 1px solid rgba(255, 69, 58, 0.3);
+}
+
+[data-theme="dark"] .remove-directory-btn:hover {
+    background: var(--error-color);
+    color: white;
 }
 
 /* 選択状態でもホバー効果を適用 */
@@ -1874,6 +1945,34 @@ body {
     font-size: 14px;
     color: var(--text-primary);
     word-break: break-all;
+}
+
+/* 設定ダイアログの削除ボタン */
+.remove-directory-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    background: rgba(255, 59, 48, 0.1);
+    color: var(--error-color);
+    border: 1px solid rgba(255, 59, 48, 0.2);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    min-width: 60px;
+    height: 32px;
+}
+
+.remove-directory-btn:hover {
+    background: var(--error-color);
+    color: white;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(255, 59, 48, 0.3);
 }
 
 .setting-item {
