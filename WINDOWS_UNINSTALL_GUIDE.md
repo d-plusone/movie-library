@@ -1,41 +1,85 @@
-# Windows Uninstall Issues - Troubleshooting Guide
+# Windows アンインストールガイド - Movie Library
+
+## 完全アンインストール
+
+Movie Library バージョン 0.0.6 以降では、すべてのアプリケーションデータを自動的に削除する改良されたアンインストール機能が含まれています。ただし、手動でクリーンアップを行う必要がある場合や問題が発生した場合は、このガイドに従ってください。
+
+## 自動アンインストール（推奨）
+
+1. **Windows設定** → **アプリ** → **アプリと機能** に移動します
+2. "Movie Library" を検索します
+3. **Movie Library** をクリックして **アンインストール** を選択します
+4. 確認画面で、動画データベースとサムネイルを含むすべてのユーザーデータを削除するために **"はい"** を選択します
+5. アンインストーラーが自動的に以下を実行します：
+   - 実行中のMovie Libraryプロセスの終了
+   - アプリケーションファイルの削除
+   - `%APPDATA%\Movie Library` のユーザーデータ削除
+   - レジストリエントリのクリーンアップ
+   - 一時ファイルの削除
+
+## 手動クリーンアップ（必要な場合）
+
+自動アンインストーラーですべてが削除されない場合は、以下の手順に従ってください：
+
+### ステップ1: プロセスの終了
+1. **タスクマネージャー**を開きます（Ctrl+Shift+Esc）
+2. 以下の名前のプロセスを終了します：
+   - Movie Library.exe
+   - electron.exe（Movie Library関連）
+   - node.exe（Movie Library関連）
+
+### ステップ2: アプリケーションファイルの削除
+以下のフォルダが存在する場合は、移動して削除してください：
+```
+C:\Users\[ユーザー名]\AppData\Roaming\Movie Library
+C:\Users\[ユーザー名]\AppData\Local\Movie Library
+C:\Users\[ユーザー名]\AppData\Roaming\movie-library
+C:\Users\[ユーザー名]\AppData\Local\movie-library
+```
+
+### ステップ3: プログラムファイルの削除
+インストールディレクトリを削除します（通常は以下の場所）：
+```
+C:\Program Files\Movie Library
+C:\Users\[ユーザー名]\AppData\Local\Programs\Movie Library
+```Issues - Troubleshooting Guide
 
 If you're experiencing issues uninstalling Movie Library on Windows, this guide provides several solutions.
 
-## Quick Solutions
+## クイック解決方法
 
-### Method 1: Force Uninstall Scripts
+### 方法1: 強制アンインストールスクリプト
 
-We provide two force uninstall scripts:
+2つの強制アンインストールスクリプトを提供しています：
 
-#### Batch Script (Recommended for most users)
+#### バッチスクリプト（ほとんどのユーザーに推奨）
 
-1. Download `force-uninstall.bat` from the build folder
-2. Right-click on the file and select "Run as administrator"
-3. Follow the prompts
+1. ビルドフォルダから `force-uninstall.bat` をダウンロードします
+2. ファイルを右クリックして「管理者として実行」を選択します
+3. プロンプトに従って操作してください
 
-#### PowerShell Script (Advanced users)
+#### PowerShellスクリプト（上級ユーザー向け）
 
-1. Download `force-uninstall.ps1` from the build folder
-2. Open PowerShell as Administrator
-3. Run: `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser`
-4. Run: `.\force-uninstall.ps1`
+1. ビルドフォルダから `force-uninstall.ps1` をダウンロードします
+2. PowerShellを管理者として開きます
+3. 実行: `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser`
+4. 実行: `.\force-uninstall.ps1`
 
-### Method 2: Manual Uninstall
+### 方法2: 手動アンインストール
 
-If the scripts don't work, follow these manual steps:
+スクリプトが動作しない場合は、以下の手動手順に従ってください：
 
-#### Step 1: Stop All Processes
+#### ステップ1: すべてのプロセスを停止
 
-1. Open Task Manager (Ctrl+Shift+Esc)
-2. End these processes if running:
+1. タスクマネージャーを開きます（Ctrl+Shift+Esc）
+2. 実行中の場合は以下のプロセスを終了します：
    - Movie Library.exe
-   - electron.exe (associated with Movie Library)
-   - node.exe (associated with Movie Library)
+   - electron.exe（Movie Libraryに関連付けられたもの）
+   - node.exe（Movie Libraryに関連付けられたもの）
 
-#### Step 2: Remove Application Files
+#### ステップ2: アプリケーションファイルの削除
 
-Delete these directories if they exist:
+以下のディレクトリが存在する場合は削除してください：
 
 - `C:\Program Files\Movie Library`
 - `C:\Program Files (x86)\Movie Library`
@@ -45,78 +89,78 @@ Delete these directories if they exist:
 - `%LOCALAPPDATA%\movie-library`
 - `%TEMP%\Movie Library`
 
-#### Step 3: Clean Registry
+#### ステップ3: レジストリのクリーンアップ
 
-1. Open Registry Editor (regedit)
-2. Delete these keys if they exist:
+1. レジストリエディター（regedit）を開きます
+2. 以下のキーが存在する場合は削除してください：
    - `HKEY_CURRENT_USER\Software\Movie Library`
    - `HKEY_LOCAL_MACHINE\Software\Movie Library`
    - `HKEY_CURRENT_USER\Software\Classes\Applications\Movie Library.exe`
 
-#### Step 4: Remove Shortcuts
+#### ステップ4: ショートカットの削除
 
-Delete these files if they exist:
+以下のファイルが存在する場合は削除してください：
 
-- Desktop shortcut: `Movie Library.lnk`
-- Start Menu shortcut in Programs folder
+- デスクトップショートカット: `Movie Library.lnk`
+- プログラムフォルダ内のスタートメニューショートカット
 
-## Common Causes of Uninstall Issues
+## アンインストール問題の一般的な原因
 
-1. **Background Processes**: The app may still be running in the background
-2. **File Locks**: Some files may be locked by Windows
-3. **Insufficient Permissions**: The uninstaller may need administrator privileges
-4. **Corrupted Installation**: The original installation files may be corrupted
+1. **バックグラウンドプロセス**: アプリがバックグラウンドで実行中の可能性があります
+2. **ファイルロック**: 一部のファイルがWindowsによってロックされている可能性があります
+3. **権限不足**: アンインストーラーに管理者権限が必要な場合があります
+4. **破損したインストール**: 元のインストールファイルが破損している可能性があります
 
-## Prevention
+## 予防策
 
-To avoid future uninstall issues:
+将来のアンインストール問題を避けるために：
 
-1. **Always close Movie Library completely** before uninstalling
-2. **Run the uninstaller as Administrator**
-3. **Disable antivirus temporarily** during installation/uninstallation
-4. **Use the official uninstaller** through Control Panel → Programs
+1. **アンインストール前にMovie Libraryを完全に終了**してください
+2. **アンインストーラーを管理者として実行**してください
+3. **インストール/アンインストール中は一時的にアンチウイルスを無効化**してください
+4. **コントロールパネル → プログラムから公式アンインストーラーを使用**してください
 
-## Advanced Troubleshooting
+## 高度なトラブルシューティング
 
-### Safe Mode Uninstall
+### セーフモードでのアンインストール
 
-If normal mode doesn't work:
+通常モードで動作しない場合：
 
-1. Boot Windows in Safe Mode
-2. Run the force uninstall script
-3. Restart in normal mode
+1. Windowsをセーフモードで起動します
+2. 強制アンインストールスクリプトを実行します
+3. 通常モードで再起動します
 
-### Third-Party Uninstaller Tools
+### サードパーティアンインストールツール
 
-Consider using tools like:
+以下のようなツールの使用を検討してください：
 
 - Revo Uninstaller
 - IObit Uninstaller
 - Geek Uninstaller
 
-### System Restore
+### システムの復元
 
-As a last resort:
+最後の手段として：
 
-1. Use System Restore to revert to before installation
-2. This will remove the app but may affect other recent changes
+1. システムの復元を使用してインストール前の状態に戻します
+2. これによりアプリは削除されますが、他の最近の変更にも影響する可能性があります
 
-## Need Help?
+## ヘルプが必要な場合
 
-If none of these methods work:
+これらの方法がいずれも機能しない場合：
 
-1. Create an issue on our GitHub repository
-2. Include your Windows version and error messages
-3. Attach the log files from the uninstaller if available
+1. GitHubリポジトリでIssueを作成してください
+2. Windowsバージョンとエラーメッセージを含めてください
+3. 利用可能な場合はアンインストーラーのログファイルを添付してください
 
-## Developer Notes
+## 開発者向けメモ
 
-The improved installer includes:
+改良されたインストーラーには以下が含まれています：
 
-- Process termination before uninstall
-- Deep cleanup of registry entries
-- Removal of all application data
-- Better error handling
-- Administrator privilege checking
+- アンインストール前のプロセス終了
+- レジストリエントリの詳細クリーンアップ
+- すべてのアプリケーションデータの削除
+- より良いエラーハンドリング
+- 管理者権限のチェック
 
-These improvements should significantly reduce uninstall issues in future versions.
+これらの改良により、将来のバージョンでアンインストール問題が大幅に削減されるはずです。

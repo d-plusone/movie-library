@@ -76,8 +76,6 @@
         "buildDependenciesFromSource": false,
         "nodeGypRebuild": false,
         "compression": "maximum",
-        "removePackageScripts": true,
-        "removePackageKeywords": true,
         "extraMetadata": {
             "main": "dist-ts/main.js"
         },
@@ -90,10 +88,14 @@
         ],
         "files": [
             "dist-ts/**/*",
-            "src/renderer/index.html",
-            "src/renderer/styles.css",
+            "generated/**/*",
+            "main.js",
+            "preload.js",
             "assets/icon.*",
             "package.json",
+            "scripts/force-uninstall.bat",
+            "scripts/force-uninstall.ps1",
+            "WINDOWS_UNINSTALL_GUIDE.md",
             "node_modules/chokidar/index.js",
             "node_modules/chokidar/lib/**/*",
             "node_modules/ffmpeg-static/ffmpeg",
@@ -167,11 +169,14 @@
             "allowElevation": true,
             "runAfterFinish": true,
             "deleteAppDataOnUninstall": true,
+            "removeDefaultUninstallWelcomePage": false,
             "perMachine": false,
             "displayLanguageSelector": false,
             "installerIcon": "assets/icon.ico",
             "uninstallerIcon": "assets/icon.ico",
             "uninstallDisplayName": "${productName}",
+            "guid": "movie-library-app",
+            "warningsAsErrors": false,
             "include": "installer/installer.nsh"
         }
     }
