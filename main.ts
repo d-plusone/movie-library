@@ -87,7 +87,9 @@ class MovieLibraryApp {
     this.mainWindow.maximize();
     this.mainWindow.show();
 
-    this.mainWindow.loadFile("src/renderer/index.html");
+    // HTMLファイルのパスを設定
+    const htmlPath = path.join(__dirname, "src/renderer/index.html");
+    this.mainWindow.loadFile(htmlPath);
 
     // 開発モードでのみキーボードショートカットで開発者ツールを開く
     if (process.env.NODE_ENV === "development" || !app.isPackaged) {
