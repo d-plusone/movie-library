@@ -7,8 +7,11 @@ yarn-error.log*
 # Build outputs
 dist/
 dist-ts/
-build/
 release/
+
+# Build artifacts (but keep config files)
+build/Release/
+build/Debug/
 
 # Electron
 *.app

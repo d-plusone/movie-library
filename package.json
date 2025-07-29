@@ -106,6 +106,7 @@
             "node_modules/ffprobe-static/index.js",
             "node_modules/fluent-ffmpeg/index.js",
             "node_modules/fluent-ffmpeg/lib/**/*",
+            "!**/static",
             "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme,HISTORY.md,CHANGES.md,AUTHORS,CONTRIBUTORS}",
             "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples,spec,specs,doc,docs,documentation}/**/*",
             "!**/node_modules/*/{.github,.vscode,.idea,coverage}/**/*",
@@ -153,8 +154,6 @@
         },
         "win": {
             "icon": "assets/icon.ico",
-            "artifactName": "${productName}-${version}-${arch}.${ext}",
-            "requestedExecutionLevel": "asInvoker",
             "target": [
                 {
                     "target": "nsis",
@@ -169,18 +168,13 @@
             "allowToChangeInstallationDirectory": true,
             "createDesktopShortcut": true,
             "createStartMenuShortcut": true,
-            "allowElevation": true,
-            "runAfterFinish": true,
+            "runAfterFinish": false,
             "deleteAppDataOnUninstall": true,
-            "removeDefaultUninstallWelcomePage": false,
             "perMachine": false,
-            "displayLanguageSelector": false,
             "installerIcon": "assets/icon.ico",
             "uninstallerIcon": "assets/icon.ico",
             "uninstallDisplayName": "${productName}",
-            "guid": "movie-library-app",
-            "warningsAsErrors": false,
-            "include": "installer/installer.nsh"
+            "include": "build/installer.nsh"
         }
     }
 }
