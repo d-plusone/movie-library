@@ -161,6 +161,23 @@ body {
     font-size: 13px;
     border-radius: 6px;
     transition: all 0.2s ease;
+    color: white !important;
+    background: rgba(255, 255, 255, 0.15) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+.header-actions .btn:hover {
+    background: rgba(255, 255, 255, 0.25) !important;
+}
+
+.header-right .btn-icon {
+    color: white !important;
+    background: rgba(255, 255, 255, 0.15) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+.header-right .btn-icon:hover {
+    background: rgba(255, 255, 255, 0.25) !important;
 }
 
 .header-actions .btn .icon {
@@ -222,16 +239,36 @@ body {
     font-weight: 500;
     cursor: pointer;
     transition: all 0.2s ease;
-    background: rgba(255, 255, 255, 0.15);
-    color: white;
+    color: var(--text-primary);
     backdrop-filter: blur(10px);
     pointer-events: auto;
-    border: 1px solid rgba(255, 255, 255, 0.1);
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
-.btn:hover {
+/* Light theme: Override to better visibility */
+[data-theme="light"] .btn, :root .btn {
+    background: rgba(0, 0, 0, 0.08);
+    border: 1px solid rgba(0, 0, 0, 0.12);
+    color: var(--text-primary);
+}
+
+[data-theme="light"] .btn:hover, :root .btn:hover {
+    background: rgba(0, 0, 0, 0.12);
+    border-color: rgba(0, 0, 0, 0.18);
+}
+
+/* Dark theme: Override to white text */
+[data-theme="dark"] .btn {
+    color: white;
+    background: rgba(255, 255, 255, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+[data-theme="dark"] .btn:hover {
     background: rgba(255, 255, 255, 0.25);
+}
+
+.btn:hover {
     transform: translateY(-1px);
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
 }
@@ -262,8 +299,19 @@ body {
 }
 
 .btn-secondary {
-    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-primary);
+}
+
+/* Light theme: Override for better visibility */
+[data-theme="light"] .btn-secondary, :root .btn-secondary {
+    background: rgba(0, 0, 0, 0.05);
+    border: 1px solid rgba(0, 0, 0, 0.15);
+}
+
+/* Dark theme: Override to white text */
+[data-theme="dark"] .btn-secondary {
     color: white;
+    background: rgba(255, 255, 255, 0.1);
     border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
@@ -278,6 +326,23 @@ body {
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
+    background: rgba(255, 255, 255, 0.15);
+    color: var(--text-primary);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    transition: all 0.2s ease;
+}
+
+.btn-icon:hover {
+    background: rgba(255, 255, 255, 0.25);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* Dark theme: Override to white text */
+[data-theme="dark"] .btn-icon {
+    color: white;
 }
 
 .icon {
@@ -2469,6 +2534,33 @@ body {
     justify-content: flex-end;
 }
 
+/* Light mode: Settings dialog buttons with better visibility */
+.modal-actions .btn {
+    color: var(--text-primary);
+    background: rgba(0, 0, 0, 0.08) !important;
+    border: 1px solid rgba(0, 0, 0, 0.12) !important;
+}
+
+.modal-actions .btn:hover {
+    background: rgba(0, 0, 0, 0.12) !important;
+    border-color: rgba(0, 0, 0, 0.18) !important;
+}
+
+/* Dark theme: Use light text color for modal action buttons */
+[data-theme="dark"] .modal-actions {
+    border-top: 1px solid var(--border-color);
+}
+
+[data-theme="dark"] .modal-actions .btn {
+    color: white !important;
+    background: rgba(255, 255, 255, 0.15) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+[data-theme="dark"] .modal-actions .btn:hover {
+    background: rgba(255, 255, 255, 0.25) !important;
+}
+
 /* Selected video item style */
 .video-item.selected {
     border: 3px solid var(--accent-color);
@@ -3885,19 +3977,34 @@ list-view .video-thumbnail .thumbnail-indicator {
 }
 
 .close-chapter-dialog {
-    background: none;
-    border: none;
-    font-size: 24px;
-    color: var(--text-secondary);
+    background: rgba(255, 255, 255, 0.15);
+    color: var(--text-primary);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    padding: 8px;
+    border-radius: 50%;
     cursor: pointer;
-    padding: 4px 8px;
-    border-radius: 4px;
+    pointer-events: auto;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    font-size: 16px;
     transition: all 0.2s ease;
 }
 
 .close-chapter-dialog:hover {
-    background: var(--bg-primary);
-    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.25);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* Dark theme: Override to white text */
+[data-theme="dark"] .close-chapter-dialog {
+    color: white;
 }
 
 .chapter-dialog-content {
