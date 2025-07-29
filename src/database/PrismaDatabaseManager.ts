@@ -30,29 +30,81 @@ class PrismaDatabaseManager {
   async initialize(): Promise<void> {
     try {
       // 現在の作業ディレクトリを表示
-      console.log("Current working directory:", process.cwd());
-      console.log("Database URL from env:", process.env.DATABASE_URL);
-      console.log("App packaged:", process.env.NODE_ENV !== "development");
+
+      // データベースの自動初期化を試行
+      await this.ensureDatabaseExists();
 
       // Prismaを使用してデータベース接続をテスト
       await this.prisma.$connect();
-      console.log("Prisma database connection established");
 
       // データベースの基本情報を表示
-      const videoCount = await this.prisma.video.count();
-      const dirCount = await this.prisma.directory.count();
-      console.log(
-        `Database initialized - Videos: ${videoCount}, Directories: ${dirCount}`
-      );
+      await this.prisma.video.count();
+      await this.prisma.directory.count();
     } catch (error) {
-      console.error("Failed to initialize Prisma database:", error);
-      console.error("Error details:", {
-        message: error.message,
-        code: error.code,
-        stack: error.stack,
-      });
+      // Error initializing database
       throw error;
     }
+  }
+
+  private async ensureDatabaseExists(): Promise<void> {
+    try {
+      // データベーステーブルの存在をチェック
+      await this.prisma.video.findFirst();
+    } catch (error) {
+      // データベースまたはテーブルが存在しない場合、自動でマイグレーションを実行
+      if (error.message.includes("does not exist")) {
+        await this.runDatabaseMigration();
+      } else {
+        throw error;
+      }
+    }
+  }
+
+  private async runDatabaseMigration(): Promise<void> {
+    // Prismaの正しいアプローチ：prisma migrate deploy を使用
+    console.log("Running Prisma migration...");
+    
+    await this.runPrismaMigrateDeploy();
+  }
+
+  private async runPrismaMigrateDeploy(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const { spawn } = require("child_process");
+      
+      // Prisma CLIを実行
+      const prismaProcess = spawn("npx", ["prisma", "migrate", "deploy"], {
+        cwd: process.cwd(),
+        stdio: ["pipe", "pipe", "pipe"],
+        shell: process.platform === "win32"
+      });
+
+      let stdout = "";
+      let stderr = "";
+
+      prismaProcess.stdout.on("data", (data: Buffer) => {
+        stdout += data.toString();
+      });
+
+      prismaProcess.stderr.on("data", (data: Buffer) => {
+        stderr += data.toString();
+      });
+
+      prismaProcess.on("close", (code: number) => {
+        if (code === 0) {
+          console.log("Prisma migration completed successfully");
+          console.log(stdout);
+          resolve();
+        } else {
+          console.error("Prisma migration failed:", stderr);
+          reject(new Error(`Migration failed with code ${code}: ${stderr}`));
+        }
+      });
+
+      prismaProcess.on("error", (error: Error) => {
+        console.error("Failed to start Prisma migration process:", error);
+        reject(error);
+      });
+    });
   }
 
   async addVideo(videoData: VideoCreateData): Promise<number> {

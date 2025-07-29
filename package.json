@@ -32,6 +32,8 @@
         "postinstall": "electron-builder install-app-deps",
         "prisma:generate": "prisma generate",
         "prisma:migrate": "prisma migrate dev",
+        "prisma:deploy": "prisma migrate deploy",
+        "prisma:db-push": "prisma db push",
         "prisma:studio": "prisma studio",
         "prisma:push": "prisma db push"
     },
@@ -92,6 +94,8 @@
         "files": [
             "dist-ts/**/*",
             "generated/**/*",
+            "prisma/schema.prisma",
+            "prisma/migrations/**/*",
             "main.js",
             "preload.js",
             "assets/icon.*",
