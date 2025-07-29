@@ -19,6 +19,9 @@ import {
   DOMUtils,
 } from "./Utils.js";
 
+// 型定義のみをimport（実行時importを避ける）
+import type {} from "../types/electron";
+
 declare global {
   interface Window {
     movieApp: MovieLibraryApp;

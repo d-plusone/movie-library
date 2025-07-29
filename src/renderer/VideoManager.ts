@@ -9,6 +9,7 @@ import type {
   ScanResult,
   ThumbnailSettings,
 } from "../types/types";
+import type {} from "../types/electron";
 
 export class VideoManager {
   private videos: Video[] = [];
