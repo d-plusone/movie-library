@@ -64,39 +64,123 @@ class PrismaDatabaseManager {
     // Prismaの正しいアプローチ：prisma migrate deploy を使用
     console.log("Running Prisma migration...");
     
-    await this.runPrismaMigrateDeploy();
+    try {
+      await this.runPrismaMigrateDeploy();
+    } catch (error) {
+      console.error("Prisma migrate deploy failed:", error);
+      
+      // Windows環境での代替アプローチ：prisma db push を試行
+      if (process.platform === "win32") {
+        console.log("Attempting alternative migration approach for Windows...");
+        await this.runPrismaDbPush();
+      } else {
+        throw error;
+      }
+    }
   }
 
-  private async runPrismaMigrateDeploy(): Promise<void> {
+  private async runPrismaDbPush(): Promise<void> {
     return new Promise((resolve, reject) => {
       const { spawn } = require("child_process");
       
-      // Prisma CLIを実行
-      const prismaProcess = spawn("npx", ["prisma", "migrate", "deploy"], {
+      console.log("Running prisma db push as fallback...");
+      
+      const prismaProcess = spawn("npx.cmd", ["prisma", "db", "push"], {
         cwd: process.cwd(),
         stdio: ["pipe", "pipe", "pipe"],
-        shell: process.platform === "win32"
+        shell: true,
+        env: {
+          ...process.env,
+          CHCP: "65001",
+          LANG: "en_US.UTF-8",
+          LC_ALL: "en_US.UTF-8"
+        }
       });
 
       let stdout = "";
       let stderr = "";
 
       prismaProcess.stdout.on("data", (data: Buffer) => {
-        stdout += data.toString();
+        stdout += data.toString("utf8");
       });
 
       prismaProcess.stderr.on("data", (data: Buffer) => {
-        stderr += data.toString();
+        stderr += data.toString("utf8");
+      });
+
+      prismaProcess.on("close", (code: number) => {
+        if (code === 0) {
+          console.log("Prisma db push completed successfully");
+          if (stdout.trim()) {
+            console.log("Push output:", stdout);
+          }
+          resolve();
+        } else {
+          console.error("Prisma db push failed with code:", code);
+          if (stderr.trim()) {
+            console.error("Push error output:", stderr);
+          }
+          reject(new Error(`Database push failed with code ${code}${stderr ? `: ${stderr}` : ""}`));
+        }
+      });
+
+      prismaProcess.on("error", (error: Error) => {
+        console.error("Failed to start Prisma db push process:", error);
+        reject(error);
+      });
+    });
+  }
+
+  private async runPrismaMigrateDeploy(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const { spawn } = require("child_process");
+      
+      // Windows環境でのコマンド実行設定
+      const isWindows = process.platform === "win32";
+      const command = isWindows ? "npx.cmd" : "npx";
+      
+      // Prisma CLIを実行
+      const prismaProcess = spawn(command, ["prisma", "migrate", "deploy"], {
+        cwd: process.cwd(),
+        stdio: ["pipe", "pipe", "pipe"],
+        shell: isWindows,
+        env: {
+          ...process.env,
+          // Windows環境での文字エンコーディング設定
+          ...(isWindows && {
+            CHCP: "65001", // UTF-8 code page
+            LANG: "en_US.UTF-8",
+            LC_ALL: "en_US.UTF-8"
+          })
+        }
+      });
+
+      let stdout = "";
+      let stderr = "";
+
+      prismaProcess.stdout.on("data", (data: Buffer) => {
+        // Windows環境での文字エンコーディング対応
+        stdout += data.toString(isWindows ? "utf8" : "utf8");
+      });
+
+      prismaProcess.stderr.on("data", (data: Buffer) => {
+        // Windows環境での文字エンコーディング対応
+        stderr += data.toString(isWindows ? "utf8" : "utf8");
       });
 
       prismaProcess.on("close", (code: number) => {
         if (code === 0) {
           console.log("Prisma migration completed successfully");
-          console.log(stdout);
+          if (stdout.trim()) {
+            console.log("Migration output:", stdout);
+          }
           resolve();
         } else {
-          console.error("Prisma migration failed:", stderr);
-          reject(new Error(`Migration failed with code ${code}: ${stderr}`));
+          console.error("Prisma migration failed with code:", code);
+          if (stderr.trim()) {
+            console.error("Migration error output:", stderr);
+          }
+          reject(new Error(`Migration failed with code ${code}${stderr ? `: ${stderr}` : ""}`));
         }
       });
 
