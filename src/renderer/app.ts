@@ -36,7 +36,7 @@ class MovieLibraryApp {
   // Core data
   private filteredVideos: Video[] = [];
   private currentVideo: Video | null = null;
-  private currentSort: SortState = { field: "created_at", order: "DESC" };
+  private currentSort: SortState = { field: "addedAt", order: "DESC" };
 
   // Thumbnail and tooltip state
   private currentThumbnails: ChapterThumbnail[] = [];
@@ -514,13 +514,25 @@ class MovieLibraryApp {
         let bValue = b[this.currentSort.field];
 
         // Null値の処理
-        if (aValue == null) aValue = "";
-        if (bValue == null) bValue = "";
+        if (aValue == null && bValue == null) return 0;
+        if (aValue == null) return this.currentSort.order === "ASC" ? -1 : 1;
+        if (bValue == null) return this.currentSort.order === "ASC" ? 1 : -1;
 
-        // 文字列比較
-        if (typeof aValue === "string" && typeof bValue === "string") {
-          const comparison = aValue.localeCompare(bValue);
+        // Date型の比較（作成日、追加日等）
+        if (aValue instanceof Date && bValue instanceof Date) {
+          const comparison = aValue.getTime() - bValue.getTime();
           return this.currentSort.order === "ASC" ? comparison : -comparison;
+        }
+
+        // bigint型の比較（sizeフィールド用）
+        if (typeof aValue === "bigint" && typeof bValue === "bigint") {
+          if (aValue < bValue) {
+            return this.currentSort.order === "ASC" ? -1 : 1;
+          }
+          if (aValue > bValue) {
+            return this.currentSort.order === "ASC" ? 1 : -1;
+          }
+          return 0;
         }
 
         // 数値比較
@@ -528,6 +540,12 @@ class MovieLibraryApp {
           return this.currentSort.order === "ASC"
             ? aValue - bValue
             : bValue - aValue;
+        }
+
+        // 文字列比較
+        if (typeof aValue === "string" && typeof bValue === "string") {
+          const comparison = aValue.localeCompare(bValue);
+          return this.currentSort.order === "ASC" ? comparison : -comparison;
         }
 
         // その他の型の場合は文字列として比較
@@ -1855,8 +1873,16 @@ class MovieLibraryApp {
 
   private handleSortChange(e: Event): void {
     const target = e.target as HTMLSelectElement;
-    const [field, order] = target.value.split(":");
-    this.currentSort = { field, order: order as "ASC" | "DESC" };
+    
+    if (target.id === "sortSelect") {
+      // ソートフィールドが変更された
+      this.currentSort.field = target.value;
+    } else if (target.id === "orderSelect") {
+      // ソート順が変更された
+      this.currentSort.order = target.value as "ASC" | "DESC";
+    }
+    
+    console.log("Sort changed:", this.currentSort);
     this.applyFiltersAndSort();
   }
 
