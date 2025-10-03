@@ -88,6 +88,10 @@
         "asarUnpack": [
             "node_modules/ffmpeg-static/ffmpeg",
             "node_modules/ffprobe-static/bin/ffprobe",
+            "node_modules/prisma/**/*",
+            "node_modules/@prisma/**/*",
+            "prisma/schema.prisma",
+            "prisma/migrations/**/*",
             "dist-ts/generated/prisma/**/*",
             "generated/prisma/**/*"
         ],
@@ -110,6 +114,8 @@
             "node_modules/ffprobe-static/index.js",
             "node_modules/fluent-ffmpeg/index.js",
             "node_modules/fluent-ffmpeg/lib/**/*",
+            "node_modules/prisma/**/*",
+            "node_modules/@prisma/**/*",
             "!**/static",
             "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme,HISTORY.md,CHANGES.md,AUTHORS,CONTRIBUTORS}",
             "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples,spec,specs,doc,docs,documentation}/**/*",

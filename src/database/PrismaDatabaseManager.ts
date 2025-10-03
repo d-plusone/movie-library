@@ -1,5 +1,7 @@
 import { PrismaClient as GeneratedPrismaClient } from "../../generated/prisma";
 import path from "path";
+import { app } from "electron";
+import { spawn } from "child_process";
 import type {
   Video as AppVideo,
   Directory as AppDirectory,
@@ -63,12 +65,12 @@ class PrismaDatabaseManager {
   private async runDatabaseMigration(): Promise<void> {
     // Prismaの正しいアプローチ：prisma migrate deploy を使用
     console.log("Running Prisma migration...");
-    
+
     try {
       await this.runPrismaMigrateDeploy();
     } catch (error) {
       console.error("Prisma migrate deploy failed:", error);
-      
+
       // Windows環境での代替アプローチ：prisma db push を試行
       if (process.platform === "win32") {
         console.log("Attempting alternative migration approach for Windows...");
@@ -81,21 +83,35 @@ class PrismaDatabaseManager {
 
   private async runPrismaDbPush(): Promise<void> {
     return new Promise((resolve, reject) => {
-      const { spawn } = require("child_process");
-      
       console.log("Running prisma db push as fallback...");
-      
-      const prismaProcess = spawn("npx.cmd", ["prisma", "db", "push"], {
-        cwd: process.cwd(),
-        stdio: ["pipe", "pipe", "pipe"],
-        shell: true,
-        env: {
-          ...process.env,
-          CHCP: "65001",
-          LANG: "en_US.UTF-8",
-          LC_ALL: "en_US.UTF-8"
+
+      // 開発中: プロジェクト直下、リリース時: ASAR unpackedからバイナリ参照
+      const baseDir = app.isPackaged
+        ? path.join(process.resourcesPath, "app.asar.unpacked")
+        : process.cwd();
+
+      // Prismaの実際のスクリプトパスを直接指定
+      const prismaScript = path.join(
+        baseDir,
+        "node_modules",
+        "prisma",
+        "build",
+        "index.js"
+      );
+      const schemaPath = path.join(baseDir, "prisma", "schema.prisma");
+
+      // 開発中は通常のnode、パッケージ版ではElectronのnodeを使用
+      const nodeExecutable = app.isPackaged ? process.execPath : "node";
+
+      const prismaProcess = spawn(
+        nodeExecutable,
+        [prismaScript, "db", "push", "--schema", schemaPath],
+        {
+          cwd: baseDir,
+          stdio: ["pipe", "pipe", "pipe"],
+          shell: false,
         }
-      });
+      );
 
       let stdout = "";
       let stderr = "";
@@ -120,7 +136,13 @@ class PrismaDatabaseManager {
           if (stderr.trim()) {
             console.error("Push error output:", stderr);
           }
-          reject(new Error(`Database push failed with code ${code}${stderr ? `: ${stderr}` : ""}`));
+          reject(
+            new Error(
+              `Database push failed with code ${code}${
+                stderr ? `: ${stderr}` : ""
+              }`
+            )
+          );
         }
       });
 
@@ -133,39 +155,43 @@ class PrismaDatabaseManager {
 
   private async runPrismaMigrateDeploy(): Promise<void> {
     return new Promise((resolve, reject) => {
-      const { spawn } = require("child_process");
-      
-      // Windows環境でのコマンド実行設定
-      const isWindows = process.platform === "win32";
-      const command = isWindows ? "npx.cmd" : "npx";
-      
-      // Prisma CLIを実行
-      const prismaProcess = spawn(command, ["prisma", "migrate", "deploy"], {
-        cwd: process.cwd(),
-        stdio: ["pipe", "pipe", "pipe"],
-        shell: isWindows,
-        env: {
-          ...process.env,
-          // Windows環境での文字エンコーディング設定
-          ...(isWindows && {
-            CHCP: "65001", // UTF-8 code page
-            LANG: "en_US.UTF-8",
-            LC_ALL: "en_US.UTF-8"
-          })
+      // 開発中: プロジェクト直下、リリース時: ASAR unpackedからバイナリ参照
+      const baseDir = app.isPackaged
+        ? path.join(process.resourcesPath, "app.asar.unpacked")
+        : process.cwd();
+
+      // Prismaの実際のスクリプトパスを直接指定
+      const prismaScript = path.join(
+        baseDir,
+        "node_modules",
+        "prisma",
+        "build",
+        "index.js"
+      );
+      const schemaPath = path.join(baseDir, "prisma", "schema.prisma");
+
+      // 開発中は通常のnode、パッケージ版ではElectronのnodeを使用
+      const nodeExecutable = app.isPackaged ? process.execPath : "node";
+
+      const prismaProcess = spawn(
+        nodeExecutable,
+        [prismaScript, "migrate", "deploy", "--schema", schemaPath],
+        {
+          cwd: baseDir,
+          stdio: ["pipe", "pipe", "pipe"],
+          shell: false,
         }
-      });
+      );
 
       let stdout = "";
       let stderr = "";
 
       prismaProcess.stdout.on("data", (data: Buffer) => {
-        // Windows環境での文字エンコーディング対応
-        stdout += data.toString(isWindows ? "utf8" : "utf8");
+        stdout += data.toString("utf8");
       });
 
       prismaProcess.stderr.on("data", (data: Buffer) => {
-        // Windows環境での文字エンコーディング対応
-        stderr += data.toString(isWindows ? "utf8" : "utf8");
+        stderr += data.toString("utf8");
       });
 
       prismaProcess.on("close", (code: number) => {
@@ -180,7 +206,11 @@ class PrismaDatabaseManager {
           if (stderr.trim()) {
             console.error("Migration error output:", stderr);
           }
-          reject(new Error(`Migration failed with code ${code}${stderr ? `: ${stderr}` : ""}`));
+          reject(
+            new Error(
+              `Migration failed with code ${code}${stderr ? `: ${stderr}` : ""}`
+            )
+          );
         }
       });
 

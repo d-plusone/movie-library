@@ -510,8 +510,8 @@ class MovieLibraryApp {
 
       // ソート
       this.filteredVideos.sort((a, b) => {
-        let aValue = a[this.currentSort.field];
-        let bValue = b[this.currentSort.field];
+        let aValue = a[this.currentSort.field as keyof Video];
+        let bValue = b[this.currentSort.field as keyof Video];
 
         // Null値の処理
         if (aValue == null && bValue == null) return 0;
@@ -1873,7 +1873,7 @@ class MovieLibraryApp {
 
   private handleSortChange(e: Event): void {
     const target = e.target as HTMLSelectElement;
-    
+
     if (target.id === "sortSelect") {
       // ソートフィールドが変更された
       this.currentSort.field = target.value;
@@ -1881,7 +1881,7 @@ class MovieLibraryApp {
       // ソート順が変更された
       this.currentSort.order = target.value as "ASC" | "DESC";
     }
-    
+
     console.log("Sort changed:", this.currentSort);
     this.applyFiltersAndSort();
   }
@@ -1894,7 +1894,7 @@ class MovieLibraryApp {
     this.applyFiltersAndSort();
   }
 
-  private setView(view) {
+  private setView(view: "grid" | "list"): void {
     this.uiRenderer.setView(view);
     this.renderVideoList();
 
