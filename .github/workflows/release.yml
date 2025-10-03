@@ -114,9 +114,11 @@ jobs:
           $env:npm_config_target_platform = "win32"
           electron-rebuild
 
-      - name: Fallback manual better-sqlite3 rebuild
-        run: npm run rebuild
-        continue-on-error: true
+      - name: Generate Prisma Client
+        run: npm run prisma:generate
+
+      - name: Build TypeScript
+        run: npm run build:ts
 
       - name: Verify version before build
         shell: bash
@@ -166,7 +168,4 @@ jobs:
         if: matrix.os == 'windows-latest'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # Ensure native modules are rebuilt for Windows
-          npm run rebuild
-          npm run build:win -- --publish=always
+        run: npm run build:win -- --publish=always
