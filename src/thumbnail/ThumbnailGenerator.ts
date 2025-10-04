@@ -47,6 +47,7 @@ class ThumbnailGenerator {
   private db: PrismaDatabaseManager;
   private thumbnailsDir: string;
   private settings: ThumbnailSettings;
+  private maxConcurrent: number;
 
   constructor(database: PrismaDatabaseManager) {
     this.db = database;
@@ -56,6 +57,8 @@ class ThumbnailGenerator {
       width: 1280,
       height: 720,
     };
+    // Windows では並列処理を制限してCPU負荷を抑える
+    this.maxConcurrent = process.platform === "win32" ? 2 : 4;
     this.ensureThumbnailsDirectory();
   }
 
@@ -87,31 +90,43 @@ class ThumbnailGenerator {
       const chapterThumbnails: ChapterThumbnail[] = [];
       const timestamps = [0.2, 0.35, 0.5, 0.65, 0.8]; // 20%, 35%, 50%, 65%, 80%
 
-      for (let i = 0; i < timestamps.length; i++) {
-        const timestamp = video.duration * timestamps[i];
-        const chapterPath = path.join(
+      // 並列処理で生成（制限付き）
+      const tasks = timestamps.map((ts, i) => ({
+        timestamp: video.duration * ts,
+        chapterPath: path.join(
           this.thumbnailsDir,
           `${videoId}_chapter_${i}.jpg`
+        ),
+        index: i,
+      }));
+
+      // バッチ処理で並列数を制限
+      for (let i = 0; i < tasks.length; i += this.maxConcurrent) {
+        const batch = tasks.slice(i, i + this.maxConcurrent);
+        const results = await Promise.allSettled(
+          batch.map((task) =>
+            this.generateSingleThumbnail(
+              video.path,
+              task.chapterPath,
+              task.timestamp
+            ).then(() => task)
+          )
         );
 
-        try {
-          await this.generateSingleThumbnail(
-            video.path,
-            chapterPath,
-            timestamp
-          );
-          chapterThumbnails.push({
-            path: chapterPath,
-            timestamp: timestamp,
-            index: i,
-          });
-        } catch (error) {
-          console.error(
-            `Failed to generate chapter thumbnail ${i} for video:`,
-            video.path,
-            error
-          );
-        }
+        results.forEach((result) => {
+          if (result.status === "fulfilled") {
+            chapterThumbnails.push({
+              path: result.value.chapterPath,
+              timestamp: result.value.timestamp,
+              index: result.value.index,
+            });
+          } else {
+            console.error(
+              `Failed to generate chapter thumbnail:`,
+              result.reason
+            );
+          }
+        });
       }
 
       // Update database with thumbnail paths
@@ -162,6 +177,17 @@ class ThumbnailGenerator {
       console.log("Normalized video path:", normalizedVideoPath);
       console.log("Normalized output path:", normalizedOutputPath);
 
+      // Windows用の最適化オプション
+      const optimizationOptions =
+        process.platform === "win32"
+          ? [
+              "-threads",
+              "2", // スレッド数を制限してCPU負荷を抑える
+              "-preset",
+              "ultrafast", // 高速処理優先
+            ]
+          : [];
+
       const command = ffmpeg(normalizedVideoPath)
         .seekInput(timestamp)
         .frames(1)
@@ -174,6 +200,7 @@ class ThumbnailGenerator {
           // アスペクト比を保持しながらサイズ調整
           "-vf",
           `scale=${defaultOptions.width}:${defaultOptions.height}:force_original_aspect_ratio=decrease,pad=${defaultOptions.width}:${defaultOptions.height}:(ow-iw)/2:(oh-ih)/2:black`,
+          ...optimizationOptions,
         ])
         .output(normalizedOutputPath)
         .on("start", (commandLine) => {

@@ -425,7 +425,8 @@ class VideoScanner {
 
       const { spawn } = require("child_process");
 
-      const ffprobe = spawn(this.ffprobePath, [
+      // Windows用の最適化オプション
+      const ffprobeArgs = [
         "-v",
         "quiet",
         "-print_format",
@@ -433,7 +434,15 @@ class VideoScanner {
         "-show_format",
         "-show_streams",
         filePath,
-      ]);
+      ];
+
+      // Windows環境ではプロセス優先度を下げる
+      const spawnOptions =
+        process.platform === "win32"
+          ? { windowsHide: true, priority: 10 } // 10 = BELOW_NORMAL_PRIORITY_CLASS
+          : {};
+
+      const ffprobe = spawn(this.ffprobePath, ffprobeArgs, spawnOptions);
 
       let stdout = "";
       let stderr = "";
