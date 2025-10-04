@@ -100,16 +100,26 @@ class PrismaDatabaseManager {
       );
       const schemaPath = path.join(baseDir, "prisma", "schema.prisma");
 
-      // 開発中は通常のnode、パッケージ版ではElectronのnodeを使用
+      // パッケージ版ではprocess.execFilePathを使用（Electronに組み込まれたNode.js）
+      // 開発中は通常のnodeコマンドを使用
       const nodeExecutable = app.isPackaged ? process.execPath : "node";
+
+      console.log("Node executable:", nodeExecutable);
+      console.log("Prisma script:", prismaScript);
+      console.log("Schema path:", schemaPath);
+      console.log("Working directory:", baseDir);
 
       const prismaProcess = spawn(
         nodeExecutable,
-        [prismaScript, "db", "push", "--schema", schemaPath],
+        [prismaScript, "db", "push", "--schema", schemaPath, "--skip-generate"],
         {
           cwd: baseDir,
           stdio: ["pipe", "pipe", "pipe"],
           shell: false,
+          env: {
+            ...process.env,
+            ELECTRON_RUN_AS_NODE: "1", // ElectronをNode.jsモードで実行
+          },
         }
       );
 
@@ -170,8 +180,14 @@ class PrismaDatabaseManager {
       );
       const schemaPath = path.join(baseDir, "prisma", "schema.prisma");
 
-      // 開発中は通常のnode、パッケージ版ではElectronのnodeを使用
+      // パッケージ版ではprocess.execPathを使用（Electronに組み込まれたNode.js）
+      // 開発中は通常のnodeコマンドを使用
       const nodeExecutable = app.isPackaged ? process.execPath : "node";
+
+      console.log("Node executable:", nodeExecutable);
+      console.log("Prisma script:", prismaScript);
+      console.log("Schema path:", schemaPath);
+      console.log("Working directory:", baseDir);
 
       const prismaProcess = spawn(
         nodeExecutable,
@@ -180,6 +196,10 @@ class PrismaDatabaseManager {
           cwd: baseDir,
           stdio: ["pipe", "pipe", "pipe"],
           shell: false,
+          env: {
+            ...process.env,
+            ELECTRON_RUN_AS_NODE: "1", // ElectronをNode.jsモードで実行
+          },
         }
       );
 
