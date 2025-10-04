@@ -155,7 +155,14 @@ class ThumbnailGenerator {
         options: defaultOptions,
       });
 
-      const command = ffmpeg(videoPath)
+      // Normalize paths for Windows
+      const normalizedVideoPath = path.normalize(videoPath);
+      const normalizedOutputPath = path.normalize(outputPath);
+
+      console.log("Normalized video path:", normalizedVideoPath);
+      console.log("Normalized output path:", normalizedOutputPath);
+
+      const command = ffmpeg(normalizedVideoPath)
         .seekInput(timestamp)
         .frames(1)
         .videoCodec("mjpeg")
@@ -168,13 +175,16 @@ class ThumbnailGenerator {
           "-vf",
           `scale=${defaultOptions.width}:${defaultOptions.height}:force_original_aspect_ratio=decrease,pad=${defaultOptions.width}:${defaultOptions.height}:(ow-iw)/2:(oh-ih)/2:black`,
         ])
-        .output(outputPath)
+        .output(normalizedOutputPath)
         .on("start", (commandLine) => {
           console.log("📝 FFmpeg command:", commandLine);
         })
         .on("end", () => {
-          console.log("✅ Thumbnail generated successfully:", outputPath);
-          resolve(outputPath);
+          console.log(
+            "✅ Thumbnail generated successfully:",
+            normalizedOutputPath
+          );
+          resolve(normalizedOutputPath);
         })
         .on("error", (err, stdout, stderr) => {
           console.error("❌ FFmpeg error:", err.message);
@@ -297,12 +307,22 @@ class ThumbnailGenerator {
   }
 
   async regenerateMainThumbnail(video: VideoRecord): Promise<RegenerateResult> {
+    console.log("=== regenerateMainThumbnail START ===");
+    console.log("Video:", {
+      id: video.id,
+      path: video.path,
+      duration: video.duration,
+    });
+
     try {
       const videoId = video.id || video.path.replace(/[^a-zA-Z0-9]/g, "_");
       const mainThumbnailPath = path.join(
         this.thumbnailsDir,
         `${videoId}_main.jpg`
       );
+
+      console.log("Thumbnail directory:", this.thumbnailsDir);
+      console.log("Main thumbnail path:", mainThumbnailPath);
 
       // Generate a random timestamp between 10% and 90% of video duration
       // Avoid the very beginning and end of the video
@@ -321,6 +341,7 @@ class ThumbnailGenerator {
 
       // Delete the old thumbnail if it exists
       if (await this.thumbnailExists(mainThumbnailPath)) {
+        console.log("Old thumbnail exists, deleting...");
         try {
           await fs.unlink(mainThumbnailPath);
           console.log("Deleted old main thumbnail");
@@ -330,14 +351,18 @@ class ThumbnailGenerator {
             (error as Error).message
           );
         }
+      } else {
+        console.log("No old thumbnail to delete");
       }
 
+      console.log("Calling generateSingleThumbnail...");
       // Generate new main thumbnail at random position
       await this.generateSingleThumbnail(
         video.path,
         mainThumbnailPath,
         randomTimestamp
       );
+      console.log("generateSingleThumbnail completed");
 
       // Update database with new thumbnail path
       await this.db.updateVideo(video.id, {

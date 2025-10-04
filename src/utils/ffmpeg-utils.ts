@@ -25,6 +25,13 @@ export function getFfmpegPath(): string | null {
       // Development mode - use require directly
       const ffmpegStatic = require("ffmpeg-static");
       console.log("Development ffmpeg path:", ffmpegStatic);
+
+      // Ensure we have a valid path
+      if (ffmpegStatic && typeof ffmpegStatic === "string") {
+        const normalizedPath = path.normalize(ffmpegStatic);
+        console.log("Normalized development ffmpeg path:", normalizedPath);
+        return normalizedPath;
+      }
       return ffmpegStatic;
     } else {
       // Production mode - look for ffmpeg in the app.asar.unpacked directory
@@ -33,6 +40,109 @@ export function getFfmpegPath(): string | null {
 
       const unpackedPath = appPath.replace("app.asar", "app.asar.unpacked");
       console.log("Unpacked path:", unpackedPath);
+
+      // First, try require() as it's most reliable with electron's module resolution
+      try {
+        let ffmpegStatic = require("ffmpeg-static");
+        console.log("FFmpeg path from require():", ffmpegStatic);
+
+        if (ffmpegStatic && typeof ffmpegStatic === "string") {
+          // CRITICAL: If the path points to app.asar (not unpacked), fix it
+          if (
+            ffmpegStatic.includes("app.asar") &&
+            !ffmpegStatic.includes("app.asar.unpacked")
+          ) {
+            ffmpegStatic = ffmpegStatic.replace(
+              "app.asar",
+              "app.asar.unpacked"
+            );
+            console.log("🔧 Fixed ASAR path to unpacked:", ffmpegStatic);
+          }
+
+          // List files in the ffmpeg-static directory for debugging
+          if (process.platform === "win32") {
+            try {
+              const fs = require("fs");
+              const ffmpegDir = path.dirname(ffmpegStatic);
+              console.log("FFmpeg directory:", ffmpegDir);
+              const files = fs.readdirSync(ffmpegDir);
+              console.log("Files in ffmpeg-static directory:", files);
+            } catch (listError) {
+              console.warn("Could not list ffmpeg directory:", listError);
+            }
+          }
+
+          // On Windows, prioritize .exe extension
+          const pathsToTry =
+            process.platform === "win32"
+              ? [
+                  // Try .exe first (created by after-pack.js)
+                  ffmpegStatic + ".exe",
+                  path.join(path.dirname(ffmpegStatic), "ffmpeg.exe"),
+                  // Then try without extension
+                  ffmpegStatic.replace(/\.exe$/, ""),
+                  path.join(path.dirname(ffmpegStatic), "ffmpeg"),
+                  // Original path as fallback
+                  ffmpegStatic,
+                ]
+              : [ffmpegStatic];
+
+          console.log("Trying these ffmpeg paths:", pathsToTry);
+
+          for (const tryPath of pathsToTry) {
+            try {
+              const fs = require("fs");
+              fs.accessSync(tryPath, fs.constants.F_OK);
+              console.log("✅ FFmpeg found and accessible at:", tryPath);
+
+              const stats = fs.statSync(tryPath);
+              console.log("FFmpeg file stats:", {
+                size: stats.size,
+                isFile: stats.isFile(),
+                mode: stats.mode.toString(8),
+              });
+              
+              // Test if we can actually spawn this binary (Windows specific test)
+              if (process.platform === "win32") {
+                try {
+                  const { spawnSync } = require("child_process");
+                  const testResult = spawnSync(tryPath, ["-version"], {
+                    timeout: 5000,
+                    windowsHide: true,
+                  });
+                  
+                  if (testResult.error) {
+                    console.error("❌ Cannot spawn ffmpeg:", testResult.error.message);
+                    continue; // Try next path
+                  } else {
+                    console.log("✅ FFmpeg spawn test successful");
+                  }
+                } catch (spawnError) {
+                  console.error("❌ FFmpeg spawn test failed:", spawnError);
+                  continue; // Try next path
+                }
+              }
+
+              // Normalize path for Windows
+              const normalizedPath = path.normalize(tryPath);
+              console.log("Returning normalized ffmpeg path:", normalizedPath);
+              return normalizedPath;
+            } catch (accessError) {
+              console.warn(
+                `Cannot access ${tryPath}:`,
+                (accessError as Error).message
+              );
+            }
+          }
+
+          console.error("❌ None of the ffmpeg paths are accessible");
+        }
+      } catch (requireError) {
+        console.warn(
+          "Could not require ffmpeg-static, trying manual paths:",
+          requireError
+        );
+      }
 
       // Try multiple possible paths for ffmpeg
       const possiblePaths = [
@@ -62,34 +172,31 @@ export function getFfmpegPath(): string | null {
 
       for (const ffmpegPath of finalPaths) {
         try {
-          require("fs").accessSync(ffmpegPath, require("fs").constants.F_OK);
+          const fs = require("fs");
+          fs.accessSync(ffmpegPath, fs.constants.F_OK | fs.constants.X_OK);
           console.log("✅ Found ffmpeg at:", ffmpegPath);
-          return ffmpegPath;
+
+          // Additional verification for Windows
+          if (process.platform === "win32") {
+            const stats = fs.statSync(ffmpegPath);
+            console.log("FFmpeg file stats:", {
+              size: stats.size,
+              isFile: stats.isFile(),
+              mode: stats.mode.toString(8),
+            });
+          }
+
+          // Normalize path for Windows
+          const normalizedPath = path.normalize(ffmpegPath);
+          console.log("Returning normalized ffmpeg path:", normalizedPath);
+          return normalizedPath;
         } catch (_error) {
           // Silent - will log at the end if nothing found
         }
       }
-      
-      console.error("❌ ffmpeg not found in any of the expected paths");
 
-      // Fallback to require() which should work with asarUnpack
-      try {
-        const ffmpegStatic = require("ffmpeg-static");
-        console.log("✅ Fallback ffmpeg path from require():", ffmpegStatic);
-        
-        // Verify the fallback path exists
-        try {
-          require("fs").accessSync(ffmpegStatic, require("fs").constants.F_OK);
-          console.log("✅ Fallback ffmpeg verified to exist");
-          return ffmpegStatic;
-        } catch (_verifyError) {
-          console.error("❌ Fallback ffmpeg path does not exist:", ffmpegStatic);
-          return null;
-        }
-      } catch (_error) {
-        console.error("❌ Could not require ffmpeg-static:", _error);
-        return null;
-      }
+      console.error("❌ ffmpeg not found in any location");
+      return null;
     }
   } catch (error) {
     console.error("Error loading ffmpeg-static:", error);
@@ -167,22 +274,39 @@ export function getFfprobePath(): string | null {
           // Silent - will log at the end if nothing found
         }
       }
-      
+
       console.error("❌ ffprobe not found in any of the expected paths");
 
       // Fallback to require() which should work with asarUnpack
       try {
         const ffprobeStatic = require("ffprobe-static");
-        const ffprobePath = ffprobeStatic.path;
+        let ffprobePath = ffprobeStatic.path;
         console.log("✅ Fallback ffprobe path from require():", ffprobePath);
-        
+
+        // CRITICAL: If the path points to app.asar (not unpacked), fix it
+        if (
+          ffprobePath &&
+          ffprobePath.includes("app.asar") &&
+          !ffprobePath.includes("app.asar.unpacked")
+        ) {
+          ffprobePath = ffprobePath.replace("app.asar", "app.asar.unpacked");
+          console.log("🔧 Fixed ASAR path to unpacked:", ffprobePath);
+        }
+
         // Verify the fallback path exists
         try {
           require("fs").accessSync(ffprobePath, require("fs").constants.F_OK);
           console.log("✅ Fallback ffprobe verified to exist");
-          return ffprobePath;
+
+          // Normalize path for Windows
+          const normalizedPath = path.normalize(ffprobePath);
+          console.log("Returning normalized ffprobe path:", normalizedPath);
+          return normalizedPath;
         } catch (_verifyError) {
-          console.error("❌ Fallback ffprobe path does not exist:", ffprobePath);
+          console.error(
+            "❌ Fallback ffprobe path does not exist:",
+            ffprobePath
+          );
           return null;
         }
       } catch (_error) {

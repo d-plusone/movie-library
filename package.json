@@ -181,7 +181,7 @@
             "createDesktopShortcut": true,
             "createStartMenuShortcut": true,
             "runAfterFinish": false,
-            "deleteAppDataOnUninstall": true,
+            "deleteAppDataOnUninstall": false,
             "perMachine": false,
             "installerIcon": "assets/icon.ico",
             "uninstallerIcon": "assets/icon.ico",
