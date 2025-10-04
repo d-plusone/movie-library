@@ -72,28 +72,35 @@ export function getFfmpegPath(): string | null {
             }
           }
 
-          // On Windows, prioritize .exe extension
+          // On Windows, ffmpeg-static's index.js returns path with .exe
+          // but the actual file might not have .exe extension
+          // Try both with and without .exe, prioritizing the actual file
           const pathsToTry =
             process.platform === "win32"
               ? [
-                  // Try .exe first (created by after-pack.js)
-                  ffmpegStatic + ".exe",
-                  path.join(path.dirname(ffmpegStatic), "ffmpeg.exe"),
-                  // Then try without extension
+                  // If require() returned .exe, try without .exe first (actual file)
                   ffmpegStatic.replace(/\.exe$/, ""),
+                  // Then try with .exe (in case after-pack.js created it)
+                  ffmpegStatic.endsWith(".exe")
+                    ? ffmpegStatic
+                    : ffmpegStatic + ".exe",
+                  // Also try in the same directory
                   path.join(path.dirname(ffmpegStatic), "ffmpeg"),
-                  // Original path as fallback
+                  path.join(path.dirname(ffmpegStatic), "ffmpeg.exe"),
+                  // Original path as final fallback
                   ffmpegStatic,
                 ]
               : [ffmpegStatic];
 
           console.log("Trying these ffmpeg paths:", pathsToTry);
 
+          let lastError: Error | null = null;
+
           for (const tryPath of pathsToTry) {
             try {
               const fs = require("fs");
               fs.accessSync(tryPath, fs.constants.F_OK);
-              console.log("✅ FFmpeg found and accessible at:", tryPath);
+              console.log("✅ FFmpeg file exists at:", tryPath);
 
               const stats = fs.statSync(tryPath);
               console.log("FFmpeg file stats:", {
@@ -101,41 +108,111 @@ export function getFfmpegPath(): string | null {
                 isFile: stats.isFile(),
                 mode: stats.mode.toString(8),
               });
-              
+
               // Test if we can actually spawn this binary (Windows specific test)
               if (process.platform === "win32") {
                 try {
                   const { spawnSync } = require("child_process");
+                  console.log("🔍 Testing spawn with path:", tryPath);
                   const testResult = spawnSync(tryPath, ["-version"], {
                     timeout: 5000,
                     windowsHide: true,
                   });
-                  
+
                   if (testResult.error) {
-                    console.error("❌ Cannot spawn ffmpeg:", testResult.error.message);
+                    console.error("❌ Spawn FAILED at", tryPath);
+                    console.error(
+                      "   Error message:",
+                      testResult.error.message
+                    );
+                    console.error("   Error code:", testResult.error.code);
+                    console.error("   Error errno:", testResult.error.errno);
+                    lastError = testResult.error;
                     continue; // Try next path
-                  } else {
-                    console.log("✅ FFmpeg spawn test successful");
                   }
+
+                  if (testResult.status !== 0 && testResult.status !== null) {
+                    console.error(
+                      "❌ Spawn returned non-zero status:",
+                      testResult.status
+                    );
+                    console.error("   stderr:", testResult.stderr?.toString());
+                    continue; // Try next path
+                  }
+
+                  console.log("✅ FFmpeg spawn test SUCCESSFUL at:", tryPath);
+                  const versionOutput =
+                    testResult.stdout?.toString() ||
+                    testResult.stderr?.toString();
+                  console.log(
+                    "   Version output:",
+                    versionOutput?.substring(0, 150)
+                  );
                 } catch (spawnError) {
-                  console.error("❌ FFmpeg spawn test failed:", spawnError);
+                  console.error(
+                    "❌ FFmpeg spawn test threw exception at",
+                    tryPath
+                  );
+                  console.error("   Exception:", spawnError);
+                  lastError = spawnError as Error;
                   continue; // Try next path
                 }
               }
 
-              // Normalize path for Windows
+              // If we reached here, the file exists and (on Windows) spawn test passed
               const normalizedPath = path.normalize(tryPath);
-              console.log("Returning normalized ffmpeg path:", normalizedPath);
+              console.log("🎉 SUCCESS! Returning ffmpeg path:", normalizedPath);
               return normalizedPath;
             } catch (accessError) {
               console.warn(
-                `Cannot access ${tryPath}:`,
+                `⚠️  Cannot access ${tryPath}:`,
                 (accessError as Error).message
               );
+              lastError = accessError as Error;
             }
           }
 
-          console.error("❌ None of the ffmpeg paths are accessible");
+          console.error("❌ FAILED: None of the ffmpeg paths worked!");
+          if (lastError) {
+            console.error("   Last error:", lastError.message);
+          }
+
+          // On Windows, if spawn test failed for all paths, don't try fallback
+          // because it will also fail
+          if (process.platform === "win32") {
+            console.error("⛔ Windows: All spawn tests failed.");
+            console.log("💡 Trying to use system ffmpeg from PATH...");
+
+            // Try to find ffmpeg in system PATH
+            try {
+              const { spawnSync } = require("child_process");
+              const which = spawnSync("where", ["ffmpeg"], {
+                encoding: "utf8",
+                windowsHide: true,
+              });
+
+              if (!which.error && which.stdout) {
+                const systemFfmpegPath = which.stdout.trim().split("\n")[0];
+                console.log("✅ Found system ffmpeg at:", systemFfmpegPath);
+
+                // Test if it works
+                const testResult = spawnSync(systemFfmpegPath, ["-version"], {
+                  timeout: 5000,
+                  windowsHide: true,
+                });
+
+                if (!testResult.error) {
+                  console.log("✅ System ffmpeg works! Using it.");
+                  return systemFfmpegPath;
+                }
+              }
+            } catch (e) {
+              console.warn("Could not find system ffmpeg:", e);
+            }
+
+            console.error("⛔ No working ffmpeg found. Returning null.");
+            return null;
+          }
         }
       } catch (requireError) {
         console.warn(
@@ -144,7 +221,9 @@ export function getFfmpegPath(): string | null {
         );
       }
 
-      // Try multiple possible paths for ffmpeg
+      // Fallback: Try multiple possible paths for ffmpeg
+      // (Only reached on non-Windows or if require() failed)
+      console.log("⚠️  Trying fallback paths...");
       const possiblePaths = [
         path.join(unpackedPath, "node_modules", "ffmpeg-static", "ffmpeg"),
         path.join(
