@@ -92,26 +92,27 @@ class MovieLibraryApp {
     this.mainWindow.loadFile(htmlPath);
 
     // 開発モードでのみキーボードショートカットで開発者ツールを開く
-    if (process.env.NODE_ENV === "development" || !app.isPackaged) {
-      this.mainWindow.webContents.on("before-input-event", (_event, input) => {
-        // macOS: Cmd+Option+I または F12
-        if (
-          process.platform === "darwin" &&
-          ((input.meta && input.alt && input.key.toLowerCase() === "i") ||
-            input.key === "F12")
-        ) {
-          this.mainWindow!.webContents.toggleDevTools();
-        }
-        // Windows/Linux: Ctrl+Shift+I または F12
-        else if (
-          process.platform !== "darwin" &&
-          ((input.control && input.shift && input.key.toLowerCase() === "i") ||
-            input.key === "F12")
-        ) {
-          this.mainWindow!.webContents.toggleDevTools();
-        }
-      });
-    }
+    // FIXME 一時的に開発者ツールが開けるようにする
+    // if (process.env.NODE_ENV === "development" || !app.isPackaged) {
+    this.mainWindow.webContents.on("before-input-event", (_event, input) => {
+      // macOS: Cmd+Option+I または F12
+      if (
+        process.platform === "darwin" &&
+        ((input.meta && input.alt && input.key.toLowerCase() === "i") ||
+          input.key === "F12")
+      ) {
+        this.mainWindow!.webContents.toggleDevTools();
+      }
+      // Windows/Linux: Ctrl+Shift+I または F12
+      else if (
+        process.platform !== "darwin" &&
+        ((input.control && input.shift && input.key.toLowerCase() === "i") ||
+          input.key === "F12")
+      ) {
+        this.mainWindow!.webContents.toggleDevTools();
+      }
+    });
+    // }
 
     // Development mode - DevTools can be opened with F12
     // if (process.env.NODE_ENV === "development" || !app.isPackaged) {

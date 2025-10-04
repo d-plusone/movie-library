@@ -148,7 +148,14 @@ class ThumbnailGenerator {
     };
 
     return new Promise((resolve, reject) => {
-      ffmpeg(videoPath)
+      console.log("🎬 Generating thumbnail:", {
+        videoPath,
+        outputPath,
+        timestamp,
+        options: defaultOptions,
+      });
+
+      const command = ffmpeg(videoPath)
         .seekInput(timestamp)
         .frames(1)
         .videoCodec("mjpeg")
@@ -162,13 +169,21 @@ class ThumbnailGenerator {
           `scale=${defaultOptions.width}:${defaultOptions.height}:force_original_aspect_ratio=decrease,pad=${defaultOptions.width}:${defaultOptions.height}:(ow-iw)/2:(oh-ih)/2:black`,
         ])
         .output(outputPath)
+        .on("start", (commandLine) => {
+          console.log("📝 FFmpeg command:", commandLine);
+        })
         .on("end", () => {
+          console.log("✅ Thumbnail generated successfully:", outputPath);
           resolve(outputPath);
         })
-        .on("error", (err) => {
+        .on("error", (err, stdout, stderr) => {
+          console.error("❌ FFmpeg error:", err.message);
+          console.error("FFmpeg stdout:", stdout);
+          console.error("FFmpeg stderr:", stderr);
           reject(err);
-        })
-        .run();
+        });
+
+      command.run();
     });
   }
 

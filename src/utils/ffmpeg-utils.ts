@@ -47,30 +47,47 @@ export function getFfmpegPath(): string | null {
         path.join(process.resourcesPath, "ffmpeg-static", "ffmpeg"),
       ];
 
-      // Add platform-specific extensions
+      // Add platform-specific extensions for Windows
+      const finalPaths: string[] = [];
       if (process.platform === "win32") {
-        possiblePaths.forEach((p, i) => {
-          possiblePaths[i] = p + ".exe";
+        possiblePaths.forEach((p) => {
+          finalPaths.push(p); // Try without .exe first (actual file might not have extension)
+          finalPaths.push(p + ".exe"); // Then try with .exe
         });
+      } else {
+        finalPaths.push(...possiblePaths);
       }
 
-      for (const ffmpegPath of possiblePaths) {
+      console.log("Searching for ffmpeg in these paths:", finalPaths);
+
+      for (const ffmpegPath of finalPaths) {
         try {
           require("fs").accessSync(ffmpegPath, require("fs").constants.F_OK);
-          console.log("Found ffmpeg at:", ffmpegPath);
+          console.log("✅ Found ffmpeg at:", ffmpegPath);
           return ffmpegPath;
         } catch (_error) {
-          console.log("ffmpeg not found at:", ffmpegPath);
+          // Silent - will log at the end if nothing found
         }
       }
+      
+      console.error("❌ ffmpeg not found in any of the expected paths");
 
       // Fallback to require() which should work with asarUnpack
       try {
         const ffmpegStatic = require("ffmpeg-static");
-        console.log("Fallback ffmpeg path:", ffmpegStatic);
-        return ffmpegStatic;
+        console.log("✅ Fallback ffmpeg path from require():", ffmpegStatic);
+        
+        // Verify the fallback path exists
+        try {
+          require("fs").accessSync(ffmpegStatic, require("fs").constants.F_OK);
+          console.log("✅ Fallback ffmpeg verified to exist");
+          return ffmpegStatic;
+        } catch (_verifyError) {
+          console.error("❌ Fallback ffmpeg path does not exist:", ffmpegStatic);
+          return null;
+        }
       } catch (_error) {
-        console.error("Could not find ffmpeg binary");
+        console.error("❌ Could not require ffmpeg-static:", _error);
         return null;
       }
     }
@@ -128,30 +145,48 @@ export function getFfprobePath(): string | null {
         ),
       ];
 
-      // Add platform-specific extensions
+      // Add platform-specific extensions for Windows
+      const finalPaths: string[] = [];
       if (process.platform === "win32") {
-        possiblePaths.forEach((p, i) => {
-          possiblePaths[i] = p + ".exe";
+        possiblePaths.forEach((p) => {
+          finalPaths.push(p); // Try without .exe first (actual file might not have extension)
+          finalPaths.push(p + ".exe"); // Then try with .exe
         });
+      } else {
+        finalPaths.push(...possiblePaths);
       }
 
-      for (const ffprobePath of possiblePaths) {
+      console.log("Searching for ffprobe in these paths:", finalPaths);
+
+      for (const ffprobePath of finalPaths) {
         try {
           require("fs").accessSync(ffprobePath, require("fs").constants.F_OK);
-          console.log("Found ffprobe at:", ffprobePath);
+          console.log("✅ Found ffprobe at:", ffprobePath);
           return ffprobePath;
         } catch (_error) {
-          console.log("ffprobe not found at:", ffprobePath);
+          // Silent - will log at the end if nothing found
         }
       }
+      
+      console.error("❌ ffprobe not found in any of the expected paths");
 
       // Fallback to require() which should work with asarUnpack
       try {
         const ffprobeStatic = require("ffprobe-static");
-        console.log("Fallback ffprobe path:", ffprobeStatic.path);
-        return ffprobeStatic.path;
+        const ffprobePath = ffprobeStatic.path;
+        console.log("✅ Fallback ffprobe path from require():", ffprobePath);
+        
+        // Verify the fallback path exists
+        try {
+          require("fs").accessSync(ffprobePath, require("fs").constants.F_OK);
+          console.log("✅ Fallback ffprobe verified to exist");
+          return ffprobePath;
+        } catch (_verifyError) {
+          console.error("❌ Fallback ffprobe path does not exist:", ffprobePath);
+          return null;
+        }
       } catch (_error) {
-        console.error("Could not find ffprobe binary");
+        console.error("❌ Could not require ffprobe-static:", _error);
         return null;
       }
     }
