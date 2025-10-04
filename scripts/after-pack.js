@@ -5,11 +5,6 @@ const path = require("path");
 exports.default = async function (context) {
   const { electronPlatformName, arch, appOutDir } = context;
 
-  console.log(
-    `Post-processing package for platform: ${electronPlatformName}, arch: ${arch}`
-  );
-  console.log(`App output directory: ${appOutDir}`);
-
   // Set executable permissions for ffmpeg and ffprobe binaries
   try {
     // Convert arch number to string (Arch.x64 = 1, Arch.ia32 = 0, etc.)
@@ -22,15 +17,10 @@ exports.default = async function (context) {
     };
     const archString = typeof arch === "number" ? archMap[arch] || "x64" : arch;
 
-    console.log(
-      `Setting permissions for ${electronPlatformName} ${archString}`
-    );
-
     // Determine the correct resources path based on platform
     let resourcesPath;
     if (electronPlatformName === "darwin") {
       // macOS: appOutDir contains the .app bundle
-      // Find the .app directory
       const appFiles = require("fs").readdirSync(appOutDir);
       const appFile = appFiles.find((f) => f.endsWith(".app"));
       if (appFile) {
@@ -43,8 +33,6 @@ exports.default = async function (context) {
       // Windows/Linux: appOutDir contains resources directly
       resourcesPath = path.join(appOutDir, "resources");
     }
-
-    console.log("Resources path:", resourcesPath);
 
     // ffmpeg-static stores binary at the root level (same for all platforms)
     const ffmpegPath = path.join(
@@ -106,37 +94,15 @@ exports.default = async function (context) {
     if (electronPlatformName !== "win32") {
       // Set executable permission for ffmpeg
       if (fs.existsSync(ffmpegPath)) {
-        console.log("Setting executable permission for ffmpeg:", ffmpegPath);
         fs.chmodSync(ffmpegPath, 0o755);
-        console.log("✅ FFmpeg executable permission set");
-      } else {
-        console.warn("⚠️  FFmpeg binary not found at:", ffmpegPath);
       }
 
       // Set executable permission for ffprobe (try all possible paths)
-      let ffprobeFound = false;
       for (const ffprobePath of ffprobePaths) {
         if (fs.existsSync(ffprobePath)) {
-          console.log(
-            "Setting executable permission for ffprobe:",
-            ffprobePath
-          );
           fs.chmodSync(ffprobePath, 0o755);
-          console.log("✅ FFprobe executable permission set");
-          ffprobeFound = true;
         }
       }
-
-      if (!ffprobeFound) {
-        console.warn(
-          "⚠️  FFprobe binary not found at any of these paths:",
-          ffprobePaths
-        );
-      }
-    } else {
-      console.log(
-        "ℹ️  Windows build - executable permissions not needed (.exe files)"
-      );
     }
   } catch (error) {
     console.error("Error setting executable permissions:", error.message);

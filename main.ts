@@ -16,10 +16,15 @@ import ThumbnailGenerator from "./src/thumbnail/ThumbnailGenerator.js";
 import { ProcessedVideo, ThumbnailResult } from "./src/types/types.js";
 import { initializeFFmpeg } from "./src/utils/ffmpeg-utils.js";
 
+// Set app name BEFORE app is ready to ensure consistent userData path across versions
+// This must be done before any app.getPath() calls
+app.setName("movie-library");
+
 // Initialize FFmpeg paths once at startup
-console.log("Initializing FFmpeg paths...");
 const { ffmpegPath, ffprobePath } = initializeFFmpeg();
-console.log("FFmpeg initialization result:", { ffmpegPath, ffprobePath });
+if (!ffmpegPath || !ffprobePath) {
+  console.error("⚠️  FFmpeg initialization failed");
+}
 
 class MovieLibraryApp {
   private mainWindow: BrowserWindow | null = null;
@@ -1008,8 +1013,6 @@ const movieApp = new MovieLibraryApp();
 app.whenReady().then(async () => {
   // macOS固有の設定
   if (process.platform === "darwin") {
-    app.setName("Movie Library");
-
     // Dockアイコンの設定
     const iconPath = path.join(__dirname, "assets", "icon.icns");
     if (
