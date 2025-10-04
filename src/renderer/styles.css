@@ -18,7 +18,7 @@
     --shadow-medium: rgba(0, 0, 0, 0.2);
     --accent-color: #007AFF;
     --accent-hover: #0056CC;
-    --success-color: #34C759;
+    --success-color: #2db84e;
     --error-color: #FF3B30;
     --warning-color: #FF9500;
 }
@@ -35,7 +35,7 @@
     --shadow-medium: rgba(0, 0, 0, 0.5);
     --accent-color: #0A84FF;
     --accent-hover: #409CFF;
-    --success-color: #30D158;
+    --success-color: #28c249;
     --error-color: #FF453A;
     --warning-color: #FF9F0A;
 }
@@ -246,13 +246,15 @@ body {
 }
 
 /* Light theme: Override to better visibility */
-[data-theme="light"] .btn, :root .btn {
+[data-theme="light"] .btn,
+:root .btn {
     background: rgba(0, 0, 0, 0.08);
     border: 1px solid rgba(0, 0, 0, 0.12);
     color: var(--text-primary);
 }
 
-[data-theme="light"] .btn:hover, :root .btn:hover {
+[data-theme="light"] .btn:hover,
+:root .btn:hover {
     background: rgba(0, 0, 0, 0.12);
     border-color: rgba(0, 0, 0, 0.18);
 }
@@ -298,12 +300,48 @@ body {
     box-shadow: 0 4px 12px rgba(10, 132, 255, 0.3);
 }
 
+[data-theme="dark"] .btn-primary {
+    background: var(--accent-color);
+    color: white;
+    border-color: var(--accent-color);
+}
+
+[data-theme="dark"] .btn-primary:hover {
+    background: var(--accent-hover);
+    box-shadow: 0 4px 12px rgba(64, 156, 255, 0.4);
+}
+
+.btn-success {
+    background: var(--success-color);
+    color: white;
+    border: 1px solid var(--success-color);
+}
+
+.btn-success:hover {
+    background: #259940;
+    border-color: #259940;
+    box-shadow: 0 4px 12px rgba(37, 153, 64, 0.4);
+}
+
+[data-theme="dark"] .btn-success {
+    background: var(--success-color);
+    color: white;
+    border-color: var(--success-color);
+}
+
+[data-theme="dark"] .btn-success:hover {
+    background: #32d355;
+    border-color: #32d355;
+    box-shadow: 0 4px 12px rgba(50, 211, 85, 0.5);
+}
+
 .btn-secondary {
     color: var(--text-primary);
 }
 
 /* Light theme: Override for better visibility */
-[data-theme="light"] .btn-secondary, :root .btn-secondary {
+[data-theme="light"] .btn-secondary,
+:root .btn-secondary {
     background: rgba(0, 0, 0, 0.05);
     border: 1px solid rgba(0, 0, 0, 0.15);
 }
@@ -2535,13 +2573,14 @@ body {
 }
 
 /* Light mode: Settings dialog buttons with better visibility */
-.modal-actions .btn {
+/* .modal-actions .btn {
     color: var(--text-primary);
     background: rgba(0, 0, 0, 0.08) !important;
     border: 1px solid rgba(0, 0, 0, 0.12) !important;
-}
+} */
 
-.modal-actions .btn:hover {
+/* Only apply to secondary buttons, not success buttons */
+.modal-actions .btn-secondary:hover {
     background: rgba(0, 0, 0, 0.12) !important;
     border-color: rgba(0, 0, 0, 0.18) !important;
 }
@@ -2551,15 +2590,15 @@ body {
     border-top: 1px solid var(--border-color);
 }
 
-[data-theme="dark"] .modal-actions .btn {
+/* [data-theme="dark"] .modal-actions .btn {
     color: white !important;
     background: rgba(255, 255, 255, 0.15) !important;
     border: 1px solid rgba(255, 255, 255, 0.1) !important;
-}
+} */
 
-[data-theme="dark"] .modal-actions .btn:hover {
+/* [data-theme="dark"] .modal-actions .btn:hover {
     background: rgba(255, 255, 255, 0.25) !important;
-}
+} */
 
 /* Selected video item style */
 .video-item.selected {
