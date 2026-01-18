@@ -208,7 +208,21 @@ body {
 }
 
 .search-input::placeholder {
-    color: rgba(255, 255, 255, 0.7);
+    color: rgba(0, 0, 0, 0.5) !important;
+    opacity: 1 !important;
+    font-weight: 400 !important;
+}
+
+.search-input::-webkit-input-placeholder {
+    color: rgba(0, 0, 0, 0.5) !important;
+    opacity: 1 !important;
+    font-weight: 400 !important;
+}
+
+.search-input::-moz-placeholder {
+    color: rgba(0, 0, 0, 0.5) !important;
+    opacity: 1 !important;
+    font-weight: 400 !important;
 }
 
 .search-input:focus {
@@ -1816,24 +1830,27 @@ body {
     border: 1px solid var(--border-color);
     border-radius: 8px;
     font-size: 14px;
-    background: var(--bg-secondary) !important;
-    color: var(--text-primary) !important;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .tag-input::placeholder {
-    color: #999999 !important;
-    opacity: 0.6 !important;
+    color: #888888 !important;
+    opacity: 1 !important;
+    font-weight: 400 !important;
 }
 
 .tag-input::-webkit-input-placeholder {
-    color: #999999 !important;
-    opacity: 0.6 !important;
+    color: #888888 !important;
+    opacity: 1 !important;
+    font-weight: 400 !important;
 }
 
 .tag-input::-moz-placeholder {
-    color: #999999 !important;
-    opacity: 0.6 !important;
+    color: #888888 !important;
+    opacity: 1 !important;
+    font-weight: 400 !important;
 }
 
 .tag-input:focus {
@@ -1847,19 +1864,15 @@ body {
 .tag-input:-webkit-autofill:hover,
 .tag-input:-webkit-autofill:focus {
     -webkit-box-shadow: 0 0 0 1000px var(--bg-secondary) inset !important;
-    -webkit-text-fill-color: var(--text-primary) !important;
     background-color: var(--bg-secondary) !important;
-    color: var(--text-primary) !important;
     transition: background-color 5000s ease-in-out 0s;
 }
 
-[data-theme="dark"] .tag-input:-webkit-autofill,
-[data-theme="dark"] .tag-input:-webkit-autofill:hover,
-[data-theme="dark"] .tag-input:-webkit-autofill:focus {
+body[data-theme="dark"] .tag-input:-webkit-autofill,
+body[data-theme="dark"] .tag-input:-webkit-autofill:hover,
+body[data-theme="dark"] .tag-input:-webkit-autofill:focus {
     -webkit-box-shadow: 0 0 0 1000px var(--bg-secondary) inset !important;
-    -webkit-text-fill-color: var(--text-primary) !important;
     background-color: var(--bg-secondary) !important;
-    color: var(--text-primary) !important;
 }
 
 /* Datalist dropdown styling for dark mode */
@@ -1867,26 +1880,47 @@ body {
     display: none;
 }
 
-/* ダークモード時のタグ入力プレースホルダー色設定 */
-[data-theme="dark"] .tag-input {
+/* ダークモード時のタグ入力色設定 */
+body[data-theme="dark"] .tag-input {
     background-color: var(--bg-secondary) !important;
     color: var(--text-primary) !important;
-    -webkit-text-fill-color: var(--text-primary) !important;
 }
 
-[data-theme="dark"] .tag-input::placeholder {
-    color: rgba(136, 136, 136, 0.5) !important;
+body[data-theme="dark"] .tag-input::placeholder {
+    color: rgba(170, 170, 170, 0.9) !important;
     opacity: 1 !important;
+    font-weight: 400 !important;
 }
 
-[data-theme="dark"] .tag-input::-webkit-input-placeholder {
-    color: rgba(136, 136, 136, 0.5) !important;
+body[data-theme="dark"] .tag-input::-webkit-input-placeholder {
+    color: rgba(170, 170, 170, 0.9) !important;
     opacity: 1 !important;
+    font-weight: 400 !important;
 }
 
-[data-theme="dark"] .tag-input::-moz-placeholder {
-    color: rgba(136, 136, 136, 0.5) !important;
+body[data-theme="dark"] .tag-input::-moz-placeholder {
+    color: rgba(170, 170, 170, 0.9) !important;
     opacity: 1 !important;
+    font-weight: 400 !important;
+}
+
+/* ダークモード時の検索ボックスプレースホルダー色設定 */
+body[data-theme="dark"] .search-input::placeholder {
+    color: rgba(255, 255, 255, 0.6) !important;
+    opacity: 1 !important;
+    font-weight: 400 !important;
+}
+
+body[data-theme="dark"] .search-input::-webkit-input-placeholder {
+    color: rgba(255, 255, 255, 0.6) !important;
+    opacity: 1 !important;
+    font-weight: 400 !important;
+}
+
+body[data-theme="dark"] .search-input::-moz-placeholder {
+    color: rgba(255, 255, 255, 0.6) !important;
+    opacity: 1 !important;
+    font-weight: 400 !important;
 }
 
 /* Style the datalist options */
@@ -3385,26 +3419,38 @@ select:focus {
 /* Global placeholder styling */
 input::placeholder,
 textarea::placeholder {
-    color: var(--text-tertiary);
-    opacity: 1;
+    color: var(--text-tertiary) !important;
+    opacity: 0.7 !important;
+}
+
+input::-webkit-input-placeholder,
+textarea::-webkit-input-placeholder {
+    color: var(--text-tertiary) !important;
+    opacity: 0.7 !important;
+}
+
+input::-moz-placeholder,
+textarea::-moz-placeholder {
+    color: var(--text-tertiary) !important;
+    opacity: 0.7 !important;
 }
 
 [data-theme="dark"] input::placeholder,
 [data-theme="dark"] textarea::placeholder {
-    color: rgba(136, 136, 136, 0.6) !important;
+    color: rgba(136, 136, 136, 0.7) !important;
     opacity: 1 !important;
 }
 
 /* WebKit系プレースホルダーの追加設定 */
 [data-theme="dark"] input::-webkit-input-placeholder,
 [data-theme="dark"] textarea::-webkit-input-placeholder {
-    color: rgba(136, 136, 136, 0.6) !important;
+    color: rgba(136, 136, 136, 0.7) !important;
     opacity: 1 !important;
 }
 
 [data-theme="dark"] input::-moz-placeholder,
 [data-theme="dark"] textarea::-moz-placeholder {
-    color: rgba(136, 136, 136, 0.6) !important;
+    color: rgba(136, 136, 136, 0.7) !important;
     opacity: 1 !important;
 }
 
@@ -3414,7 +3460,7 @@ textarea::placeholder {
 [data-theme="dark"] select {
     background-color: var(--bg-secondary) !important;
     color: var(--text-primary) !important;
-    -webkit-text-fill-color: var(--text-primary) !important;
+    /* -webkit-text-fill-color: var(--text-primary); */
 }
 
 /* Prevent white flashes on input focus in dark mode */

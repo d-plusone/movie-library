@@ -1900,7 +1900,9 @@ class MovieLibraryApp {
   }
 
   private handleSearchClear(): void {
-    const searchInput = document.getElementById("searchInput") as HTMLInputElement;
+    const searchInput = document.getElementById(
+      "searchInput",
+    ) as HTMLInputElement;
     if (searchInput) {
       searchInput.value = "";
       this.filterManager.updateSearch("");
@@ -2164,7 +2166,7 @@ class MovieLibraryApp {
         this.currentVideo.id,
         this.currentVideo.tags || [],
       );
-      
+
       // タグ一覧を更新するためにサイドバーを再描画
       this.renderSidebar();
 
@@ -2208,7 +2210,7 @@ class MovieLibraryApp {
         this.currentVideo.id,
         this.currentVideo.tags || [],
       );
-      
+
       // タグ一覧を更新するためにサイドバーを再描画
       this.renderSidebar();
 
