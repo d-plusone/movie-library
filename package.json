@@ -76,7 +76,12 @@
     "build": {
         "appId": "com.yourcompany.movielibrary",
         "productName": "Movie Library",
-        "publish": null,
+        "publish": [
+            {
+                "provider": "github",
+                "releaseType": "release"
+            }
+        ],
         "directories": {
             "output": "dist"
         },
