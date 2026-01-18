@@ -720,6 +720,24 @@ class MovieLibraryApp {
       this.uiRenderer.hideBulkTagApplyDialog(),
     );
 
+    // Duplicate detection
+    this.safeAddEventListener(
+      "findDuplicatesBtn",
+      "click",
+      this.findDuplicates.bind(this),
+    );
+    this.safeAddEventListener("closeDuplicateModal", "click", () =>
+      this.closeDuplicateModal(),
+    );
+    this.safeAddEventListener("cancelDuplicateBtn", "click", () =>
+      this.closeDuplicateModal(),
+    );
+    this.safeAddEventListener(
+      "deleteDuplicatesBtn",
+      "click",
+      this.deleteDuplicates.bind(this),
+    );
+
     // Event delegation for dynamic content
     this.setupEventDelegation();
 
@@ -2982,6 +3000,338 @@ class MovieLibraryApp {
     } catch (error) {
       console.error("Error in applyBulkTags:", error);
       this.notificationManager.show("タグの一括反映に失敗しました", "error");
+    }
+  }
+
+  /**
+   * Find duplicate videos
+   */
+  private async findDuplicates(): Promise<void> {
+    try {
+      const modal = document.getElementById("duplicateModal");
+      const searchingState = document.getElementById("duplicateSearchingState");
+      const resultsContainer = document.getElementById(
+        "duplicateResultsContainer",
+      );
+      const groupsList = document.getElementById("duplicateGroupsList");
+      const groupCount = document.getElementById("duplicateGroupCount");
+
+      if (
+        !modal ||
+        !searchingState ||
+        !resultsContainer ||
+        !groupsList ||
+        !groupCount
+      )
+        return;
+
+      // Show progress dialog
+      this.unifiedProgress.addProgress(
+        "duplicate-search-progress",
+        "重複動画を検索中...",
+        0,
+      );
+
+      // Listen for progress updates
+      const progressHandler = (data: {
+        current: number;
+        total: number;
+        message: string;
+      }) => {
+        this.unifiedProgress.updateProgress(
+          "duplicate-search-progress",
+          data.current,
+          `${data.message} (${data.current}/${data.total})`,
+        );
+      };
+      window.electronAPI.onDuplicateSearchProgress(progressHandler);
+
+      let duplicateGroups: any[];
+      try {
+        // Find duplicates
+        duplicateGroups = await window.electronAPI.findDuplicates();
+      } finally {
+        // Remove progress handler
+        window.electronAPI.offDuplicateSearchProgress(progressHandler);
+        this.unifiedProgress.completeProgress("duplicate-search-progress");
+      }
+
+      // Show modal with results
+      modal.style.display = "flex";
+      searchingState.style.display = "none";
+      resultsContainer.style.display = "block";
+
+      // Update count
+      if (groupCount) {
+        groupCount.textContent = duplicateGroups.length.toString();
+      }
+
+      // Clear previous results
+      groupsList.innerHTML = "";
+
+      if (duplicateGroups.length === 0) {
+        groupsList.innerHTML = `
+          <div class="no-duplicates-message">
+            <div class="icon">✓</div>
+            <p>重複する動画は見つかりませんでした</p>
+          </div>
+        `;
+        return;
+      }
+
+      // Render duplicate groups
+      for (const group of duplicateGroups) {
+        const groupEl = await this.createDuplicateGroupElement(group);
+        groupsList.appendChild(groupEl);
+      }
+
+      // Update delete button state
+      this.updateDeleteButtonState();
+    } catch (error) {
+      console.error("Failed to find duplicates:", error);
+      this.notificationManager.show("重複動画の検索に失敗しました", "error");
+      this.closeDuplicateModal();
+    }
+  }
+
+  /**
+   * Create a duplicate group element
+   */
+  private async createDuplicateGroupElement(group: any): Promise<HTMLElement> {
+    const groupEl = document.createElement("div");
+    groupEl.className = "duplicate-group";
+
+    // Sort by quality (higher resolution first)
+    const sortedVideos = [...group.videos].sort((a, b) => {
+      const aQuality = a.width * a.height;
+      const bQuality = b.width * b.height;
+      return bQuality - aQuality;
+    });
+
+    const header = `
+      <div class="duplicate-group-header">
+        <div class="duplicate-group-title">グループ ${group.hash.substring(0, 8)}</div>
+        <div class="duplicate-group-stats">${group.videos.length} 件の重複</div>
+      </div>
+    `;
+
+    const videosList = await Promise.all(
+      sortedVideos.map(async (video, index) => {
+        let thumbnailSrc = "";
+        if (video.thumbnailPath) {
+          const thumbnailsDir = await window.electronAPI.getThumbnailsDir();
+          const thumbnailFilename =
+            video.thumbnailPath.split("/").pop() || video.thumbnailPath;
+          const fullPath = `${thumbnailsDir}/${thumbnailFilename}`;
+          thumbnailSrc = `file://${fullPath}?t=${Date.now()}`;
+        }
+
+        return `
+        <div class="duplicate-video-item" data-video-id="${video.id}">
+          <div class="duplicate-video-checkbox">
+            <input type="checkbox" data-video-id="${video.id}" ${index > 0 ? "checked" : ""}>
+          </div>
+          ${thumbnailSrc ? `<img src="${thumbnailSrc}" class="duplicate-video-thumbnail" alt="${video.filename}">` : ""}
+          <div class="duplicate-video-info">
+            <div class="duplicate-video-filename">${video.filename}</div>
+            <div class="duplicate-video-path">${video.path}</div>
+            <div class="duplicate-video-details">
+              <div class="duplicate-video-detail">
+                <span class="icon">📐</span>
+                <span>${video.width}×${video.height}</span>
+              </div>
+              <div class="duplicate-video-detail">
+                <span class="icon">💾</span>
+                <span>${FormatUtils.formatFileSize(Number(video.size))}</span>
+              </div>
+              <div class="duplicate-video-detail">
+                <span class="icon">⏱️</span>
+                <span>${FormatUtils.formatDuration(video.duration)}</span>
+              </div>
+              ${index === 0 ? '<div class="duplicate-video-detail" style="color: var(--accent-color); font-weight: 600;">推奨: 保持</div>' : ""}
+            </div>
+          </div>
+        </div>
+      `;
+      }),
+    ).then((items) => items.join(""));
+
+    groupEl.innerHTML =
+      header + `<div class="duplicate-videos-list">${videosList}</div>`;
+
+    // Add checkbox event listeners
+    const checkboxes = groupEl.querySelectorAll('input[type="checkbox"]');
+    
+    // 初期表示時にチェックされているアイテムにselectedクラスを追加
+    checkboxes.forEach((checkbox) => {
+      const item = checkbox.closest(".duplicate-video-item");
+      if (item && (checkbox as HTMLInputElement).checked) {
+        item.classList.add("selected");
+      }
+    });
+    
+    checkboxes.forEach((checkbox) => {
+      checkbox.addEventListener("change", () => {
+        const item = checkbox.closest(".duplicate-video-item");
+        const isChecked = (checkbox as HTMLInputElement).checked;
+        
+        // 全てチェックされようとしている場合、最初にチェックされたものを自動的に外す
+        if (isChecked) {
+          const allCheckboxes = Array.from(checkboxes) as HTMLInputElement[];
+          const checkedCount = allCheckboxes.filter((cb) => cb.checked).length;
+          
+          if (checkedCount === allCheckboxes.length) {
+            // 最初にチェックされている別のチェックボックスを外す
+            const firstChecked = allCheckboxes.find(
+              (cb) => cb !== checkbox && cb.checked,
+            );
+            if (firstChecked) {
+              firstChecked.checked = false;
+              const firstItem = firstChecked.closest(".duplicate-video-item");
+              if (firstItem) {
+                firstItem.classList.remove("selected");
+              }
+            }
+          }
+        }
+        
+        if (item) {
+          item.classList.toggle("selected", isChecked);
+        }
+        this.updateDeleteButtonState();
+      });
+    });
+
+    // Add click event to video items (excluding checkbox area)
+    const videoItems = groupEl.querySelectorAll(".duplicate-video-item");
+    videoItems.forEach((item) => {
+      item.addEventListener("click", (e) => {
+        const target = e.target as HTMLElement;
+        // チェックボックス自体がクリックされた場合は何もしない
+        if (
+          (target as HTMLInputElement).type === "checkbox" ||
+          target.closest(".duplicate-video-checkbox")
+        ) {
+          return;
+        }
+
+        const checkbox = item.querySelector(
+          'input[type="checkbox"]',
+        ) as HTMLInputElement;
+        if (checkbox) {
+          const willBeChecked = !checkbox.checked;
+          
+          // 全てチェックされようとしている場合、最初にチェックされたものを自動的に外す
+          if (willBeChecked) {
+            const allCheckboxes = Array.from(
+              groupEl.querySelectorAll('input[type="checkbox"]'),
+            ) as HTMLInputElement[];
+            const checkedCount = allCheckboxes.filter((cb) => cb.checked).length;
+            
+            if (checkedCount === allCheckboxes.length - 1) {
+              // 最初にチェックされている別のチェックボックスを外す
+              const firstChecked = allCheckboxes.find(
+                (cb) => cb !== checkbox && cb.checked,
+              );
+              if (firstChecked) {
+                firstChecked.checked = false;
+                const firstItem = firstChecked.closest(".duplicate-video-item");
+                if (firstItem) {
+                  firstItem.classList.remove("selected");
+                }
+              }
+            }
+          }
+          
+          checkbox.checked = willBeChecked;
+          item.classList.toggle("selected", willBeChecked);
+          this.updateDeleteButtonState();
+        }
+      });
+    });
+
+    return groupEl;
+  }
+
+  /**
+   * Update delete button state based on selection
+   */
+  private updateDeleteButtonState(): void {
+    const deleteBtn = document.getElementById(
+      "deleteDuplicatesBtn",
+    ) as HTMLButtonElement;
+    if (!deleteBtn) return;
+
+    const checkedCount = document.querySelectorAll(
+      '#duplicateGroupsList input[type="checkbox"]:checked',
+    ).length;
+
+    deleteBtn.disabled = checkedCount === 0;
+    deleteBtn.textContent =
+      checkedCount > 0
+        ? `選択した${checkedCount}件の動画を削除`
+        : "選択した動画を削除";
+  }
+
+  /**
+   * Delete selected duplicate videos
+   */
+  private async deleteDuplicates(): Promise<void> {
+    const checkboxes = document.querySelectorAll<HTMLInputElement>(
+      '#duplicateGroupsList input[type="checkbox"]:checked',
+    );
+
+    const videoIds = Array.from(checkboxes).map((cb) =>
+      parseInt(cb.dataset.videoId || "0"),
+    );
+
+    if (videoIds.length === 0) return;
+
+    const confirmed = confirm(
+      `選択した${videoIds.length}件の動画を削除しますか？\n\n動画ファイルはゴミ箱に移動されます。`,
+    );
+    if (!confirmed) return;
+
+    try {
+      const deleteBtn = document.getElementById(
+        "deleteDuplicatesBtn",
+      ) as HTMLButtonElement;
+      if (deleteBtn) {
+        deleteBtn.disabled = true;
+        deleteBtn.textContent = "削除中...";
+      }
+
+      const result = await window.electronAPI.deleteVideos(videoIds, true);
+
+      this.closeDuplicateModal();
+
+      // Reload videos
+      await this.loadInitialData();
+
+      if (result.failed === 0) {
+        this.notificationManager.show(
+          `${result.success}件の重複動画を削除しました`,
+          "success",
+        );
+      } else {
+        this.notificationManager.show(
+          `${result.success}件削除しました（${result.failed}件失敗）`,
+          "warning",
+        );
+      }
+    } catch (error) {
+      console.error("Failed to delete duplicates:", error);
+      this.notificationManager.show("動画の削除に失敗しました", "error");
+    }
+  }
+
+  /**
+   * Close duplicate modal
+   */
+  private closeDuplicateModal(): void {
+    const modal = document.getElementById("duplicateModal");
+    if (modal) {
+      modal.style.display = "none";
     }
   }
 }

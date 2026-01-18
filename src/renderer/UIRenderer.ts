@@ -1205,6 +1205,17 @@ export class UIRenderer {
           this.updateSelectAllCheckboxState(tag.name);
         });
 
+        // セルクリックでチェックボックスをトグル
+        td.addEventListener("click", (e) => {
+          const target = e.target as HTMLElement;
+          // チェックボックス自体がクリックされた場合は何もしない
+          if (target === checkbox) {
+            return;
+          }
+          checkbox.checked = !checkbox.checked;
+          checkbox.dispatchEvent(new Event("change"));
+        });
+
         td.appendChild(checkbox);
         tr.appendChild(td);
       });

@@ -18,6 +18,9 @@
         "sourceMap": true,
         "moduleResolution": "node",
         "resolveJsonModule": true,
+        "types": [
+            "node"
+        ],
         "experimentalDecorators": true,
         "emitDecoratorMetadata": true,
         "baseUrl": ".",
