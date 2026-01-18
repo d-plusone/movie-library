@@ -662,6 +662,11 @@ class MovieLibraryApp {
       "input",
       this.handleSearchInput.bind(this),
     );
+    this.safeAddEventListener(
+      "searchClearBtn",
+      "click",
+      this.handleSearchClear.bind(this),
+    );
     // View controls
     this.safeAddEventListener("gridViewBtn", "click", () =>
       this.setView("grid"),
@@ -1892,6 +1897,15 @@ class MovieLibraryApp {
     this.filterManager.updateSearch(target.value);
     // 検索入力時にフィルタリングを実行
     this.applyFiltersAndSort();
+  }
+
+  private handleSearchClear(): void {
+    const searchInput = document.getElementById("searchInput") as HTMLInputElement;
+    if (searchInput) {
+      searchInput.value = "";
+      this.filterManager.updateSearch("");
+      this.applyFiltersAndSort();
+    }
   }
 
   private setView(view: "grid" | "list"): void {
