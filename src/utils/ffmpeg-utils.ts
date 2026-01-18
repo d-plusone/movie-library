@@ -1,9 +1,13 @@
 import path from "path";
 import { app } from "electron";
+import { promisify } from "util";
+import { chmod, access, constants } from "fs";
+
+const chmodAsync = promisify(chmod);
+const accessAsync = promisify(access);
 
 // Function to detect if running in development mode
 function isDevelopment(): boolean {
-  // Check multiple indicators for development mode
   return (
     process.env.NODE_ENV === "development" ||
     !app.isPackaged ||
@@ -13,126 +17,167 @@ function isDevelopment(): boolean {
   );
 }
 
+// Function to ensure binary has execute permissions
+async function ensureExecutable(binaryPath: string): Promise<void> {
+  try {
+    // Check if file exists
+    await accessAsync(binaryPath, constants.F_OK);
+    
+    // Add execute permissions (0o755 = rwxr-xr-x)
+    await chmodAsync(binaryPath, 0o755);
+    console.log(`✅ Set executable permissions on: ${binaryPath}`);
+  } catch (error) {
+    console.error(`⚠️  Failed to set executable permissions on ${binaryPath}:`, error);
+    throw error;
+  }
+}
+
 // Function to get ffmpeg path
-export function getFfmpegPath(): string | null {
+export async function getFfmpegPath(): Promise<string | null> {
   try {
-    const isDevMode = isDevelopment();
+    console.log("🔍 Getting FFmpeg path...");
+    console.log("  - Is development:", isDevelopment());
+    console.log("  - Is packaged:", !isDevelopment());
+    console.log("  - __dirname:", __dirname);
+    console.log("  - process.resourcesPath:", process.resourcesPath);
+    
+    let ffmpegPath: string;
 
-    if (isDevMode) {
-      // Development mode - use require directly
-      const ffmpegStatic = require("ffmpeg-static");
-      return ffmpegStatic;
-    } else {
-      // Production mode - look for ffmpeg in the app.asar.unpacked directory
-      // First, try require() as it's most reliable with electron's module resolution
+    if (isDevelopment()) {
+      // Development mode: use @ffmpeg-installer/ffmpeg
       try {
-        let ffmpegStatic = require("ffmpeg-static");
-
-        if (ffmpegStatic && typeof ffmpegStatic === "string") {
-          // If the path points to app.asar (not unpacked), fix it
-          if (
-            ffmpegStatic.includes("app.asar") &&
-            !ffmpegStatic.includes("app.asar.unpacked")
-          ) {
-            ffmpegStatic = ffmpegStatic.replace(
-              "app.asar",
-              "app.asar.unpacked"
-            );
-          }
-
-          // Try the path from ffmpeg-static
-          const pathsToTry =
-            process.platform === "win32"
-              ? [
-                  ffmpegStatic.replace(/\.exe$/, ""),
-                  ffmpegStatic.endsWith(".exe")
-                    ? ffmpegStatic
-                    : ffmpegStatic + ".exe",
-                ]
-              : [ffmpegStatic];
-
-          for (const tryPath of pathsToTry) {
-            try {
-              const fs = require("fs");
-              fs.accessSync(tryPath, fs.constants.F_OK);
-              return path.normalize(tryPath);
-            } catch (_accessError) {
-              // Try next path
-            }
-          }
-
-          console.error("❌ FFmpeg binary not found");
-          return null;
-        }
-      } catch (requireError) {
-        console.error("Could not require ffmpeg-static:", requireError);
-        return null;
+        const ffmpegInstaller = require("@ffmpeg-installer/ffmpeg");
+        ffmpegPath = ffmpegInstaller.path;
+        console.log("  - Dev mode: using @ffmpeg-installer/ffmpeg ✅");
+        console.log("  - Raw path:", ffmpegPath);
+      } catch (requireError: any) {
+        console.error("  - Dev mode: @ffmpeg-installer/ffmpeg require failed ❌");
+        console.error("  - Error:", requireError.message);
+        throw requireError;
       }
+    } else {
+      // Production mode: use extraResources
+      const arch = process.arch;
+      const platform = process.platform;
+      console.log("  - Prod mode: using extraResources");
+      console.log("  - Platform:", platform, "Arch:", arch);
+      
+      // Determine the correct architecture subdirectory
+      let archDir: string;
+      if (platform === "darwin") {
+        archDir = arch === "arm64" ? "darwin-arm64" : "darwin-x64";
+      } else if (platform === "win32") {
+        archDir = arch === "x64" ? "win32-x64" : "win32-ia32";
+      } else {
+        archDir = "linux-x64";
+      }
+      
+      const resourcesPath = process.resourcesPath;
+      ffmpegPath = path.join(resourcesPath, "ffmpeg-bin", archDir, "ffmpeg");
+      
+      if (platform === "win32") {
+        ffmpegPath += ".exe";
+      }
+      
+      console.log("  - Constructed path:", ffmpegPath);
+      console.log("  - Resources path:", resourcesPath);
     }
-  } catch (error) {
-    console.error("Error loading ffmpeg-static:", error);
+
+    if (!ffmpegPath) {
+      console.error("❌ FFmpeg path not found");
+      return null;
+    }
+
+    // Normalize path
+    ffmpegPath = path.normalize(ffmpegPath);
+    console.log("  - Normalized path:", ffmpegPath);
+
+    // Ensure binary exists
+    try {
+      await accessAsync(ffmpegPath, constants.F_OK);
+      console.log("  - Binary exists: ✅");
+    } catch (err) {
+      console.error("  - Binary exists: ❌");
+      console.error("  - Access error:", err);
+      throw err;
+    }
+    
+    // Ensure binary is executable
+    await ensureExecutable(ffmpegPath);
+
+    console.log(`✅ FFmpeg binary ready at: ${ffmpegPath}`);
+    return ffmpegPath;
+  } catch (error: any) {
+    console.error("❌ Error loading FFmpeg:");
+    console.error("  - Error message:", error.message);
+    console.error("  - Error stack:", error.stack);
     return null;
   }
 }
 
-export function getFfprobePath(): string | null {
+// Function to get ffprobe path
+export async function getFfprobePath(): Promise<string | null> {
   try {
-    const isDevMode = isDevelopment();
+    const ffprobeStatic = require("ffprobe-static");
+    let ffprobePath = ffprobeStatic.path;
 
-    if (isDevMode) {
-      // Development mode - use require directly
-      const ffprobeStatic = require("ffprobe-static");
-      return ffprobeStatic.path;
-    } else {
-      // Production mode - use require() and fix ASAR path if needed
-      try {
-        const ffprobeStatic = require("ffprobe-static");
-        let ffprobePath = ffprobeStatic.path;
+    if (!ffprobePath) {
+      console.error("❌ FFprobe path not found in ffprobe-static");
+      return null;
+    }
 
-        // If the path points to app.asar (not unpacked), fix it
-        if (
-          ffprobePath &&
-          ffprobePath.includes("app.asar") &&
-          !ffprobePath.includes("app.asar.unpacked")
-        ) {
-          ffprobePath = ffprobePath.replace("app.asar", "app.asar.unpacked");
-        }
-
-        return path.normalize(ffprobePath);
-      } catch (error) {
-        console.error("Could not require ffprobe-static:", error);
-        return null;
+    // Fix ASAR path if needed (production mode)
+    if (!isDevelopment()) {
+      if (ffprobePath.includes("app.asar") && !ffprobePath.includes("app.asar.unpacked")) {
+        ffprobePath = ffprobePath.replace("app.asar", "app.asar.unpacked");
       }
     }
+
+    // Normalize path
+    ffprobePath = path.normalize(ffprobePath);
+
+    // Ensure binary exists
+    await accessAsync(ffprobePath, constants.F_OK);
+    
+    // Ensure binary is executable
+    await ensureExecutable(ffprobePath);
+
+    console.log(`✅ FFprobe binary ready at: ${ffprobePath}`);
+    return ffprobePath;
   } catch (error) {
-    console.error("Error loading ffprobe-static:", error);
+    console.error("❌ Error loading FFprobe:", error);
     return null;
   }
 }
 
-// Initialize ffmpeg with proper paths
-export function initializeFFmpeg() {
-  const ffmpeg = require("fluent-ffmpeg");
-
+// Initialize ffmpeg - ensures binaries are ready
+export async function initializeFFmpeg(): Promise<{
+  ffmpegPath: string | null;
+  ffprobePath: string | null;
+}> {
   try {
-    const ffmpegPath = getFfmpegPath();
-    const ffprobePath = getFfprobePath();
+    console.log("🎬 Initializing FFmpeg...");
+    
+    const ffmpegPath = await getFfmpegPath();
+    const ffprobePath = await getFfprobePath();
 
-    if (ffmpegPath) {
-      ffmpeg.setFfmpegPath(ffmpegPath);
-    } else {
-      console.error("⚠️  ffmpeg binary not found!");
+    if (!ffmpegPath) {
+      console.error("⚠️  FFmpeg binary not found!");
     }
 
-    if (ffprobePath) {
-      ffmpeg.setFfprobePath(ffprobePath);
+    if (!ffprobePath) {
+      console.error("⚠️  FFprobe binary not found!");
+    }
+
+    if (ffmpegPath && ffprobePath) {
+      console.log("✅ FFmpeg initialization completed successfully");
     } else {
-      console.error("⚠️  ffprobe binary not found!");
+      console.error("❌ FFmpeg initialization failed");
     }
 
     return { ffmpegPath, ffprobePath };
   } catch (error) {
-    console.error("Error setting ffmpeg paths:", error);
+    console.error("❌ Error initializing FFmpeg:", error);
     return { ffmpegPath: null, ffprobePath: null };
   }
 }

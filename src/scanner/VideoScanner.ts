@@ -35,9 +35,11 @@ class VideoScanner {
       ".mts",
       ".m2ts",
     ];
+  }
 
+  async initialize(): Promise<void> {
     // Get ffprobe path from shared utility
-    this.ffprobePath = getFfprobePath();
+    this.ffprobePath = await getFfprobePath();
     console.log("VideoScanner: Using ffprobe path:", this.ffprobePath);
   }
 

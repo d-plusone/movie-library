@@ -1,7 +1,8 @@
 import { promises as fs } from "fs";
 import path from "path";
-import ffmpeg from "fluent-ffmpeg";
 import { app } from "electron";
+import { promisify } from "util";
+import { execFile } from "child_process";
 import PrismaDatabaseManager, {
   type VideoRecord,
 } from "../database/PrismaDatabaseManager";
@@ -12,42 +13,15 @@ import {
   RegenerateResult,
   ThumbnailOptions,
 } from "../types/types.js";
-import { getFfmpegPath, getFfprobePath } from "../utils/ffmpeg-utils.js";
+import { getFfmpegPath } from "../utils/ffmpeg-utils.js";
 
-// Set ffmpeg and ffprobe paths with error handling
-try {
-  const ffmpegPath = getFfmpegPath();
-  const ffprobePath = getFfprobePath();
-
-  if (ffmpegPath) {
-    console.log("ThumbnailGenerator: Setting ffmpeg path:", ffmpegPath);
-    ffmpeg.setFfmpegPath(ffmpegPath);
-  } else {
-    console.error(
-      "⚠️  ThumbnailGenerator: ffmpeg binary not found! Thumbnail generation will not work."
-    );
-  }
-
-  if (ffprobePath) {
-    console.log("ThumbnailGenerator: Setting ffprobe path:", ffprobePath);
-    ffmpeg.setFfprobePath(ffprobePath);
-  } else {
-    console.error(
-      "⚠️  ThumbnailGenerator: ffprobe binary not found! Video info extraction may not work."
-    );
-  }
-} catch (error) {
-  console.error("ThumbnailGenerator: Error setting ffmpeg paths:", error);
-  console.log(
-    "ThumbnailGenerator: Will attempt to use system ffmpeg if available"
-  );
-}
+const execFileAsync = promisify(execFile);
 
 class ThumbnailGenerator {
+  private ffmpegPath: string | null = null;
   private db: PrismaDatabaseManager;
   private thumbnailsDir: string;
   private settings: ThumbnailSettings;
-  private maxConcurrent: number;
 
   constructor(database: PrismaDatabaseManager) {
     this.db = database;
@@ -57,9 +31,22 @@ class ThumbnailGenerator {
       width: 1280,
       height: 720,
     };
-    // Windows では並列処理を制限してCPU負荷を抑える
-    this.maxConcurrent = process.platform === "win32" ? 2 : 4;
+
     this.ensureThumbnailsDirectory();
+  }
+
+  async initialize(): Promise<void> {
+    try {
+      // Get FFmpeg path asynchronously
+      this.ffmpegPath = await getFfmpegPath();
+      if (!this.ffmpegPath) {
+        console.error("⚠️  FFmpeg binary not found!");
+      } else {
+        console.log("✅ ThumbnailGenerator initialized with FFmpeg:", this.ffmpegPath);
+      }
+    } catch (error) {
+      console.error("❌ Failed to initialize ThumbnailGenerator:", error);
+    }
   }
 
   async ensureThumbnailsDirectory(): Promise<void> {
@@ -75,7 +62,7 @@ class ThumbnailGenerator {
       const videoId = video.id || video.path.replace(/[^a-zA-Z0-9]/g, "_");
       const mainThumbnailPath = path.join(
         this.thumbnailsDir,
-        `${videoId}_main.jpg`
+        `${videoId}_main.jpg`,
       );
 
       // Generate main thumbnail (at 5% of video duration)
@@ -83,50 +70,38 @@ class ThumbnailGenerator {
       await this.generateSingleThumbnail(
         video.path,
         mainThumbnailPath,
-        mainTimestamp
+        mainTimestamp,
       );
 
       // Generate chapter thumbnails (5 thumbnails at different timestamps)
       const chapterThumbnails: ChapterThumbnail[] = [];
       const timestamps = [0.2, 0.35, 0.5, 0.65, 0.8]; // 20%, 35%, 50%, 65%, 80%
 
-      // 並列処理で生成（制限付き）
-      const tasks = timestamps.map((ts, i) => ({
-        timestamp: video.duration * ts,
-        chapterPath: path.join(
+      for (let i = 0; i < timestamps.length; i++) {
+        const timestamp = video.duration * timestamps[i];
+        const chapterPath = path.join(
           this.thumbnailsDir,
-          `${videoId}_chapter_${i}.jpg`
-        ),
-        index: i,
-      }));
-
-      // バッチ処理で並列数を制限
-      for (let i = 0; i < tasks.length; i += this.maxConcurrent) {
-        const batch = tasks.slice(i, i + this.maxConcurrent);
-        const results = await Promise.allSettled(
-          batch.map((task) =>
-            this.generateSingleThumbnail(
-              video.path,
-              task.chapterPath,
-              task.timestamp
-            ).then(() => task)
-          )
+          `${videoId}_chapter_${i}.jpg`,
         );
 
-        results.forEach((result) => {
-          if (result.status === "fulfilled") {
-            chapterThumbnails.push({
-              path: result.value.chapterPath,
-              timestamp: result.value.timestamp,
-              index: result.value.index,
-            });
-          } else {
-            console.error(
-              `Failed to generate chapter thumbnail:`,
-              result.reason
-            );
-          }
-        });
+        try {
+          await this.generateSingleThumbnail(
+            video.path,
+            chapterPath,
+            timestamp,
+          );
+          chapterThumbnails.push({
+            path: chapterPath,
+            timestamp: timestamp,
+            index: i,
+          });
+        } catch (error) {
+          console.error(
+            `Failed to generate chapter thumbnail ${i} for video:`,
+            video.path,
+            error,
+          );
+        }
       }
 
       // Update database with thumbnail paths
@@ -143,7 +118,7 @@ class ThumbnailGenerator {
       console.error(
         "Error generating thumbnails for video:",
         video.path,
-        error
+        error,
       );
       throw error;
     }
@@ -153,8 +128,20 @@ class ThumbnailGenerator {
     videoPath: string,
     outputPath: string,
     timestamp: number,
-    options: ThumbnailOptions = {}
+    options: ThumbnailOptions = {},
   ): Promise<string> {
+    // Ensure FFmpeg is initialized before use
+    if (!this.ffmpegPath) {
+      console.log("⏳ FFmpeg not initialized yet, initializing now...");
+      await this.initialize();
+      
+      if (!this.ffmpegPath) {
+        const error = new Error("FFmpeg binary not found after initialization attempt");
+        console.error("❌", error);
+        throw error;
+      }
+    }
+
     const defaultOptions = {
       width: this.settings.width,
       height: this.settings.height,
@@ -162,7 +149,7 @@ class ThumbnailGenerator {
       ...options,
     };
 
-    return new Promise((resolve, reject) => {
+    try {
       console.log("🎬 Generating thumbnail:", {
         videoPath,
         outputPath,
@@ -170,58 +157,46 @@ class ThumbnailGenerator {
         options: defaultOptions,
       });
 
-      // Normalize paths for Windows
-      const normalizedVideoPath = path.normalize(videoPath);
-      const normalizedOutputPath = path.normalize(outputPath);
+      // Build FFmpeg command arguments
+      const args = [
+        "-ss",
+        timestamp.toString(),
+        "-i",
+        videoPath,
+        "-vframes",
+        "1",
+        "-q:v",
+        defaultOptions.quality.toString(),
+        "-vf",
+        `scale=${defaultOptions.width}:${defaultOptions.height}:force_original_aspect_ratio=decrease,pad=${defaultOptions.width}:${defaultOptions.height}:(ow-iw)/2:(oh-ih)/2:black`,
+        "-f",
+        "image2",
+        "-y", // Overwrite output file
+        outputPath,
+      ];
 
-      console.log("Normalized video path:", normalizedVideoPath);
-      console.log("Normalized output path:", normalizedOutputPath);
+      console.log("📝 FFmpeg command:", this.ffmpegPath, args.join(" "));
 
-      // Windows用の最適化オプション
-      const optimizationOptions =
-        process.platform === "win32"
-          ? [
-              "-threads",
-              "2", // スレッド数を制限してCPU負荷を抑える
-              "-preset",
-              "ultrafast", // 高速処理優先
-            ]
-          : [];
+      // Use execFile instead of spawn for better error handling
+      const { stderr } = await execFileAsync(this.ffmpegPath, args, {
+        maxBuffer: 1024 * 1024 * 10, // 10MB buffer
+      });
 
-      const command = ffmpeg(normalizedVideoPath)
-        .seekInput(timestamp)
-        .frames(1)
-        .videoCodec("mjpeg")
-        .outputOptions([
-          "-q:v",
-          defaultOptions.quality.toString(),
-          "-f",
-          "image2",
-          // アスペクト比を保持しながらサイズ調整
-          "-vf",
-          `scale=${defaultOptions.width}:${defaultOptions.height}:force_original_aspect_ratio=decrease,pad=${defaultOptions.width}:${defaultOptions.height}:(ow-iw)/2:(oh-ih)/2:black`,
-          ...optimizationOptions,
-        ])
-        .output(normalizedOutputPath)
-        .on("start", (commandLine) => {
-          console.log("📝 FFmpeg command:", commandLine);
-        })
-        .on("end", () => {
-          console.log(
-            "✅ Thumbnail generated successfully:",
-            normalizedOutputPath
-          );
-          resolve(normalizedOutputPath);
-        })
-        .on("error", (err, stdout, stderr) => {
-          console.error("❌ FFmpeg error:", err.message);
-          console.error("FFmpeg stdout:", stdout);
-          console.error("FFmpeg stderr:", stderr);
-          reject(err);
-        });
+      if (stderr) {
+        console.log("📋 FFmpeg output:", stderr);
+      }
 
-      command.run();
-    });
+      console.log("✅ Thumbnail generated successfully:", outputPath);
+      return outputPath;
+    } catch (error: any) {
+      console.error("❌ FFmpeg error:", {
+        message: error.message,
+        code: error.code,
+        stderr: error.stderr,
+        stdout: error.stdout,
+      });
+      throw new Error(`Failed to generate thumbnail: ${error.message}`);
+    }
   }
 
   updateSettings(newSettings: Partial<ThumbnailSettings>): void {
@@ -234,7 +209,7 @@ class ThumbnailGenerator {
   async generateHighQualityThumbnail(
     videoPath: string,
     outputPath: string,
-    timestamp: number
+    timestamp: number,
   ): Promise<string> {
     return this.generateSingleThumbnail(videoPath, outputPath, timestamp, {
       width: 640,
@@ -314,7 +289,7 @@ class ThumbnailGenerator {
   getThumbnailPath(
     videoId: number | string,
     type: string = "main",
-    index: number = 0
+    index: number = 0,
   ): string | null {
     if (type === "main") {
       return path.join(this.thumbnailsDir, `${videoId}_main.jpg`);
@@ -334,22 +309,17 @@ class ThumbnailGenerator {
   }
 
   async regenerateMainThumbnail(video: VideoRecord): Promise<RegenerateResult> {
-    console.log("=== regenerateMainThumbnail START ===");
-    console.log("Video:", {
-      id: video.id,
-      path: video.path,
-      duration: video.duration,
-    });
-
     try {
+      console.log("🎬 regenerateMainThumbnail: START for video:", video.path);
+      console.log("🎬 Video ID:", video.id, "Duration:", video.duration);
+
       const videoId = video.id || video.path.replace(/[^a-zA-Z0-9]/g, "_");
       const mainThumbnailPath = path.join(
         this.thumbnailsDir,
-        `${videoId}_main.jpg`
+        `${videoId}_main.jpg`,
       );
 
-      console.log("Thumbnail directory:", this.thumbnailsDir);
-      console.log("Main thumbnail path:", mainThumbnailPath);
+      console.log("🎬 Thumbnail path will be:", mainThumbnailPath);
 
       // Generate a random timestamp between 10% and 90% of video duration
       // Avoid the very beginning and end of the video
@@ -359,44 +329,44 @@ class ThumbnailGenerator {
         minPercent + Math.random() * (maxPercent - minPercent);
       const randomTimestamp = video.duration * randomPercent;
 
-      console.log(`Regenerating main thumbnail for video: ${video.path}`);
+      console.log(`🎬 Regenerating main thumbnail for video: ${video.path}`);
       console.log(
-        `Random timestamp: ${this.formatTimestamp(randomTimestamp)} (${(
+        `🎬 Random timestamp: ${this.formatTimestamp(randomTimestamp)} (${(
           randomPercent * 100
-        ).toFixed(1)}%)`
+        ).toFixed(1)}%)`,
       );
 
       // Delete the old thumbnail if it exists
       if (await this.thumbnailExists(mainThumbnailPath)) {
-        console.log("Old thumbnail exists, deleting...");
         try {
+          console.log("🎬 Deleting old thumbnail...");
           await fs.unlink(mainThumbnailPath);
-          console.log("Deleted old main thumbnail");
+          console.log("🎬 Deleted old main thumbnail");
         } catch (error) {
           console.warn(
-            "Could not delete old thumbnail:",
-            (error as Error).message
+            "⚠️  Could not delete old thumbnail:",
+            (error as Error).message,
           );
         }
-      } else {
-        console.log("No old thumbnail to delete");
       }
 
-      console.log("Calling generateSingleThumbnail...");
       // Generate new main thumbnail at random position
+      console.log("🎬 Calling generateSingleThumbnail...");
       await this.generateSingleThumbnail(
         video.path,
         mainThumbnailPath,
-        randomTimestamp
+        randomTimestamp,
       );
-      console.log("generateSingleThumbnail completed");
+      console.log("🎬 generateSingleThumbnail completed");
 
       // Update database with new thumbnail path
+      console.log("🎬 Updating database...");
       await this.db.updateVideo(video.id, {
         thumbnailPath: mainThumbnailPath,
       });
+      console.log("🎬 Database updated");
 
-      console.log("Successfully regenerated main thumbnail");
+      console.log("✅ Successfully regenerated main thumbnail");
 
       return {
         thumbnailPath: mainThumbnailPath,
@@ -405,9 +375,9 @@ class ThumbnailGenerator {
       };
     } catch (error) {
       console.error(
-        "Error regenerating main thumbnail for video:",
+        "❌ Error regenerating main thumbnail for video:",
         video.path,
-        error
+        error,
       );
       throw error;
     }
@@ -466,7 +436,7 @@ class ThumbnailGenerator {
           } catch (_error) {
             console.warn(
               "Failed to parse chapter thumbnails for video:",
-              video.id
+              video.id,
             );
           }
         }
@@ -505,8 +475,8 @@ class ThumbnailGenerator {
 
       console.log(
         `Cleanup completed: removed ${removedFiles} files, freed ${this.formatBytes(
-          totalSize
-        )}`
+          totalSize,
+        )}`,
       );
 
       return { removedFiles, totalSize };

@@ -68,10 +68,10 @@ class MovieLibraryApp {
     this.notificationManager = new NotificationManager();
     this.progressManager = new ProgressManager(); // 後方互換性のため残す
     this.directoryCheckProgress = new EnhancedProgressManager(
-      "directory-check"
+      "directory-check",
     );
     this.thumbnailProgress = new EnhancedProgressManager(
-      "thumbnail-generation"
+      "thumbnail-generation",
     );
     this.scanProgress = new EnhancedProgressManager("scanning");
     this.unifiedProgress = UnifiedProgressManager.getInstance();
@@ -121,18 +121,18 @@ class MovieLibraryApp {
             this.unifiedProgress.addProgress(
               "scan-progress",
               "ディレクトリをスキャン中",
-              data.total
+              data.total,
             );
           } else {
             this.unifiedProgress.updateProgressTotal(
               "scan-progress",
-              data.total
+              data.total,
             );
           }
           this.unifiedProgress.updateProgress(
             "scan-progress",
             data.current,
-            `ディレクトリをスキャン中 (${data.current}/${data.total})`
+            `ディレクトリをスキャン中 (${data.current}/${data.total})`,
           );
         } else if (data && data.message) {
           // 完了メッセージの場合
@@ -145,7 +145,7 @@ class MovieLibraryApp {
             this.unifiedProgress.updateProgress(
               "scan-progress",
               1,
-              data.message
+              data.message,
             );
             this.unifiedProgress.completeProgress("scan-progress");
           }
@@ -165,18 +165,18 @@ class MovieLibraryApp {
             this.unifiedProgress.addOwnerProgress(
               "settings-rescan-all",
               "全ての動画を再スキャン中",
-              data.total
+              data.total,
             );
           } else {
             this.unifiedProgress.updateProgressTotal(
               "settings-rescan-all",
-              data.total
+              data.total,
             );
           }
           this.unifiedProgress.updateProgress(
             "settings-rescan-all",
             data.current,
-            `全ての動画を再スキャン中 (${data.current}/${data.total})`
+            `全ての動画を再スキャン中 (${data.current}/${data.total})`,
           );
         } else if (data && data.message) {
           // 完了メッセージの場合
@@ -188,12 +188,12 @@ class MovieLibraryApp {
             this.unifiedProgress.addOwnerProgress(
               "settings-rescan-all",
               data.message,
-              1
+              1,
             );
             this.unifiedProgress.updateProgress(
               "settings-rescan-all",
               1,
-              data.message
+              data.message,
             );
             this.unifiedProgress.completeProgress("settings-rescan-all");
           }
@@ -213,12 +213,12 @@ class MovieLibraryApp {
             // 設定画面からの再生成の場合 - 総数を動的に更新
             this.unifiedProgress.updateProgressTotal(
               "settings-thumbnail-regen",
-              data.total
+              data.total,
             );
             this.unifiedProgress.updateProgress(
               "settings-thumbnail-regen",
               data.current,
-              `全サムネイルを再生成中 (${data.current}/${data.total})`
+              `全サムネイルを再生成中 (${data.current}/${data.total})`,
             );
           } else {
             // 通常のサムネイル生成の場合
@@ -226,18 +226,18 @@ class MovieLibraryApp {
               this.unifiedProgress.addProgress(
                 "thumbnail-progress",
                 "サムネイルを生成中",
-                data.total
+                data.total,
               );
             } else {
               this.unifiedProgress.updateProgressTotal(
                 "thumbnail-progress",
-                data.total
+                data.total,
               );
             }
             this.unifiedProgress.updateProgress(
               "thumbnail-progress",
               data.current,
-              `サムネイルを生成中 (${data.current}/${data.total})`
+              `サムネイルを生成中 (${data.current}/${data.total})`,
             );
           }
         } else if (data && data.message) {
@@ -253,12 +253,12 @@ class MovieLibraryApp {
             this.unifiedProgress.addProgress(
               "thumbnail-progress",
               data.message,
-              1
+              1,
             );
             this.unifiedProgress.updateProgress(
               "thumbnail-progress",
               1,
-              data.message
+              data.message,
             );
             this.unifiedProgress.completeProgress("thumbnail-progress");
           }
@@ -303,7 +303,7 @@ class MovieLibraryApp {
   private safeAddEventListener(
     elementId: string,
     event: string,
-    handler: (e: Event) => void
+    handler: (e: Event) => void,
   ): boolean {
     console.log(`Attempting to add event listener for ${elementId}`);
     const element = document.getElementById(elementId);
@@ -323,7 +323,7 @@ class MovieLibraryApp {
       return true;
     } else {
       console.warn(
-        `Failed to add event listener for ${elementId} - element found: ${!!element}, handler: ${!!handler}`
+        `Failed to add event listener for ${elementId} - element found: ${!!element}, handler: ${!!handler}`,
       );
     }
     return false;
@@ -347,14 +347,14 @@ class MovieLibraryApp {
       // Check if electronAPI is available
       if (!window.electronAPI) {
         throw new Error(
-          "electronAPI is not available - preload script may not have loaded"
+          "electronAPI is not available - preload script may not have loaded",
         );
       }
 
       console.log("Starting initial data load...");
       console.log(
         "electronAPI methods available:",
-        Object.keys(window.electronAPI || {})
+        Object.keys(window.electronAPI || {}),
       );
 
       // データ読み込み（差分チェック付き）
@@ -370,22 +370,22 @@ class MovieLibraryApp {
       ]);
 
       console.log(
-        `Loaded ${videos.length} videos, ${tags.length} tags, ${directories.length} directories`
+        `Loaded ${videos.length} videos, ${tags.length} tags, ${directories.length} directories`,
       );
 
       // 起動時のディレクトリ存在チェック（ディレクトリがある場合のみプログレス表示）
       if (directories.length > 0) {
         console.log(
-          `Starting directory existence check for ${directories.length} directories`
+          `Starting directory existence check for ${directories.length} directories`,
         );
         this.directoryCheckProgress.startProgress(
           directories.length,
-          "ディレクトリをチェック中"
+          "ディレクトリをチェック中",
         );
         showedProgress = true;
         await this.checkDirectoriesExistence(directories);
         console.log(
-          "Directory existence check completed, calling completeProgress"
+          "Directory existence check completed, calling completeProgress",
         );
         this.directoryCheckProgress.completeProgress();
       }
@@ -417,20 +417,20 @@ class MovieLibraryApp {
       // completeProgress()が既に実行されているので、追加のhideは不要
       console.log(
         "loadInitialData finally block: showedProgress =",
-        showedProgress
+        showedProgress,
       );
     }
   }
 
   private renderAll(): void {
     this.uiRenderer.renderVideoList(this.filteredVideos, (path: string) =>
-      this.playVideo(path)
+      this.playVideo(path),
     );
     this.uiRenderer.renderSidebar(
       this.videoManager.getTags(),
       this.videoManager.getDirectories(),
       this.filterManager.getCurrentFilter(),
-      this.filterManager.getSelectedDirectories()
+      this.filterManager.getSelectedDirectories(),
     );
     this.uiRenderer.updateStats(this.videoManager.getStats());
   }
@@ -450,7 +450,7 @@ class MovieLibraryApp {
         if (filterData.selectedTags.length > 0) {
           const videoTags = video.tags || [];
           const hasMatchingTag = filterData.selectedTags.some((tag: string) =>
-            videoTags.includes(tag)
+            videoTags.includes(tag),
           );
           if (!hasMatchingTag) return false;
         }
@@ -476,7 +476,7 @@ class MovieLibraryApp {
                 // 1. 完全一致（ディレクトリ直下のファイル）
                 const videoDir = normalizedVideoPath.substring(
                   0,
-                  normalizedVideoPath.lastIndexOf("/") + 1
+                  normalizedVideoPath.lastIndexOf("/") + 1,
                 );
                 if (videoDir === dirWithSlash) {
                   return true;
@@ -484,7 +484,7 @@ class MovieLibraryApp {
 
                 // 2. サブディレクトリ内のファイル（正確な境界チェック）
                 return normalizedVideoPath.startsWith(dirWithSlash);
-              }
+              },
             );
             if (!hasMatchingDirectory) return false;
           }
@@ -500,7 +500,7 @@ class MovieLibraryApp {
               video.description.toLowerCase().includes(searchLower)) ||
             (video.tags &&
               video.tags.some((tag) =>
-                tag.toLowerCase().includes(searchLower)
+                tag.toLowerCase().includes(searchLower),
               ));
           if (!matchesSearch) return false;
         }
@@ -564,7 +564,7 @@ class MovieLibraryApp {
 
   private renderVideoList(): void {
     this.uiRenderer.renderVideoList(this.filteredVideos, (path: string) =>
-      this.playVideo(path)
+      this.playVideo(path),
     );
   }
 
@@ -578,7 +578,7 @@ class MovieLibraryApp {
       this.videoManager.getTags(),
       directories,
       this.filterManager.getCurrentFilter(),
-      selectedDirectories
+      selectedDirectories,
     );
 
     // 評価フィルタの表示を更新
@@ -594,7 +594,7 @@ class MovieLibraryApp {
         // 検索クエリを復元
         const savedSearchQuery = localStorage.getItem("searchQuery");
         const searchInput = document.getElementById(
-          "searchInput"
+          "searchInput",
         ) as HTMLInputElement;
         if (searchInput && savedSearchQuery) {
           searchInput.value = savedSearchQuery;
@@ -614,105 +614,105 @@ class MovieLibraryApp {
     this.safeAddEventListener(
       "addDirectoryBtn",
       "click",
-      this.addDirectory.bind(this)
+      this.addDirectory.bind(this),
     );
     this.safeAddEventListener(
       "scanDirectoriesBtn",
       "click",
-      this.scanDirectories.bind(this)
+      this.scanDirectories.bind(this),
     );
     this.safeAddEventListener(
       "generateThumbnailsBtn",
       "click",
-      this.generateThumbnails.bind(this)
+      this.generateThumbnails.bind(this),
     );
     this.safeAddEventListener(
       "regenerateThumbnailsBtn",
       "click",
-      this.regenerateAllThumbnails.bind(this)
+      this.regenerateAllThumbnails.bind(this),
     );
     this.safeAddEventListener(
       "cleanupThumbnailsBtn",
       "click",
-      this.cleanupThumbnails.bind(this)
+      this.cleanupThumbnails.bind(this),
     );
     this.safeAddEventListener(
       "rescanAllBtn",
       "click",
-      this.rescanAllVideos.bind(this)
+      this.rescanAllVideos.bind(this),
     );
     // refreshBtn is not needed - data refresh is automatic
     this.safeAddEventListener(
       "themeToggleBtn",
       "click",
-      this.toggleTheme.bind(this)
+      this.toggleTheme.bind(this),
     );
     this.safeAddEventListener(
       "sortSelect",
       "change",
-      this.handleSortChange.bind(this)
+      this.handleSortChange.bind(this),
     );
     this.safeAddEventListener(
       "orderSelect",
       "change",
-      this.handleSortChange.bind(this)
+      this.handleSortChange.bind(this),
     );
     this.safeAddEventListener(
       "searchInput",
       "input",
-      this.handleSearchInput.bind(this)
+      this.handleSearchInput.bind(this),
     );
     // View controls
     this.safeAddEventListener("gridViewBtn", "click", () =>
-      this.setView("grid")
+      this.setView("grid"),
     );
     this.safeAddEventListener("listViewBtn", "click", () =>
-      this.setView("list")
+      this.setView("list"),
     );
 
     // Settings-related event listeners
     this.safeAddEventListener(
       "settingsBtn",
       "click",
-      this.openSettingsModal.bind(this)
+      this.openSettingsModal.bind(this),
     );
     this.safeAddEventListener(
       "saveSettingsBtn",
       "click",
-      this.saveSettings.bind(this)
+      this.saveSettings.bind(this),
     );
     this.safeAddEventListener(
       "cancelSettingsBtn",
       "click",
-      this.closeSettingsModal.bind(this)
+      this.closeSettingsModal.bind(this),
     );
     this.safeAddEventListener(
       "closeSettingsBtn",
       "click",
-      this.closeSettingsModal.bind(this)
+      this.closeSettingsModal.bind(this),
     );
     this.safeAddEventListener(
       "addDirectorySettingsBtn",
       "click",
-      this.addDirectory.bind(this)
+      this.addDirectory.bind(this),
     );
 
     // Bulk tag management
     this.safeAddEventListener(
       "bulkTagApplyBtn",
       "click",
-      this.showBulkTagDialog.bind(this)
+      this.showBulkTagDialog.bind(this),
     );
     this.safeAddEventListener(
       "applyBulkTagsBtn",
       "click",
-      this.applyBulkTags.bind(this)
+      this.applyBulkTags.bind(this),
     );
     this.safeAddEventListener("closeBulkTagApplyDialog", "click", () =>
-      this.uiRenderer.hideBulkTagApplyDialog()
+      this.uiRenderer.hideBulkTagApplyDialog(),
     );
     this.safeAddEventListener("cancelBulkTagApplyBtn", "click", () =>
-      this.uiRenderer.hideBulkTagApplyDialog()
+      this.uiRenderer.hideBulkTagApplyDialog(),
     );
 
     // Event delegation for dynamic content
@@ -730,12 +730,12 @@ class MovieLibraryApp {
       videoList.addEventListener(
         "mouseenter",
         this.handleVideoListMouseEnter.bind(this),
-        true
+        true,
       );
       videoList.addEventListener(
         "mouseleave",
         this.handleVideoListMouseLeave.bind(this),
-        true
+        true,
       );
     }
 
@@ -788,7 +788,7 @@ class MovieLibraryApp {
     // フォルダフィルター関連ボタン
     const selectAllFoldersBtn = document.getElementById("selectAllFoldersBtn");
     const deselectAllFoldersBtn = document.getElementById(
-      "deselectAllFoldersBtn"
+      "deselectAllFoldersBtn",
     );
 
     if (selectAllFoldersBtn) {
@@ -976,13 +976,13 @@ class MovieLibraryApp {
       if (directoryPaths.length > 0) {
         this.notificationManager.show(
           `${directoryPaths.length}個のディレクトリを追加しました`,
-          "success"
+          "success",
         );
 
         // ディレクトリ追加後、自動でスキャンとサムネイル生成を実行
         this.scanProgress.startProgress(
           1,
-          "追加されたディレクトリをスキャン中"
+          "追加されたディレクトリをスキャン中",
         );
         try {
           console.log("Starting automatic scan after directory addition...");
@@ -1003,7 +1003,7 @@ class MovieLibraryApp {
           // 新規・更新・再処理された動画がある場合はサムネイル生成を実行
           if (shouldGenerateThumbnails) {
             console.log(
-              "Starting automatic thumbnail generation after directory addition..."
+              "Starting automatic thumbnail generation after directory addition...",
             );
             this.thumbnailProgress.startProgress(1, "サムネイルを生成中");
             try {
@@ -1014,11 +1014,11 @@ class MovieLibraryApp {
             } catch (thumbnailError) {
               console.error(
                 "Error during automatic thumbnail generation:",
-                thumbnailError
+                thumbnailError,
               );
               this.notificationManager.show(
                 "サムネイル生成中にエラーが発生しました",
-                "warning"
+                "warning",
               );
               this.thumbnailProgress.hide();
             }
@@ -1042,7 +1042,7 @@ class MovieLibraryApp {
             } else {
               this.notificationManager.show(
                 "新しい動画は見つかりませんでした",
-                "info"
+                "info",
               );
             }
           }
@@ -1050,7 +1050,7 @@ class MovieLibraryApp {
           console.error("Error during automatic scan:", scanError);
           this.notificationManager.show(
             "自動スキャン中にエラーが発生しました",
-            "warning"
+            "warning",
           );
         } finally {
           this.scanProgress.completeProgress();
@@ -1060,7 +1060,7 @@ class MovieLibraryApp {
       console.error("Error adding directory:", error);
       this.notificationManager.show(
         "ディレクトリの追加に失敗しました",
-        "error"
+        "error",
       );
     }
   }
@@ -1085,7 +1085,7 @@ class MovieLibraryApp {
       console.error("Error removing directory:", error);
       this.notificationManager.show(
         "ディレクトリの削除に失敗しました",
-        "error"
+        "error",
       );
     }
   }
@@ -1095,7 +1095,7 @@ class MovieLibraryApp {
 
     // ボタンを無効化
     const scanBtn = document.getElementById(
-      "scanDirectoriesBtn"
+      "scanDirectoriesBtn",
     ) as HTMLButtonElement;
     if (scanBtn) {
       scanBtn.disabled = true;
@@ -1107,7 +1107,7 @@ class MovieLibraryApp {
       this.unifiedProgress.addProgress(
         "scan-progress",
         "ディレクトリをスキャン中",
-        1
+        1,
       );
 
       const result = await this.videoManager.scanDirectories();
@@ -1131,7 +1131,7 @@ class MovieLibraryApp {
         this.unifiedProgress.addProgress(
           "thumbnail-progress",
           "サムネイルを生成中",
-          1
+          1,
         );
         try {
           await this.videoManager.generateThumbnails();
@@ -1141,11 +1141,11 @@ class MovieLibraryApp {
         } catch (thumbnailError) {
           console.error(
             "Error during automatic thumbnail generation:",
-            thumbnailError
+            thumbnailError,
           );
           this.notificationManager.show(
             "サムネイル生成中にエラーが発生しました",
-            "warning"
+            "warning",
           );
           this.unifiedProgress.removeProgress("thumbnail-progress");
         }
@@ -1195,7 +1195,7 @@ class MovieLibraryApp {
 
     // ボタンを無効化
     const genBtn = document.getElementById(
-      "generateThumbnailsBtn"
+      "generateThumbnailsBtn",
     ) as HTMLButtonElement;
     if (genBtn) {
       genBtn.disabled = true;
@@ -1207,7 +1207,7 @@ class MovieLibraryApp {
       this.unifiedProgress.addProgress(
         "thumbnail-progress",
         "サムネイルを生成中",
-        1
+        1,
       );
 
       await this.videoManager.generateThumbnails();
@@ -1237,7 +1237,7 @@ class MovieLibraryApp {
 
     // ボタンを無効化
     const regenBtn = document.getElementById(
-      "regenerateThumbnailsBtn"
+      "regenerateThumbnailsBtn",
     ) as HTMLButtonElement;
     if (regenBtn) {
       regenBtn.disabled = true;
@@ -1250,7 +1250,7 @@ class MovieLibraryApp {
       this.unifiedProgress.addOwnerProgress(
         "settings-thumbnail-regen",
         "全サムネイルを再生成中",
-        1
+        1,
       );
 
       await this.videoManager.regenerateAllThumbnails();
@@ -1260,7 +1260,7 @@ class MovieLibraryApp {
       this.unifiedProgress.updateProgress(
         "settings-thumbnail-regen",
         1,
-        "全サムネイルの再生成が完了しました"
+        "全サムネイルの再生成が完了しました",
       );
 
       console.log("Starting data refresh...");
@@ -1268,7 +1268,7 @@ class MovieLibraryApp {
       console.log("Data refresh completed");
       this.notificationManager.show(
         "サムネイル再生成が完了しました",
-        "success"
+        "success",
       );
     } catch (error) {
       console.error("Error regenerating thumbnails:", error);
@@ -1315,7 +1315,7 @@ class MovieLibraryApp {
 
       // 1. 一覧・グリッドビューのサムネイル更新
       const videoElement = document.querySelector(
-        `[data-video-id="${video.id}"]`
+        `[data-video-id="${video.id}"]`,
       );
       console.log("Video element found:", videoElement);
 
@@ -1325,20 +1325,20 @@ class MovieLibraryApp {
 
         // まずグリッドビューのサムネイル構造を試す (.thumbnail-image.active)
         thumbnail = videoElement.querySelector(
-          ".thumbnail-image.active"
+          ".thumbnail-image.active",
         ) as HTMLImageElement;
 
         // 見つからない場合はリストビューの構造を試す (.video-thumbnail img)
         if (!thumbnail) {
           thumbnail = videoElement.querySelector(
-            ".video-thumbnail img"
+            ".video-thumbnail img",
           ) as HTMLImageElement;
         }
 
         // さらに見つからない場合は汎用的なimgセレクタを試す
         if (!thumbnail) {
           thumbnail = videoElement.querySelector(
-            ".video-thumbnail .thumbnail-image"
+            ".video-thumbnail .thumbnail-image",
           ) as HTMLImageElement;
         }
 
@@ -1369,14 +1369,14 @@ class MovieLibraryApp {
 
       // 2. 詳細画面のメインサムネイル更新
       const detailsMainThumbnail = document.getElementById(
-        "detailsMainThumbnail"
+        "detailsMainThumbnail",
       ) as HTMLImageElement;
       console.log("Details main thumbnail element:", detailsMainThumbnail);
       console.log(
         "Current video ID:",
         this.currentVideo?.id,
         "Regenerated video ID:",
-        video.id
+        video.id,
       );
 
       if (
@@ -1396,7 +1396,7 @@ class MovieLibraryApp {
         detailsMainThumbnail.onerror = () => {
           console.error(
             "Failed to load details thumbnail image:",
-            thumbnailPath
+            thumbnailPath,
           );
         };
       } else {
@@ -1428,7 +1428,7 @@ class MovieLibraryApp {
 
       this.notificationManager.show(
         "メインサムネイルを再生成しました",
-        "success"
+        "success",
       );
 
       // 進捗完了
@@ -1445,7 +1445,7 @@ class MovieLibraryApp {
 
     // ボタンを無効化
     const cleanupBtn = document.getElementById(
-      "cleanupThumbnailsBtn"
+      "cleanupThumbnailsBtn",
     ) as HTMLButtonElement;
     if (cleanupBtn) {
       cleanupBtn.disabled = true;
@@ -1457,7 +1457,7 @@ class MovieLibraryApp {
       this.unifiedProgress.addOwnerProgress(
         "settings-thumbnail-cleanup",
         "不要な画像を削除中",
-        100
+        100,
       );
 
       await this.videoManager.cleanupThumbnails();
@@ -1465,7 +1465,7 @@ class MovieLibraryApp {
 
       this.notificationManager.show(
         "不要な画像の削除が完了しました",
-        "success"
+        "success",
       );
     } catch (error) {
       console.error("Error cleaning up thumbnails:", error);
@@ -1488,7 +1488,7 @@ class MovieLibraryApp {
 
     // ボタンを無効化
     const rescanBtn = document.getElementById(
-      "rescanAllBtn"
+      "rescanAllBtn",
     ) as HTMLButtonElement;
     if (rescanBtn) {
       rescanBtn.disabled = true;
@@ -1500,7 +1500,7 @@ class MovieLibraryApp {
       this.unifiedProgress.addOwnerProgress(
         "settings-rescan-all",
         "全ての動画を再スキャン中",
-        1
+        1,
       );
 
       // 強制的に全ての動画を再スキャン
@@ -1511,7 +1511,7 @@ class MovieLibraryApp {
       this.unifiedProgress.updateProgress(
         "settings-rescan-all",
         1,
-        "再スキャン完了 - サムネイル生成中..."
+        "再スキャン完了 - サムネイル生成中...",
       );
 
       console.log("Starting data refresh...");
@@ -1523,7 +1523,7 @@ class MovieLibraryApp {
         // 通知メッセージでサムネイル生成完了も含める
         this.notificationManager.show(
           "再スキャンとサムネイル生成が完了しました",
-          "success"
+          "success",
         );
       }, 2000); // 2秒後に最終通知
 
@@ -1548,12 +1548,12 @@ class MovieLibraryApp {
         // 即座に結果を表示し、後で最終完了通知を表示
         this.notificationManager.show(
           message,
-          totalErrors && totalErrors > 0 ? "warning" : "info"
+          totalErrors && totalErrors > 0 ? "warning" : "info",
         );
       } else {
         this.notificationManager.show(
           "再スキャン完了 - サムネイル生成中...",
-          "info"
+          "info",
         );
       }
     } catch (error) {
@@ -1623,7 +1623,7 @@ class MovieLibraryApp {
       if (!newVideo) {
         console.log(
           "Video not found in database, triggering directory scan:",
-          filePath
+          filePath,
         );
 
         // データベースで見つからない場合は、ディレクトリ全体の再スキャンを実行
@@ -1656,7 +1656,7 @@ class MovieLibraryApp {
         const fileName = filePath.split("/").pop() || filePath;
         this.notificationManager.show(
           `新しい動画が追加されました: ${fileName}`,
-          "success"
+          "success",
         );
 
         console.log("Video addition handled successfully:", newVideo);
@@ -1665,14 +1665,14 @@ class MovieLibraryApp {
         const fileName = filePath.split("/").pop() || filePath;
         this.notificationManager.show(
           `動画ファイルを処理できませんでした: ${fileName}`,
-          "warning"
+          "warning",
         );
       }
     } catch (error) {
       console.error("Error handling video addition:", error);
       this.notificationManager.show(
         "動画の追加処理中にエラーが発生しました",
-        "error"
+        "error",
       );
     } finally {
       this.progressManager.hide();
@@ -1715,7 +1715,7 @@ class MovieLibraryApp {
       // 通知を表示
       this.notificationManager.show(
         `動画が削除されました: ${fileName}`,
-        "info"
+        "info",
       );
 
       console.log("Video removal handled successfully");
@@ -1723,7 +1723,7 @@ class MovieLibraryApp {
       console.error("Error handling video removal:", error);
       this.notificationManager.show(
         "動画の削除処理中にエラーが発生しました",
-        "error"
+        "error",
       );
     } finally {
       this.progressManager.hide();
@@ -1754,7 +1754,7 @@ class MovieLibraryApp {
       // 通知を表示
       this.notificationManager.show(
         `ディレクトリが削除されました: ${dirName}`,
-        "warning"
+        "warning",
       );
 
       console.log("Directory removal handled successfully");
@@ -1762,7 +1762,7 @@ class MovieLibraryApp {
       console.error("Error handling directory removal:", error);
       this.notificationManager.show(
         "ディレクトリの削除処理中にエラーが発生しました",
-        "error"
+        "error",
       );
     } finally {
       this.progressManager.hide();
@@ -1771,7 +1771,7 @@ class MovieLibraryApp {
 
   // 起動時のディレクトリ存在チェック
   private async checkDirectoriesExistence(
-    directories: Directory[]
+    directories: Directory[],
   ): Promise<void> {
     try {
       console.log("Checking directories existence...");
@@ -1783,7 +1783,7 @@ class MovieLibraryApp {
         const dirPath = directory.path;
 
         console.log(
-          `Checking directory ${i + 1}/${directories.length}: ${dirPath}`
+          `Checking directory ${i + 1}/${directories.length}: ${dirPath}`,
         );
 
         // プログレス更新
@@ -1818,7 +1818,7 @@ class MovieLibraryApp {
             console.error(
               "Failed to remove directory from database:",
               dirPath,
-              error
+              error,
             );
           }
         }
@@ -1834,12 +1834,12 @@ class MovieLibraryApp {
             removedDirectories[0].split("/").pop() || removedDirectories[0];
           this.notificationManager.show(
             `削除されたディレクトリをアプリから除外しました: ${dirName}`,
-            "warning"
+            "warning",
           );
         } else {
           this.notificationManager.show(
             `${removedDirectories.length}個の削除されたディレクトリをアプリから除外しました`,
-            "warning"
+            "warning",
           );
         }
       }
@@ -1856,7 +1856,7 @@ class MovieLibraryApp {
   private updateSortUI(): void {
     // ソート項目のselect要素を更新
     const sortSelect = document.getElementById(
-      "sortSelect"
+      "sortSelect",
     ) as HTMLSelectElement;
     if (sortSelect) {
       sortSelect.value = this.currentSort.field;
@@ -1864,7 +1864,7 @@ class MovieLibraryApp {
 
     // ソート順のselect要素を更新
     const orderSelect = document.getElementById(
-      "orderSelect"
+      "orderSelect",
     ) as HTMLSelectElement;
     if (orderSelect) {
       orderSelect.value = this.currentSort.order;
@@ -1958,7 +1958,7 @@ class MovieLibraryApp {
     const saveBtn = document.getElementById("saveDetailsBtn");
     const playBtn = document.getElementById("playVideoBtn");
     const refreshThumbnailBtn = document.getElementById(
-      "refreshMainThumbnailBtn"
+      "refreshMainThumbnailBtn",
     );
     const ratingStars = document.querySelectorAll(".rating-input .star");
 
@@ -2049,7 +2049,7 @@ class MovieLibraryApp {
 
     // チャプターサムネイルクリックでチャプターダイアログを表示
     const chapterContainer = document.getElementById(
-      "detailsChapterThumbnails"
+      "detailsChapterThumbnails",
     );
     if (chapterContainer) {
       chapterContainer.onclick = (e) => {
@@ -2072,10 +2072,10 @@ class MovieLibraryApp {
 
     try {
       const titleInput = document.getElementById(
-        "detailsTitleInput"
+        "detailsTitleInput",
       ) as HTMLInputElement;
       const descriptionInput = document.getElementById(
-        "detailsDescriptionInput"
+        "detailsDescriptionInput",
       ) as HTMLTextAreaElement;
 
       const updatedData = {
@@ -2103,31 +2103,63 @@ class MovieLibraryApp {
     if (!this.currentVideo) return;
 
     const tagInput = document.getElementById("tagInput") as HTMLInputElement;
-    const tagName = tagInput.value.trim();
+    const tagInputValue = tagInput.value.trim();
 
-    if (!tagName) {
+    if (!tagInputValue) {
+      this.notificationManager.show("タグ名を入力してください", "warning");
+      return;
+    }
+
+    // スペース区切りで複数のタグを処理
+    const tagNames = tagInputValue
+      .split(/\s+/)
+      .map((tag) => tag.trim())
+      .filter((tag) => tag.length > 0);
+
+    if (tagNames.length === 0) {
       this.notificationManager.show("タグ名を入力してください", "warning");
       return;
     }
 
     try {
-      await this.videoManager.addTagToVideo(this.currentVideo.id, tagName);
+      // 各タグを追加
+      for (const tagName of tagNames) {
+        await this.videoManager.addTagToVideo(this.currentVideo.id, tagName);
 
-      // ローカルデータを更新
-      if (!this.currentVideo.tags) {
-        this.currentVideo.tags = [];
+        // ローカルデータを更新
+        if (!this.currentVideo.tags) {
+          this.currentVideo.tags = [];
+        }
+        if (!this.currentVideo.tags.includes(tagName)) {
+          this.currentVideo.tags.push(tagName);
+        }
       }
-      if (!this.currentVideo.tags.includes(tagName)) {
-        this.currentVideo.tags.push(tagName);
+
+      // filteredVideosの該当動画も更新
+      const videoInList = this.filteredVideos.find(
+        (v) => v.id === this.currentVideo!.id,
+      );
+      if (videoInList) {
+        videoInList.tags = [...(this.currentVideo.tags || [])];
       }
 
       // UIを更新
       this.uiRenderer.updateDetailsTagsDisplay(this.currentVideo.tags || []);
-      this.renderVideoList();
+      // サムネイルを再読み込みせずにタグ表示だけ更新
+      this.uiRenderer.updateVideoTags(
+        this.currentVideo.id,
+        this.currentVideo.tags || [],
+      );
+      
+      // タグ一覧を更新するためにサイドバーを再描画
       this.renderSidebar();
 
       tagInput.value = "";
-      this.notificationManager.show("タグを追加しました", "success");
+      const message =
+        tagNames.length === 1
+          ? "タグを追加しました"
+          : `${tagNames.length}個のタグを追加しました`;
+      this.notificationManager.show(message, "success");
     } catch (error) {
       console.error("Error adding tag:", error);
       this.notificationManager.show("タグの追加に失敗しました", "error");
@@ -2143,13 +2175,27 @@ class MovieLibraryApp {
       // ローカルデータを更新
       if (this.currentVideo.tags) {
         this.currentVideo.tags = this.currentVideo.tags.filter(
-          (tag) => tag !== tagName
+          (tag) => tag !== tagName,
         );
+      }
+
+      // filteredVideosの該当動画も更新
+      const videoInList = this.filteredVideos.find(
+        (v) => v.id === this.currentVideo!.id,
+      );
+      if (videoInList) {
+        videoInList.tags = [...(this.currentVideo.tags || [])];
       }
 
       // UIを更新
       this.uiRenderer.updateDetailsTagsDisplay(this.currentVideo.tags || []);
-      this.renderVideoList();
+      // サムネイルを再読み込みせずにタグ表示だけ更新
+      this.uiRenderer.updateVideoTags(
+        this.currentVideo.id,
+        this.currentVideo.tags || [],
+      );
+      
+      // タグ一覧を更新するためにサイドバーを再描画
       this.renderSidebar();
 
       this.notificationManager.show("タグを削除しました", "success");
@@ -2173,7 +2219,7 @@ class MovieLibraryApp {
 
       // filteredVideosの該当動画も更新
       const videoInList = this.filteredVideos.find(
-        (v) => v.id === this.currentVideo!.id
+        (v) => v.id === this.currentVideo!.id,
       );
       if (videoInList) {
         videoInList.rating = rating;
@@ -2196,7 +2242,7 @@ class MovieLibraryApp {
       } else {
         this.notificationManager.show(
           `評価を${rating}に設定しました`,
-          "success"
+          "success",
         );
       }
     } catch (error) {
@@ -2229,7 +2275,7 @@ class MovieLibraryApp {
     // ツールチップを表示
     const tooltip = this.uiRenderer.createThumbnailTooltip(
       chapterThumbnails[0].path,
-      FormatUtils.formatTimestamp(chapterThumbnails[0].timestamp)
+      FormatUtils.formatTimestamp(chapterThumbnails[0].timestamp),
     );
 
     // 位置を調整
@@ -2252,7 +2298,7 @@ class MovieLibraryApp {
       if (img && timestamp) {
         img.src = `file://${currentThumbnail.path}`;
         timestamp.textContent = FormatUtils.formatTimestamp(
-          currentThumbnail.timestamp
+          currentThumbnail.timestamp,
         );
       }
     }, 1000);
@@ -2284,7 +2330,7 @@ class MovieLibraryApp {
     console.log("video.chapterThumbnails:", video.chapterThumbnails);
     console.log(
       "video.chapterThumbnails type:",
-      typeof video.chapterThumbnails
+      typeof video.chapterThumbnails,
     );
 
     if (!video.chapterThumbnails) {
@@ -2301,7 +2347,7 @@ class MovieLibraryApp {
       } else if (typeof video.chapterThumbnails === "string") {
         console.log(
           "chapterThumbnails is string, parsing:",
-          video.chapterThumbnails
+          video.chapterThumbnails,
         );
         const parsed = JSON.parse(video.chapterThumbnails);
         console.log("Parsed chapterThumbnails:", parsed);
@@ -2323,7 +2369,7 @@ class MovieLibraryApp {
       console.warn("Failed to parse chapterThumbnails:", error);
       this.notificationManager.show(
         "チャプターサムネイルの読み込みに失敗しました",
-        "error"
+        "error",
       );
       return;
     }
@@ -2395,7 +2441,7 @@ class MovieLibraryApp {
             const bottomRowStartIndex = (totalRows - 1) * videosPerRow;
             newIndex = Math.min(
               bottomRowStartIndex + currentCol,
-              totalVideos - 1
+              totalVideos - 1,
             );
           }
           break;
@@ -2523,7 +2569,7 @@ class MovieLibraryApp {
     if (selectedIndex >= 0 && this.filteredVideos[selectedIndex]) {
       // Enterキーで動画を再生
       this.uiRenderer.playSelectedVideo(this.filteredVideos, (path: string) =>
-        this.playVideo(path)
+        this.playVideo(path),
       );
     }
   }
@@ -2555,7 +2601,7 @@ class MovieLibraryApp {
 
   // カスタムタグ編集ダイアログ
   private async showTagEditDialog(
-    currentTagName: string
+    currentTagName: string,
   ): Promise<string | null> {
     return new Promise((resolve) => {
       // ダイアログ要素を作成
@@ -2576,7 +2622,7 @@ class MovieLibraryApp {
       const input = overlay.querySelector("#tagNameInput") as HTMLInputElement;
       const saveBtn = overlay.querySelector("#tagSaveBtn") as HTMLButtonElement;
       const cancelBtn = overlay.querySelector(
-        "#tagCancelBtn"
+        "#tagCancelBtn",
       ) as HTMLButtonElement;
 
       const cleanup = () => {
@@ -2648,16 +2694,16 @@ class MovieLibraryApp {
   private async saveSettings(): Promise<void> {
     try {
       const qualityInput = document.getElementById(
-        "thumbnailQuality"
+        "thumbnailQuality",
       ) as HTMLSelectElement;
       const sizeInput = document.getElementById(
-        "thumbnailSize"
+        "thumbnailSize",
       ) as HTMLSelectElement;
       const themeSelect = document.getElementById(
-        "themeSelect"
+        "themeSelect",
       ) as HTMLSelectElement;
       const saveFilterStateCheckbox = document.getElementById(
-        "saveFilterState"
+        "saveFilterState",
       ) as HTMLInputElement;
 
       // サムネイル設定があれば保存
@@ -2680,7 +2726,7 @@ class MovieLibraryApp {
       // フィルタ状態保存設定を保存
       if (saveFilterStateCheckbox) {
         this.filterManager.setSaveFilterStateEnabled(
-          saveFilterStateCheckbox.checked
+          saveFilterStateCheckbox.checked,
         );
       }
 
@@ -2710,7 +2756,7 @@ class MovieLibraryApp {
 
     // 設定ダイアログの各フィールドに保存された値を設定
     const themeSelect = document.getElementById(
-      "themeSelect"
+      "themeSelect",
     ) as HTMLSelectElement;
     if (themeSelect) {
       const savedTheme = localStorage.getItem("theme") || "system";
@@ -2720,7 +2766,7 @@ class MovieLibraryApp {
     }
 
     const saveFilterStateCheckbox = document.getElementById(
-      "saveFilterState"
+      "saveFilterState",
     ) as HTMLInputElement;
     if (saveFilterStateCheckbox) {
       saveFilterStateCheckbox.checked =
@@ -2752,7 +2798,7 @@ class MovieLibraryApp {
         body.classList.add("theme-system");
         // システム設定に従う場合は、prefers-color-schemeを使用
         const prefersDark = window.matchMedia(
-          "(prefers-color-scheme: dark)"
+          "(prefers-color-scheme: dark)",
         ).matches;
         body.setAttribute("data-theme", prefersDark ? "dark" : "light");
         break;
@@ -2779,7 +2825,7 @@ class MovieLibraryApp {
 
     // Get all checkboxes (excluding select-all checkboxes)
     const checkboxes = bulkTagApplyDialog.querySelectorAll(
-      ".tag-checkbox"
+      ".tag-checkbox",
     ) as NodeListOf<HTMLInputElement>;
     const changes: BulkTagChange[] = [];
 
@@ -2826,10 +2872,10 @@ class MovieLibraryApp {
 
     // Confirm changes
     const addCount = changes.filter(
-      (c: BulkTagChange) => c.action === "add"
+      (c: BulkTagChange) => c.action === "add",
     ).length;
     const removeCount = changes.filter(
-      (c: BulkTagChange) => c.action === "remove"
+      (c: BulkTagChange) => c.action === "remove",
     ).length;
     const confirmMessage = `${addCount}個のタグ追加と${removeCount}個のタグ削除を実行しますか？`;
 
@@ -2847,18 +2893,18 @@ class MovieLibraryApp {
           if (change.action === "add") {
             await this.videoManager.addTagToVideo(
               change.videoId,
-              change.tagName
+              change.tagName,
             );
           } else if (change.action === "remove") {
             await this.videoManager.removeTagFromVideo(
               change.videoId,
-              change.tagName
+              change.tagName,
             );
           }
 
           // Update local video data
           const video = this.filteredVideos.find(
-            (v) => v.id === change.videoId
+            (v) => v.id === change.videoId,
           );
           if (video) {
             if (change.action === "add") {
@@ -2880,7 +2926,7 @@ class MovieLibraryApp {
         } catch (error) {
           console.error(
             `Error applying change for video ${change.videoId}, tag ${change.tagName}:`,
-            error
+            error,
           );
           errorCount++;
         }
@@ -2894,12 +2940,12 @@ class MovieLibraryApp {
       // Update current video details if open
       if (this.currentVideo) {
         const updatedCurrentVideo = this.filteredVideos.find(
-          (v) => v.id === this.currentVideo!.id
+          (v) => v.id === this.currentVideo!.id,
         );
         if (updatedCurrentVideo) {
           this.currentVideo = updatedCurrentVideo;
           this.uiRenderer.updateDetailsTagsDisplay(
-            this.currentVideo.tags || []
+            this.currentVideo.tags || [],
           );
         }
       }
@@ -2909,12 +2955,12 @@ class MovieLibraryApp {
       if (errorCount === 0) {
         this.notificationManager.show(
           `タグの一括反映が完了しました (${successCount}件の変更)`,
-          "success"
+          "success",
         );
       } else {
         this.notificationManager.show(
           `タグの一括反映が完了しました (成功: ${successCount}件、失敗: ${errorCount}件)`,
-          "info"
+          "info",
         );
       }
     } catch (error) {

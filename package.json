@@ -62,12 +62,12 @@
         "typescript": "^5.8.3"
     },
     "dependencies": {
+        "@ffmpeg-installer/darwin-x64": "^4.1.0",
+        "@ffmpeg-installer/ffmpeg": "^1.1.0",
         "@prisma/client": "^6.12.0",
         "chokidar": "^3.5.3",
         "effect": "^3.11.9",
-        "ffmpeg-static": "^5.2.0",
         "ffprobe-static": "^3.1.0",
-        "fluent-ffmpeg": "^2.1.2",
         "jiti": "^2.4.2",
         "prisma": "^6.12.0"
     },
@@ -87,8 +87,17 @@
         },
         "beforeBuild": "scripts/before-build.js",
         "afterPack": "scripts/after-pack.js",
+        "extraResources": [
+            {
+                "from": "node_modules/.pnpm/@ffmpeg-installer+darwin-arm64@4.1.5/node_modules/@ffmpeg-installer/darwin-arm64/ffmpeg",
+                "to": "ffmpeg-bin/darwin-arm64/ffmpeg",
+                "filter": [
+                    "**/*"
+                ]
+            }
+        ],
         "asarUnpack": [
-            "node_modules/ffmpeg-static/**/*",
+            "node_modules/@ffmpeg-installer/**/*",
             "node_modules/ffprobe-static/**/*",
             "prisma/schema.prisma",
             "prisma/migrations/**/*",
@@ -108,10 +117,8 @@
             "WINDOWS_UNINSTALL_GUIDE.md",
             "node_modules/chokidar/index.js",
             "node_modules/chokidar/lib/**/*",
-            "node_modules/ffmpeg-static/**/*",
+            "node_modules/@ffmpeg-installer/**/*",
             "node_modules/ffprobe-static/**/*",
-            "node_modules/fluent-ffmpeg/index.js",
-            "node_modules/fluent-ffmpeg/lib/**/*",
             "node_modules/prisma/**/*",
             "node_modules/@prisma/**/*",
             "node_modules/effect/**/*",
@@ -154,11 +161,11 @@
             "hardenedRuntime": true,
             "entitlements": "build/entitlements.mac.plist",
             "entitlementsInherit": "build/entitlements.mac.plist",
-            "artifactName": "${productName}-${version}-universal.${ext}",
+            "artifactName": "${productName}-${version}-${arch}.${ext}",
             "target": [
                 {
                     "target": "dmg",
-                    "arch": "universal"
+                    "arch": "arm64"
                 }
             ]
         },

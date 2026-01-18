@@ -20,12 +20,6 @@ import { initializeFFmpeg } from "./src/utils/ffmpeg-utils.js";
 // This must be done before any app.getPath() calls
 app.setName("movie-library");
 
-// Initialize FFmpeg paths once at startup
-const { ffmpegPath, ffprobePath } = initializeFFmpeg();
-if (!ffmpegPath || !ffprobePath) {
-  console.error("⚠️  FFmpeg initialization failed");
-}
-
 class MovieLibraryApp {
   private mainWindow: BrowserWindow | null = null;
   private db: PrismaDatabaseManager;
@@ -55,8 +49,31 @@ class MovieLibraryApp {
   }
 
   async initialize(): Promise<void> {
+    console.log("🚀 Initializing Movie Library App...");
+    
+    // Initialize FFmpeg binaries
+    try {
+      const { ffmpegPath, ffprobePath } = await initializeFFmpeg();
+      if (!ffmpegPath || !ffprobePath) {
+        console.error("⚠️  FFmpeg initialization failed");
+      }
+    } catch (error) {
+      console.error("❌ Failed to initialize FFmpeg:", error);
+    }
+
+    // Initialize database
     await this.db.initialize();
+    
+    // Initialize video scanner (async)
+    await this.videoScanner.initialize();
+    
+    // Initialize thumbnail generator (async)
+    await this.thumbnailGenerator.initialize();
+    
+    // Setup IPC handlers
     this.setupIpcHandlers();
+    
+    console.log("✅ Movie Library App initialized");
   }
 
   createWindow(): void {
@@ -321,7 +338,7 @@ class MovieLibraryApp {
         const result = await this.db.removeDirectory(directoryPath);
         this.stopWatching(directoryPath);
         return result;
-      }
+      },
     );
 
     // Check directory exists
@@ -335,7 +352,7 @@ class MovieLibraryApp {
         } catch (_error) {
           return false;
         }
-      }
+      },
     );
 
     // Scan directories (improved comprehensive scan)
@@ -345,7 +362,7 @@ class MovieLibraryApp {
 
       console.log(
         "Starting comprehensive scan of directories:",
-        directoryPaths
+        directoryPaths,
       );
 
       // 包括的スキャンを実行
@@ -359,7 +376,7 @@ class MovieLibraryApp {
             message: `スキャン中: ${progress.file}`,
             file: progress.file,
           });
-        }
+        },
       );
 
       // 削除された動画をデータベースから削除
@@ -370,7 +387,7 @@ class MovieLibraryApp {
         } catch (error) {
           console.error(
             `Failed to remove deleted video: ${deletedPath}`,
-            error
+            error,
           );
         }
       }
@@ -393,7 +410,7 @@ class MovieLibraryApp {
         const { dialog } = require("electron");
         dialog.showErrorBox(
           `スキャンエラー (${result.errors.length}件)`,
-          `以下のファイルでエラーが発生しました:\n\n${errorDetails}`
+          `以下のファイルでエラーが発生しました:\n\n${errorDetails}`,
         );
       }
 
@@ -419,7 +436,7 @@ class MovieLibraryApp {
 
       console.log(
         "Starting force rescan of all videos in directories:",
-        directoryPaths
+        directoryPaths,
       );
 
       // 全動画の強制再スキャンを実行
@@ -433,7 +450,7 @@ class MovieLibraryApp {
             message: `再スキャン中: ${progress.file}`,
             file: progress.file,
           });
-        }
+        },
       );
 
       // 削除された動画をデータベースから削除
@@ -444,7 +461,7 @@ class MovieLibraryApp {
         } catch (error) {
           console.error(
             `Failed to remove deleted video: ${deletedPath}`,
-            error
+            error,
           );
         }
       }
@@ -466,7 +483,7 @@ class MovieLibraryApp {
         const { dialog } = require("electron");
         dialog.showErrorBox(
           `再スキャンエラー (${result.errors.length}件)`,
-          `以下のファイルでエラーが発生しました:\n\n${errorDetails}`
+          `以下のファイルでエラーが発生しました:\n\n${errorDetails}`,
         );
       }
 
@@ -484,7 +501,7 @@ class MovieLibraryApp {
         const totalVideos = videos.length;
 
         console.log(
-          `Auto-generating thumbnails for ${totalVideos} videos after rescan`
+          `Auto-generating thumbnails for ${totalVideos} videos after rescan`,
         );
 
         for (const video of videos) {
@@ -500,7 +517,7 @@ class MovieLibraryApp {
             console.log(
               `Auto-generating thumbnail ${
                 processedVideos + 1
-              }/${totalVideos}: ${video.filename}`
+              }/${totalVideos}: ${video.filename}`,
             );
 
             if (video.duration !== undefined) {
@@ -521,13 +538,13 @@ class MovieLibraryApp {
             });
 
             console.log(
-              `Auto-thumbnail generation completed ${processedVideos}/${totalVideos}: ${video.filename}`
+              `Auto-thumbnail generation completed ${processedVideos}/${totalVideos}: ${video.filename}`,
             );
           } catch (error) {
             console.error(
               "Error auto-generating thumbnails for:",
               video.path,
-              error
+              error,
             );
             // エラー時もカウンターを増加
             processedVideos++;
@@ -548,7 +565,7 @@ class MovieLibraryApp {
         });
 
         console.log(
-          `Auto thumbnail generation completed: ${processedVideos}/${totalVideos} processed`
+          `Auto thumbnail generation completed: ${processedVideos}/${totalVideos} processed`,
         );
       } catch (error) {
         console.error("Error during automatic thumbnail generation:", error);
@@ -589,13 +606,12 @@ class MovieLibraryApp {
           console.log(
             `Generating thumbnail ${processedVideos + 1}/${totalVideos}: ${
               video.filename
-            }`
+            }`,
           );
 
           if (video.duration !== undefined) {
-            const result = await this.thumbnailGenerator.generateThumbnails(
-              video
-            );
+            const result =
+              await this.thumbnailGenerator.generateThumbnails(video);
             results.push(result);
           }
 
@@ -611,7 +627,7 @@ class MovieLibraryApp {
           });
 
           console.log(
-            `Completed thumbnail ${processedVideos}/${totalVideos}: ${video.filename}`
+            `Completed thumbnail ${processedVideos}/${totalVideos}: ${video.filename}`,
           );
         } catch (error) {
           console.error("Error generating thumbnails for:", video.path, error);
@@ -634,7 +650,7 @@ class MovieLibraryApp {
       });
 
       console.log(
-        `Thumbnail generation completed: ${processedVideos}/${totalVideos} processed`
+        `Thumbnail generation completed: ${processedVideos}/${totalVideos} processed`,
       );
       return results;
     });
@@ -661,13 +677,12 @@ class MovieLibraryApp {
           console.log(
             `Regenerating thumbnail ${processedVideos + 1}/${totalVideos}: ${
               video.filename
-            }`
+            }`,
           );
 
           if (video.duration !== undefined) {
-            const result = await this.thumbnailGenerator.generateThumbnails(
-              video
-            );
+            const result =
+              await this.thumbnailGenerator.generateThumbnails(video);
             results.push(result);
           }
 
@@ -683,13 +698,13 @@ class MovieLibraryApp {
           });
 
           console.log(
-            `Completed thumbnail ${processedVideos}/${totalVideos}: ${video.filename}`
+            `Completed thumbnail ${processedVideos}/${totalVideos}: ${video.filename}`,
           );
         } catch (error) {
           console.error(
             "Error regenerating thumbnails for:",
             video.path,
-            error
+            error,
           );
           // エラー時もカウンターを増加
           processedVideos++;
@@ -710,7 +725,7 @@ class MovieLibraryApp {
       });
 
       console.log(
-        `Thumbnail regeneration completed: ${processedVideos}/${totalVideos} processed`
+        `Thumbnail regeneration completed: ${processedVideos}/${totalVideos} processed`,
       );
       return results;
     });
@@ -743,7 +758,7 @@ class MovieLibraryApp {
       "add-tag-to-video",
       async (_event, videoId: string, tagName: string) => {
         return await this.db.addTagToVideo(parseInt(videoId), tagName);
-      }
+      },
     );
 
     // Remove tag from video
@@ -751,7 +766,7 @@ class MovieLibraryApp {
       "remove-tag-from-video",
       async (_event, videoId: string, tagName: string) => {
         return await this.db.removeTagFromVideo(parseInt(videoId), tagName);
-      }
+      },
     );
 
     // Update tag
@@ -759,7 +774,7 @@ class MovieLibraryApp {
       "update-tag",
       async (_event, oldName: string, newName: string) => {
         return await this.db.updateTag(oldName, newName);
-      }
+      },
     );
 
     // Delete tag
@@ -777,19 +792,34 @@ class MovieLibraryApp {
       "has-video-updates",
       async (_event, lastCheckTime: number) => {
         return await this.db.hasVideoUpdates(lastCheckTime);
-      }
+      },
     );
 
     // Regenerate main thumbnail
     ipcMain.handle(
       "regenerate-main-thumbnail",
       async (_event, videoId: string) => {
-        const video = await this.db.getVideo(parseInt(videoId));
-        if (!video || video.duration === undefined) {
-          throw new Error("Video not found or invalid duration");
+        try {
+          console.log(
+            "IPC: regenerate-main-thumbnail called for video:",
+            videoId,
+          );
+          const video = await this.db.getVideo(parseInt(videoId));
+          if (!video || video.duration === undefined) {
+            const error = "Video not found or invalid duration";
+            console.error("IPC: regenerate-main-thumbnail error:", error);
+            throw new Error(error);
+          }
+          console.log("IPC: Starting thumbnail regeneration for:", video.path);
+          const result =
+            await this.thumbnailGenerator.regenerateMainThumbnail(video);
+          console.log("IPC: Thumbnail regeneration completed successfully");
+          return result;
+        } catch (error) {
+          console.error("IPC: regenerate-main-thumbnail caught error:", error);
+          throw error;
         }
-        return await this.thumbnailGenerator.regenerateMainThumbnail(video);
-      }
+      },
     );
   }
 
@@ -841,7 +871,7 @@ class MovieLibraryApp {
           if (video && video.needsThumbnails) {
             console.log(
               "Auto-generating thumbnails for new video:",
-              video.path
+              video.path,
             );
 
             // サムネイル生成の進捗通知
@@ -866,7 +896,7 @@ class MovieLibraryApp {
           } else if (video && !video.needsThumbnails) {
             console.log(
               "Video already has thumbnails, skipping generation:",
-              video.path
+              video.path,
             );
           }
 
@@ -902,7 +932,7 @@ class MovieLibraryApp {
           console.error(
             "Error processing video file removal:",
             filePath,
-            error
+            error,
           );
         }
       }
@@ -976,7 +1006,7 @@ class MovieLibraryApp {
           console.error(
             "Failed to remove directory from database:",
             dirPath,
-            error
+            error,
           );
         }
       }
@@ -1053,7 +1083,7 @@ app.whenReady().then(async () => {
     const { dialog } = require("electron");
     dialog.showErrorBox(
       "Initialization Error",
-      `Failed to start Movie Library: ${error.message || error}`
+      `Failed to start Movie Library: ${error.message || error}`,
     );
 
     app.quit();

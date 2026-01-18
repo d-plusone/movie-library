@@ -58,7 +58,7 @@ export class UIRenderer {
   highlightSelectedVideo(): void {
     console.log(
       "Highlighting selected video at index:",
-      this.selectedVideoIndex
+      this.selectedVideoIndex,
     );
     // Remove existing highlights
     document.querySelectorAll(".video-item.selected").forEach((item) => {
@@ -77,7 +77,7 @@ export class UIRenderer {
   // 動画リストを描画
   renderVideoList(
     filteredVideos: Video[],
-    playVideoCallback?: (path: string) => Promise<void>
+    playVideoCallback?: (path: string) => Promise<void>,
   ): number {
     const videoList = document.getElementById("videoList");
 
@@ -101,7 +101,7 @@ export class UIRenderer {
       const videoElement = this.createVideoElement(
         video,
         index,
-        playVideoCallback
+        playVideoCallback,
       );
       videoList.appendChild(videoElement);
     });
@@ -120,11 +120,67 @@ export class UIRenderer {
     return filteredVideos.length;
   }
 
+  // 特定の動画のタグ表示だけを更新（サムネイルは再読み込みしない）
+  updateVideoTags(videoId: number, tags: string[]): void {
+    const videoElement = document.querySelector(
+      `.video-item[data-video-id="${videoId}"]`,
+    );
+    if (!videoElement) {
+      console.warn(`Video element not found for ID: ${videoId}`);
+      return;
+    }
+
+    // タグコンテナを探す
+    const tagsContainer = videoElement.querySelector(".video-tags");
+    if (!tagsContainer) {
+      console.warn(`Tags container not found for video ID: ${videoId}`);
+      return;
+    }
+
+    // タグコンテナをクリア
+    tagsContainer.innerHTML = "";
+
+    // タグがある場合は表示
+    if (tags && tags.length > 0) {
+      if (this.currentView === "grid") {
+        // Grid view: show up to 3 tags plus overflow indicator
+        const maxVisibleTags = 3;
+        const visibleTags = tags.slice(0, maxVisibleTags);
+        const hiddenTags = tags.slice(maxVisibleTags);
+
+        // Add visible tags
+        visibleTags.forEach((tag) => {
+          const tagSpan = document.createElement("span");
+          tagSpan.className = "video-tag";
+          tagSpan.textContent = tag;
+          tagsContainer.appendChild(tagSpan);
+        });
+
+        // Add overflow indicator if there are hidden tags
+        if (hiddenTags.length > 0) {
+          const overflowIndicator = document.createElement("span");
+          overflowIndicator.className = "video-tag-overflow";
+          overflowIndicator.textContent = `+${hiddenTags.length}`;
+          overflowIndicator.title = `他のタグ: ${hiddenTags.join(", ")}`;
+          tagsContainer.appendChild(overflowIndicator);
+        }
+      } else {
+        // List view: show all tags
+        tags.forEach((tag) => {
+          const tagSpan = document.createElement("span");
+          tagSpan.className = "video-tag";
+          tagSpan.textContent = tag;
+          tagsContainer.appendChild(tagSpan);
+        });
+      }
+    }
+  }
+
   // 動画要素を作成
   createVideoElement(
     video: Video,
     index: number,
-    playVideoCallback?: (path: string) => Promise<void>
+    playVideoCallback?: (path: string) => Promise<void>,
   ): HTMLElement {
     const div = document.createElement("div");
     div.className = "video-item";
@@ -136,7 +192,7 @@ export class UIRenderer {
       : "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIwIiBoZWlnaHQ9IjE4MCIgdmlld0JveD0iMCAwIDMyMCAxODAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMjAiIGhlaWdodD0iMTgwIiBmaWxsPSIjRjVGNUY3Ii8+CjxwYXRoIGQ9Ik0xMjggNzJMMTkyIDEwOEwxMjggMTQ0VjcyWiIgZmlsbD0iIzk5OTk5OSIvPgo8L3N2Zz4K";
 
     console.log(
-      `UIRenderer: Creating video element for ${video.filename}, thumbnailPath: ${video.thumbnailPath}, thumbnailSrc: ${thumbnailSrc}`
+      `UIRenderer: Creating video element for ${video.filename}, thumbnailPath: ${video.thumbnailPath}, thumbnailSrc: ${thumbnailSrc}`,
     );
 
     const duration = FormatUtils.formatDuration(video.duration ?? 0);
@@ -167,7 +223,9 @@ export class UIRenderer {
         <div>サイズ: ${fileSize}</div>
         <div>解像度: ${video.width ?? 0}x${video.height ?? 0}</div>
         <div>追加日: ${FormatUtils.formatDate(
-          video.addedAt ? video.addedAt.toISOString() : new Date().toISOString()
+          video.addedAt
+            ? video.addedAt.toISOString()
+            : new Date().toISOString(),
         )}</div>
     `;
 
@@ -262,7 +320,7 @@ export class UIRenderer {
           video.chapterThumbnails !== null
         ) {
           chapters = Object.values(
-            video.chapterThumbnails
+            video.chapterThumbnails,
           ) as ChapterThumbnail[];
         }
 
@@ -272,7 +330,7 @@ export class UIRenderer {
             (chapter): chapter is ChapterThumbnail =>
               chapter &&
               typeof chapter.path === "string" &&
-              typeof chapter.timestamp === "number"
+              typeof chapter.timestamp === "number",
           )
           .slice(0, 5);
 
@@ -326,7 +384,7 @@ export class UIRenderer {
               this.updateThumbnailDisplay(
                 cycleContainer,
                 indicatorContainer,
-                currentIndex
+                currentIndex,
               );
             }, 800);
           }
@@ -352,7 +410,7 @@ export class UIRenderer {
             this.updateThumbnailDisplay(
               cycleContainer,
               indicatorContainer,
-              currentIndex
+              currentIndex,
             );
 
             // Reset auto-cycle
@@ -363,7 +421,7 @@ export class UIRenderer {
                 this.updateThumbnailDisplay(
                   cycleContainer,
                   indicatorContainer,
-                  currentIndex
+                  currentIndex,
                 );
               }, 800);
             }
@@ -415,7 +473,7 @@ export class UIRenderer {
   updateThumbnailDisplay(
     cycleContainer: HTMLElement,
     indicatorContainer: HTMLElement,
-    activeIndex: number
+    activeIndex: number,
   ): void {
     // Update thumbnail images
     const images = cycleContainer.querySelectorAll(".thumbnail-image");
@@ -443,7 +501,7 @@ export class UIRenderer {
     tags: Tag[],
     directories: Directory[],
     currentFilter: Filter,
-    selectedDirectories: string[]
+    selectedDirectories: string[],
   ): void {
     try {
       this.renderTags(tags, currentFilter.tags);
@@ -479,10 +537,10 @@ export class UIRenderer {
         <span class="tag-name">${FormatUtils.escapeHtml(tag.name)}</span>
         <div class="tag-actions">
           <button class="tag-edit-btn" data-tag="${FormatUtils.escapeHtml(
-            tag.name
+            tag.name,
           )}" title="編集">✏️</button>
           <button class="tag-delete-btn" data-tag="${FormatUtils.escapeHtml(
-            tag.name
+            tag.name,
           )}" title="削除">🗑️</button>
         </div>
       `;
@@ -494,12 +552,12 @@ export class UIRenderer {
   // ディレクトリリストを描画
   renderDirectories(
     directories: Directory[],
-    selectedDirectories: string[]
+    selectedDirectories: string[],
   ): void {
     console.log("renderDirectories - directories:", directories.length);
     console.log(
       "renderDirectories - selectedDirectories:",
-      selectedDirectories
+      selectedDirectories,
     );
 
     const directoriesList = document.getElementById("directoriesList");
@@ -528,11 +586,11 @@ export class UIRenderer {
 
       directoryElement.innerHTML = `
         <span class="directory-path" title="${FormatUtils.escapeHtml(
-          directory.path
+          directory.path,
         )}">${FormatUtils.escapeHtml(directoryName)}</span>
         <div class="directory-actions">
           <button class="directory-remove-btn" data-path="${FormatUtils.escapeHtml(
-            directory.path
+            directory.path,
           )}" title="削除">×</button>
         </div>
       `;
@@ -544,7 +602,7 @@ export class UIRenderer {
   // 設定画面のディレクトリリストを描画
   renderSettingsDirectories(directories: Directory[]): void {
     const settingsDirectoriesList = document.getElementById(
-      "settingsDirectoriesList"
+      "settingsDirectoriesList",
     );
 
     if (!settingsDirectoriesList) {
@@ -559,10 +617,10 @@ export class UIRenderer {
       directoryElement.className = "settings-directory-item";
       directoryElement.innerHTML = `
         <span class="directory-path" title="${FormatUtils.escapeHtml(
-          directory.path
+          directory.path,
         )}">${FormatUtils.escapeHtml(directory.path)}</span>
         <button class="remove-directory-btn" data-path="${FormatUtils.escapeHtml(
-          directory.path
+          directory.path,
         )}">削除</button>
       `;
 
@@ -576,7 +634,7 @@ export class UIRenderer {
       "updateStarDisplay called with rating:",
       rating,
       "isHover:",
-      isHover
+      isHover,
     );
 
     // 星ボタンのみを対象（data-rating="0"の「全て」ボタンは除外）
@@ -626,7 +684,7 @@ export class UIRenderer {
   // チャプターサムネイルを効率的に更新
   private updateChapterThumbnails(video: Video): void {
     const chapterContainer = document.getElementById(
-      "detailsChapterThumbnails"
+      "detailsChapterThumbnails",
     );
     if (!chapterContainer) return;
 
@@ -649,7 +707,7 @@ export class UIRenderer {
           video.chapterThumbnails !== null
         ) {
           newChapters = Object.values(
-            video.chapterThumbnails
+            video.chapterThumbnails,
           ) as ChapterThumbnail[];
         }
       } catch (error) {
@@ -723,7 +781,7 @@ export class UIRenderer {
       tagElement.innerHTML = `
         ${FormatUtils.escapeHtml(tag)}
         <button class="remove-tag" data-tag="${FormatUtils.escapeHtml(
-          tag
+          tag,
         )}" title="タグを削除">×</button>
       `;
       tagsContainer.appendChild(tagElement);
@@ -751,10 +809,10 @@ export class UIRenderer {
       const size = localStorage.getItem("thumbnailSize") || "1280x720";
 
       const qualitySelect = document.getElementById(
-        "thumbnailQuality"
+        "thumbnailQuality",
       ) as HTMLSelectElement;
       const sizeSelect = document.getElementById(
-        "thumbnailSize"
+        "thumbnailSize",
       ) as HTMLSelectElement;
 
       if (qualitySelect) {
@@ -792,7 +850,7 @@ export class UIRenderer {
   private updateVideoDetailsContent(video: Video): void {
     // メインサムネイルを更新
     const mainThumbnailImg = document.getElementById(
-      "detailsMainThumbnail"
+      "detailsMainThumbnail",
     ) as HTMLImageElement;
     if (mainThumbnailImg && video.thumbnailPath) {
       const newSrc = `file://${video.thumbnailPath}?t=${Date.now()}`;
@@ -804,7 +862,7 @@ export class UIRenderer {
 
     // タイトル入力を更新
     const titleInput = document.getElementById(
-      "detailsTitleInput"
+      "detailsTitleInput",
     ) as HTMLInputElement;
     if (titleInput && titleInput.value !== video.title) {
       titleInput.value = video.title;
@@ -812,7 +870,7 @@ export class UIRenderer {
 
     // 説明入力を更新
     const descriptionInput = document.getElementById(
-      "detailsDescriptionInput"
+      "detailsDescriptionInput",
     ) as HTMLTextAreaElement;
     const descriptionValue = video.description || "";
     if (descriptionInput && descriptionInput.value !== descriptionValue) {
@@ -823,19 +881,19 @@ export class UIRenderer {
     this.updateElementTextIfChanged("detailsFilePath", video.path);
     this.updateElementTextIfChanged(
       "detailsFileSize",
-      FormatUtils.formatFileSize(video.size ?? 0)
+      FormatUtils.formatFileSize(video.size ?? 0),
     );
     this.updateElementTextIfChanged(
       "detailsDuration",
-      FormatUtils.formatDuration(video.duration ?? 0)
+      FormatUtils.formatDuration(video.duration ?? 0),
     );
     this.updateElementTextIfChanged(
       "detailsResolution",
-      `${video.width ?? 0}x${video.height ?? 0}`
+      `${video.width ?? 0}x${video.height ?? 0}`,
     );
     this.updateElementTextIfChanged(
       "detailsFps",
-      `${this.formatFps(video.fps ?? 0)} fps`
+      `${this.formatFps(video.fps ?? 0)} fps`,
     );
     this.updateElementTextIfChanged("detailsCodec", video.codec || "不明");
 
@@ -908,7 +966,7 @@ export class UIRenderer {
   updateDetailsRatingDisplay(rating: number): void {
     const ratingStars = document.querySelectorAll(".rating-input .star");
     const clearButton = document.querySelector(
-      ".clear-rating-btn"
+      ".clear-rating-btn",
     ) as HTMLElement;
 
     ratingStars.forEach((star, index) => {
@@ -971,7 +1029,7 @@ export class UIRenderer {
     console.log("showBulkTagApplyDialog called");
     const bulkTagApplyDialog = DOMUtils.getElementById("bulkTagApplyDialog");
     const bulkTagApplyTable = DOMUtils.getElementById(
-      "bulkTagApplyTable"
+      "bulkTagApplyTable",
     ) as HTMLTableElement;
 
     console.log("bulkTagApplyDialog element:", bulkTagApplyDialog);
@@ -993,10 +1051,10 @@ export class UIRenderer {
 
     // Clear existing table content
     const thead = bulkTagApplyTable.querySelector(
-      "thead"
+      "thead",
     ) as HTMLTableSectionElement;
     const tbody = bulkTagApplyTable.querySelector(
-      "tbody"
+      "tbody",
     ) as HTMLTableSectionElement;
 
     // Clear and rebuild header
@@ -1048,7 +1106,7 @@ export class UIRenderer {
 
         // このタグの全てのチェックボックスを更新
         const tagCheckboxes = bulkTagApplyTable.querySelectorAll(
-          `.tag-checkbox[data-tag-name="${tagName}"]`
+          `.tag-checkbox[data-tag-name="${tagName}"]`,
         ) as NodeListOf<HTMLInputElement>;
 
         tagCheckboxes.forEach((cb: HTMLInputElement) => {
@@ -1175,21 +1233,21 @@ export class UIRenderer {
   // 全選択チェックボックスの状態を更新するヘルパーメソッド
   updateSelectAllCheckboxState(tagName: string): void {
     const bulkTagApplyTable = DOMUtils.getElementById(
-      "bulkTagApplyTable"
+      "bulkTagApplyTable",
     ) as HTMLTableElement;
     if (!bulkTagApplyTable) return;
 
     const selectAllCheckbox = bulkTagApplyTable.querySelector(
-      `.select-all-checkbox[data-tag-name="${tagName}"]`
+      `.select-all-checkbox[data-tag-name="${tagName}"]`,
     ) as HTMLInputElement;
     const tagCheckboxes = bulkTagApplyTable.querySelectorAll(
-      `.tag-checkbox[data-tag-name="${tagName}"]`
+      `.tag-checkbox[data-tag-name="${tagName}"]`,
     ) as NodeListOf<HTMLInputElement>;
 
     if (!selectAllCheckbox || tagCheckboxes.length === 0) return;
 
     const checkedCount = Array.from(tagCheckboxes).filter(
-      (cb: HTMLInputElement) => cb.checked
+      (cb: HTMLInputElement) => cb.checked,
     ).length;
     const totalCount = tagCheckboxes.length;
 
@@ -1246,8 +1304,8 @@ export class UIRenderer {
       <div id="chapterDialog" class="chapter-dialog" is-open="true">
         <div class="chapter-dialog-header">
           <h3>${FormatUtils.escapeHtml(video.title)} - ${
-      allThumbnails[0].title
-    }</h3>
+            allThumbnails[0].title
+          }</h3>
           <button class="close-chapter-dialog" title="閉じる">×</button>
         </div>
         <div class="chapter-dialog-content">
@@ -1264,7 +1322,7 @@ export class UIRenderer {
                       allThumbnails.length
                     }</div>
                     <div class="chapter-timestamp" id="currentChapterTimestamp">${FormatUtils.formatTimestamp(
-                      allThumbnails[0].timestamp
+                      allThumbnails[0].timestamp,
                     )}</div>
                   </div>
                 </div>
@@ -1282,13 +1340,13 @@ export class UIRenderer {
       const thumbnail = allThumbnails[index];
 
       const img = overlay.querySelector(
-        "#currentChapterImg"
+        "#currentChapterImg",
       ) as HTMLImageElement;
       const title = overlay.querySelector(
-        ".chapter-dialog-header h3"
+        ".chapter-dialog-header h3",
       ) as HTMLElement;
       const timestamp = overlay.querySelector(
-        "#currentChapterTimestamp"
+        "#currentChapterTimestamp",
       ) as HTMLElement;
       const counter = overlay.querySelector("#chapterCounter") as HTMLElement;
 
@@ -1299,7 +1357,7 @@ export class UIRenderer {
           thumbnail.title
         }`;
         timestamp.textContent = FormatUtils.formatTimestamp(
-          thumbnail.timestamp
+          thumbnail.timestamp,
         );
         counter.textContent = `${index + 1} / ${allThumbnails.length}`;
       }
@@ -1321,7 +1379,7 @@ export class UIRenderer {
 
     // イベントリスナーを追加
     const closeBtn = overlay.querySelector(
-      ".close-chapter-dialog"
+      ".close-chapter-dialog",
     ) as HTMLButtonElement;
     const prevBtn = overlay.querySelector(".prev-btn") as HTMLButtonElement;
     const nextBtn = overlay.querySelector(".next-btn") as HTMLButtonElement;
@@ -1397,12 +1455,12 @@ export class UIRenderer {
     }
     if (statsElements.totalSize) {
       statsElements.totalSize.textContent = FormatUtils.formatFileSize(
-        stats.totalSize
+        stats.totalSize,
       );
     }
     if (statsElements.totalDuration) {
       statsElements.totalDuration.textContent = FormatUtils.formatDuration(
-        stats.totalDuration
+        stats.totalDuration,
       );
     }
   }
@@ -1410,16 +1468,16 @@ export class UIRenderer {
   // サムネイル設定を描画
   renderThumbnailSettings(settings: ThumbnailSettings): void {
     const thumbnailCountInput = document.getElementById(
-      "thumbnailCount"
+      "thumbnailCount",
     ) as HTMLInputElement;
     const thumbnailIntervalInput = document.getElementById(
-      "thumbnailInterval"
+      "thumbnailInterval",
     ) as HTMLInputElement;
     const thumbnailWidthInput = document.getElementById(
-      "thumbnailWidth"
+      "thumbnailWidth",
     ) as HTMLInputElement;
     const thumbnailHeightInput = document.getElementById(
-      "thumbnailHeight"
+      "thumbnailHeight",
     ) as HTMLInputElement;
 
     if (thumbnailCountInput) {
@@ -1458,7 +1516,7 @@ export class UIRenderer {
   // 動画を再生（OSの既定のアプリケーションで開く）
   async playVideo(
     videoPath: string,
-    playVideoCallback: (path: string) => Promise<void>
+    playVideoCallback: (path: string) => Promise<void>,
   ): Promise<void> {
     await playVideoCallback(videoPath);
   }
@@ -1466,7 +1524,7 @@ export class UIRenderer {
   // 選択された動画を再生
   async playSelectedVideo(
     videos: Video[],
-    playVideoCallback: (path: string) => Promise<void>
+    playVideoCallback: (path: string) => Promise<void>,
   ): Promise<void> {
     if (
       this.selectedVideoIndex >= 0 &&

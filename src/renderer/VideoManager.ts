@@ -583,7 +583,7 @@ export class VideoManager {
       0
     );
     const totalSize = this.videos.reduce(
-      (sum, video) => sum + Number(video.size || 0n),
+      (sum, video) => sum + Number(video.size || 0),
       0
     );
 
