@@ -48,6 +48,10 @@
     ],
     "author": "Your Name",
     "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/d-plusone/movie-library/"
+    },
     "devDependencies": {
         "@electron/rebuild": "^3.6.0",
         "@types/fluent-ffmpeg": "^2.1.27",
