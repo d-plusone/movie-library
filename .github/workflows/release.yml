@@ -151,7 +151,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ELECTRON_BUILDER_PUBLISH: never
           # 開発用ビルド: 署名なしで許可
           CSC_IDENTITY_AUTO_DISCOVERY: false
           # デバッグ情報を有効化
@@ -164,8 +163,8 @@ jobs:
           echo "Current architecture: $(uname -m)"
           echo "Target: Universal Binary (Intel + Apple Silicon)"
 
-          # ユニバーサルバイナリビルド
-          pnpm run build:optimized
+          # ユニバーサルバイナリビルド（GitHubに公開）
+          pnpm run build:optimized -- --publish always
 
           # ビルド結果の確認
           echo "Build results:"
@@ -190,5 +189,4 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ELECTRON_BUILDER_PUBLISH: never
-        run: pnpm run build:win
+        run: pnpm run build:win:publish
