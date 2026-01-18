@@ -96,7 +96,7 @@ class PrismaDatabaseManager {
         "node_modules",
         "prisma",
         "build",
-        "index.js"
+        "index.js",
       );
       const schemaPath = path.join(baseDir, "prisma", "schema.prisma");
 
@@ -120,7 +120,7 @@ class PrismaDatabaseManager {
             ...process.env,
             ELECTRON_RUN_AS_NODE: "1", // ElectronをNode.jsモードで実行
           },
-        }
+        },
       );
 
       let stdout = "";
@@ -150,8 +150,8 @@ class PrismaDatabaseManager {
             new Error(
               `Database push failed with code ${code}${
                 stderr ? `: ${stderr}` : ""
-              }`
-            )
+              }`,
+            ),
           );
         }
       });
@@ -176,7 +176,7 @@ class PrismaDatabaseManager {
         "node_modules",
         "prisma",
         "build",
-        "index.js"
+        "index.js",
       );
       const schemaPath = path.join(baseDir, "prisma", "schema.prisma");
 
@@ -200,7 +200,7 @@ class PrismaDatabaseManager {
             ...process.env,
             ELECTRON_RUN_AS_NODE: "1", // ElectronをNode.jsモードで実行
           },
-        }
+        },
       );
 
       let stdout = "";
@@ -228,8 +228,8 @@ class PrismaDatabaseManager {
           }
           reject(
             new Error(
-              `Migration failed with code ${code}${stderr ? `: ${stderr}` : ""}`
-            )
+              `Migration failed with code ${code}${stderr ? `: ${stderr}` : ""}`,
+            ),
           );
         }
       });
@@ -289,7 +289,7 @@ class PrismaDatabaseManager {
     sortBy: string = "filename",
     sortOrder: string = "ASC",
     limit: number | null = null,
-    offset: number = 0
+    offset: number = 0,
   ): Promise<VideoRecord[]> {
     const orderBy = { [sortBy]: sortOrder.toLowerCase() };
 
@@ -477,7 +477,7 @@ class PrismaDatabaseManager {
       });
 
       console.log(
-        `getVideosWithoutThumbnails: Found ${videos.length} videos without thumbnails`
+        `getVideosWithoutThumbnails: Found ${videos.length} videos without thumbnails`,
       );
       if (videos.length > 0) {
         console.log(
@@ -486,7 +486,7 @@ class PrismaDatabaseManager {
             id: v.id,
             filename: v.filename,
             thumbnailPath: v.thumbnailPath,
-          }))
+          })),
         );
       }
 

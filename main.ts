@@ -50,7 +50,7 @@ class MovieLibraryApp {
 
   async initialize(): Promise<void> {
     console.log("🚀 Initializing Movie Library App...");
-    
+
     // Initialize FFmpeg binaries
     try {
       const { ffmpegPath, ffprobePath } = await initializeFFmpeg();
@@ -63,16 +63,16 @@ class MovieLibraryApp {
 
     // Initialize database
     await this.db.initialize();
-    
+
     // Initialize video scanner (async)
     await this.videoScanner.initialize();
-    
+
     // Initialize thumbnail generator (async)
     await this.thumbnailGenerator.initialize();
-    
+
     // Setup IPC handlers
     this.setupIpcHandlers();
-    
+
     console.log("✅ Movie Library App initialized");
   }
 

@@ -37,12 +37,31 @@ jobs:
 
       - name: Update package.json version (if tag exists)
         if: startsWith(github.ref, 'refs/tags/v')
-        run: npm version ${{ steps.get_version.outputs.VERSION }} --no-git-tag-version
+        run: pnpm version ${{ steps.get_version.outputs.VERSION }} --no-git-tag-version
 
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 18
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 8
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
 
       - name: Install Python and dependencies
         uses: actions/setup-python@v4
@@ -57,15 +76,15 @@ jobs:
       - name: Setup build environment (macOS)
         if: matrix.os == 'macos-latest'
         run: |
-          npm install -g node-gyp
+          pnpm install -g node-gyp
           rm -rf node_modules/.cache
 
       - name: Setup build environment (Windows)
         if: matrix.os == 'windows-latest'
         run: |
-          npm install -g node-gyp
-          npm config set msvs_version 2022 --global
-          npm config set python python --global
+          pnpm install -g node-gyp
+          pnpm config set msvs_version 2022 --global
+          pnpm config set python python --global
           # Verify Visual Studio Build Tools
           if (Get-Command "cl.exe" -ErrorAction SilentlyContinue) {
             Write-Host "Visual Studio Build Tools found"
@@ -77,19 +96,19 @@ jobs:
       - name: Clear node_modules cache (Unix)
         if: matrix.os == 'macos-latest'
         run: |
-          rm -rf node_modules package-lock.json || true
+          rm -rf node_modules pnpm-lock.yaml || true
 
       - name: Clear node_modules cache (Windows)
         if: matrix.os == 'windows-latest'
         run: |
           if (Test-Path "node_modules") { Remove-Item -Recurse -Force "node_modules" }
-          if (Test-Path "package-lock.json") { Remove-Item -Force "package-lock.json" }
+          if (Test-Path "pnpm-lock.yaml") { Remove-Item -Force "pnpm-lock.yaml" }
 
       - name: Install dependencies
-        run: npm install
+        run: pnpm install
 
       - name: Install electron-rebuild
-        run: npm install -g electron-rebuild
+        run: pnpm install -g electron-rebuild
 
       - name: Set up environment for native modules (Unix)
         if: matrix.os == 'macos-latest'
@@ -115,15 +134,15 @@ jobs:
           electron-rebuild
 
       - name: Fallback manual sqlite3 rebuild
-        run: npm run rebuild
+        run: pnpm run rebuild
         continue-on-error: true
 
       - name: Test build (macOS)
         if: matrix.os == 'macos-latest'
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
-        run: npm run build:optimized -- --publish=never
+        run: pnpm run build:optimized -- --publish=never
 
       - name: Test build (Windows)
         if: matrix.os == 'windows-latest'
-        run: npm run build:win -- --publish=never
+        run: pnpm run build:win -- --publish=never
