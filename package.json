@@ -80,7 +80,8 @@
     },
     "optionalDependencies": {
         "@ffmpeg-installer/darwin-arm64": "^4.1.0",
-        "@ffmpeg-installer/darwin-x64": "^4.1.0"
+        "@ffmpeg-installer/darwin-x64": "^4.1.0",
+        "@ffmpeg-installer/win32-x64": "^4.1.0"
     },
     "build": {
         "appId": "com.yourcompany.movielibrary",
@@ -104,16 +105,6 @@
         },
         "beforeBuild": "scripts/before-build.js",
         "afterPack": "scripts/after-pack.js",
-        "extraResources": [
-            {
-                "from": "node_modules/@ffmpeg-installer/darwin-arm64/ffmpeg",
-                "to": "ffmpeg-bin/darwin-arm64/ffmpeg"
-            },
-            {
-                "from": "node_modules/@ffmpeg-installer/darwin-x64/ffmpeg",
-                "to": "ffmpeg-bin/darwin-x64/ffmpeg"
-            }
-        ],
         "asarUnpack": [
             "node_modules/**/*",
             "prisma/schema.prisma",
@@ -180,6 +171,12 @@
             "entitlements": "build/entitlements.mac.plist",
             "entitlementsInherit": "build/entitlements.mac.plist",
             "artifactName": "${productName}-${version}-${arch}.${ext}",
+            "extraResources": [
+                {
+                    "from": "node_modules/@ffmpeg-installer/darwin-arm64/ffmpeg",
+                    "to": "ffmpeg-bin/darwin-arm64/ffmpeg"
+                }
+            ],
             "target": [
                 {
                     "target": "dmg",
@@ -189,6 +186,12 @@
         },
         "win": {
             "icon": "assets/icon.ico",
+            "extraResources": [
+                {
+                    "from": "node_modules/@ffmpeg-installer/win32-x64/ffmpeg.exe",
+                    "to": "ffmpeg-bin/win32-x64/ffmpeg.exe"
+                }
+            ],
             "target": [
                 {
                     "target": "nsis",
