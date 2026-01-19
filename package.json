@@ -86,7 +86,8 @@
         "publish": {
             "provider": "github",
             "owner": "d-plusone",
-            "repo": "movie-library"
+            "repo": "movie-library",
+            "releaseType": "release"
         },
         "directories": {
             "output": "dist"
