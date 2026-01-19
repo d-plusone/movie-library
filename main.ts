@@ -13,6 +13,7 @@ import * as chokidar from "chokidar";
 import PrismaDatabaseManager from "./src/database/PrismaDatabaseManager.js";
 import VideoScanner from "./src/scanner/VideoScanner.js";
 import ThumbnailGenerator from "./src/thumbnail/ThumbnailGenerator.js";
+import DuplicateDetector from "./src/scanner/DuplicateDetector.js";
 import { ProcessedVideo, ThumbnailResult } from "./src/types/types.js";
 import { initializeFFmpeg } from "./src/utils/ffmpeg-utils.js";
 
@@ -24,6 +25,7 @@ class MovieLibraryApp {
   private mainWindow: BrowserWindow | null = null;
   private db: PrismaDatabaseManager;
   private videoScanner: VideoScanner;
+  private duplicateDetector: DuplicateDetector;
   private thumbnailGenerator: ThumbnailGenerator;
   public watchers: Map<string, chokidar.FSWatcher> = new Map();
 
@@ -45,6 +47,7 @@ class MovieLibraryApp {
 
     this.db = new PrismaDatabaseManager();
     this.videoScanner = new VideoScanner(this.db);
+    this.duplicateDetector = new DuplicateDetector(this.db);
     this.thumbnailGenerator = new ThumbnailGenerator(this.db);
   }
 
@@ -748,6 +751,11 @@ class MovieLibraryApp {
       }
     });
 
+    // Get thumbnails directory path
+    ipcMain.handle("get-thumbnails-dir", () => {
+      return path.join(app.getPath("userData"), "thumbnails");
+    });
+
     // Update video
     ipcMain.handle("update-video", async (_event, videoId: string, data) => {
       return await this.db.updateVideo(parseInt(videoId), data);
@@ -782,6 +790,48 @@ class MovieLibraryApp {
       return await this.db.deleteTag(tagName);
     });
 
+    // Find duplicate videos
+    ipcMain.handle("find-duplicates", async () => {
+      try {
+        return await this.duplicateDetector.findDuplicates(
+          (current, total, message) => {
+            this.mainWindow?.webContents.send("duplicate-search-progress", {
+              current,
+              total,
+              message,
+            });
+          },
+        );
+      } catch (error) {
+        console.error("Failed to find duplicates:", error);
+        throw error;
+      }
+    });
+
+    // Delete videos (duplicate cleanup)
+    ipcMain.handle(
+      "delete-videos",
+      async (_event, videoIds: number[], moveToTrash: boolean = true) => {
+        try {
+          const result = await this.duplicateDetector.deleteVideos(
+            videoIds,
+            moveToTrash,
+            (current, total) => {
+              this.mainWindow?.webContents.send("delete-progress", {
+                current,
+                total,
+              });
+            },
+          );
+          return result;
+        } catch (error) {
+          console.error("Failed to delete videos:", error);
+          throw error;
+        }
+      },
+    );
+
+    // Open video
     // Open video
     ipcMain.handle("open-video", async (_event, videoPath: string) => {
       await shell.openPath(videoPath);

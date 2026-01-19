@@ -55,6 +55,7 @@
     "devDependencies": {
         "@electron/rebuild": "^3.6.0",
         "@types/fluent-ffmpeg": "^2.1.27",
+        "@types/minimatch": "^6.0.0",
         "@types/node": "^24.0.14",
         "@typescript-eslint/eslint-plugin": "^8.38.0",
         "@typescript-eslint/parser": "^8.38.0",
@@ -93,7 +94,7 @@
             "output": "dist"
         },
         "icon": "assets/icon",
-        "npmRebuild": true,
+        "npmRebuild": false,
         "buildDependenciesFromSource": false,
         "nodeGypRebuild": false,
         "compression": "maximum",
@@ -112,8 +113,7 @@
             }
         ],
         "asarUnpack": [
-            "node_modules/@ffmpeg-installer/**/*",
-            "node_modules/ffprobe-static/**/*",
+            "node_modules/**/*",
             "prisma/schema.prisma",
             "prisma/migrations/**/*",
             "dist-ts/generated/prisma/**/*"
@@ -136,6 +136,7 @@
             "node_modules/ffprobe-static/**/*",
             "node_modules/prisma/**/*",
             "node_modules/@prisma/**/*",
+            "node_modules/.prisma/**/*",
             "node_modules/effect/**/*",
             "node_modules/jiti/**/*",
             "!**/static",

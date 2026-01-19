@@ -8,6 +8,9 @@ import type {
   ScanResult,
   ScanProgress,
   ThumbnailProgress,
+  DuplicateGroup,
+  DeleteVideosResult,
+  DeleteProgress,
 } from "./src/types/types";
 
 interface ElectronAPI {
@@ -33,6 +36,7 @@ interface ElectronAPI {
   regenerateMainThumbnail: (videoId: number) => Promise<Video>;
   updateThumbnailSettings: (settings: ThumbnailSettings) => Promise<boolean>;
   cleanupThumbnails: () => Promise<void>;
+  getThumbnailsDir: () => Promise<string>;
 
   // Tag operations
   getTags: () => Promise<Tag[]>;
@@ -44,10 +48,32 @@ interface ElectronAPI {
   // Directory management
   checkDirectoryExists: (dirPath: string) => Promise<boolean>;
 
+  // Duplicate detection
+  findDuplicates: () => Promise<DuplicateGroup[]>;
+  deleteVideos: (
+    videoIds: number[],
+    moveToTrash?: boolean,
+  ) => Promise<DeleteVideosResult>;
+
   // Event listeners
   onScanProgress: (callback: (data: ScanProgress) => void) => void;
+  onDeleteProgress: (callback: (data: DeleteProgress) => void) => void;
   onRescanProgress: (callback: (data: ScanProgress) => void) => void;
   onThumbnailProgress: (callback: (data: ThumbnailProgress) => void) => void;
+  onDuplicateSearchProgress: (
+    callback: (data: {
+      current: number;
+      total: number;
+      message: string;
+    }) => void,
+  ) => void;
+  offDuplicateSearchProgress: (
+    callback: (data: {
+      current: number;
+      total: number;
+      message: string;
+    }) => void,
+  ) => void;
   onVideoAdded: (callback: (filePath: string) => void) => void;
   onVideoRemoved: (callback: (filePath: string) => void) => void;
   onDirectoryRemoved: (callback: (dirPath: string) => void) => void;
@@ -87,6 +113,7 @@ const electronAPI: ElectronAPI = {
   updateThumbnailSettings: (settings: ThumbnailSettings) =>
     ipcRenderer.invoke("update-thumbnail-settings", settings),
   cleanupThumbnails: () => ipcRenderer.invoke("cleanup-thumbnails"),
+  getThumbnailsDir: () => ipcRenderer.invoke("get-thumbnails-dir"),
 
   // Tag operations
   getTags: () => ipcRenderer.invoke("get-tags"),
@@ -102,6 +129,34 @@ const electronAPI: ElectronAPI = {
   checkDirectoryExists: (dirPath: string) =>
     ipcRenderer.invoke("check-directory-exists", dirPath),
 
+  // Duplicate detection
+  findDuplicates: () => ipcRenderer.invoke("find-duplicates"),
+  deleteVideos: (videoIds: number[], moveToTrash: boolean = true) =>
+    ipcRenderer.invoke("delete-videos", videoIds, moveToTrash),
+  onDuplicateSearchProgress: (
+    callback: (data: {
+      current: number;
+      total: number;
+      message: string;
+    }) => void,
+  ) => {
+    ipcRenderer.on("duplicate-search-progress", (_event, data) =>
+      callback(data),
+    );
+  },
+  offDuplicateSearchProgress: (
+    callback: (data: {
+      current: number;
+      total: number;
+      message: string;
+    }) => void,
+  ) => {
+    ipcRenderer.removeListener("duplicate-search-progress", (_event, data) =>
+      callback(data),
+    );
+  },
+
+  // Event listeners
   // Event listeners
   onScanProgress: (callback: (data: ScanProgress) => void) => {
     ipcRenderer.on("scan-progress", (_event, data) => callback(data));
@@ -120,6 +175,9 @@ const electronAPI: ElectronAPI = {
   },
   onDirectoryRemoved: (callback: (dirPath: string) => void) => {
     ipcRenderer.on("directory-removed", (_event, dirPath) => callback(dirPath));
+  },
+  onDeleteProgress: (callback: (data: DeleteProgress) => void) => {
+    ipcRenderer.on("delete-progress", (_event, data) => callback(data));
   },
   onOpenSettings: (callback: () => void) => {
     ipcRenderer.on("open-settings", () => callback());

@@ -23,10 +23,15 @@ export interface DirectoryRecord extends AppDirectory {}
 export interface TagRecord extends AppTag {}
 
 class PrismaDatabaseManager {
-  private prisma: GeneratedPrismaClient;
+  private _prisma: GeneratedPrismaClient;
+
+  // Public getter for prisma client (for advanced operations like duplicate detection)
+  public get prisma(): GeneratedPrismaClient {
+    return this._prisma;
+  }
 
   constructor() {
-    this.prisma = new GeneratedPrismaClient();
+    this._prisma = new GeneratedPrismaClient();
   }
 
   async initialize(): Promise<void> {
@@ -37,11 +42,11 @@ class PrismaDatabaseManager {
       await this.ensureDatabaseExists();
 
       // Prismaを使用してデータベース接続をテスト
-      await this.prisma.$connect();
+      await this._prisma.$connect();
 
       // データベースの基本情報を表示
-      await this.prisma.video.count();
-      await this.prisma.directory.count();
+      await this._prisma.video.count();
+      await this._prisma.directory.count();
     } catch (error) {
       // Error initializing database
       throw error;
@@ -51,7 +56,7 @@ class PrismaDatabaseManager {
   private async ensureDatabaseExists(): Promise<void> {
     try {
       // データベーステーブルの存在をチェック
-      await this.prisma.video.findFirst();
+      await this._prisma.video.findFirst();
     } catch (error) {
       // データベースまたはテーブルが存在しない場合、自動でマイグレーションを実行
       if (error.message.includes("does not exist")) {
@@ -68,11 +73,19 @@ class PrismaDatabaseManager {
 
     try {
       await this.runPrismaMigrateDeploy();
-    } catch (error) {
+    } catch (error: any) {
       console.error("Prisma migrate deploy failed:", error);
 
-      // Windows環境での代替アプローチ：prisma db push を試行
-      if (process.platform === "win32") {
+      // P3005エラー（データベースが空でない）の場合、db pushを試行
+      if (
+        error.message &&
+        (error.message.includes("P3005") ||
+          error.message.includes("database schema is not empty"))
+      ) {
+        console.log("Database not empty, attempting db push to sync schema...");
+        await this.runPrismaDbPush();
+      } else if (process.platform === "win32") {
+        // Windows環境での代替アプローチ：prisma db push を試行
         console.log("Attempting alternative migration approach for Windows...");
         await this.runPrismaDbPush();
       } else {
@@ -226,6 +239,8 @@ class PrismaDatabaseManager {
           if (stderr.trim()) {
             console.error("Migration error output:", stderr);
           }
+
+          // エラーメッセージを含めてreject（呼び出し側でP3005を検出できるように）
           reject(
             new Error(
               `Migration failed with code ${code}${stderr ? `: ${stderr}` : ""}`,
@@ -246,7 +261,7 @@ class PrismaDatabaseManager {
     const createdAtString = videoData.createdAt;
     const modifiedAtString = videoData.modifiedAt;
 
-    const video = await this.prisma.video.upsert({
+    const video = await this._prisma.video.upsert({
       where: { path: videoData.path },
       update: {
         filename: videoData.filename,
@@ -293,7 +308,7 @@ class PrismaDatabaseManager {
   ): Promise<VideoRecord[]> {
     const orderBy = { [sortBy]: sortOrder.toLowerCase() };
 
-    const videos = await this.prisma.video.findMany({
+    const videos = await this._prisma.video.findMany({
       include: {
         videoTags: {
           include: {
@@ -319,7 +334,7 @@ class PrismaDatabaseManager {
   }
 
   async getVideo(id: number): Promise<VideoRecord | null> {
-    const video = await this.prisma.video.findUnique({
+    const video = await this._prisma.video.findUnique({
       where: { id },
       include: {
         videoTags: {
@@ -345,7 +360,7 @@ class PrismaDatabaseManager {
   }
 
   async getVideoByPath(path: string): Promise<VideoRecord | null> {
-    const video = await this.prisma.video.findUnique({
+    const video = await this._prisma.video.findUnique({
       where: { path },
       include: {
         videoTags: {
@@ -395,7 +410,7 @@ class PrismaDatabaseManager {
 
       updateData.updatedAt = new Date();
 
-      await this.prisma.video.update({
+      await this._prisma.video.update({
         where: { id },
         data: updateData,
       });
@@ -409,7 +424,7 @@ class PrismaDatabaseManager {
 
   async removeVideo(path: string): Promise<boolean> {
     try {
-      await this.prisma.video.delete({
+      await this._prisma.video.delete({
         where: { path },
       });
       return true;
@@ -420,7 +435,7 @@ class PrismaDatabaseManager {
   }
 
   async searchVideos(query: string): Promise<VideoRecord[]> {
-    const videos = await this.prisma.video.findMany({
+    const videos = await this._prisma.video.findMany({
       where: {
         OR: [
           { title: { contains: query } },
@@ -463,7 +478,7 @@ class PrismaDatabaseManager {
     try {
       console.log("getVideosWithoutThumbnails: Starting Prisma query");
 
-      const videos = await this.prisma.video.findMany({
+      const videos = await this._prisma.video.findMany({
         where: {
           OR: [{ thumbnailPath: null }, { thumbnailPath: "" }],
         },
@@ -509,7 +524,7 @@ class PrismaDatabaseManager {
   // Directory management
   async addDirectory(directoryPath: string): Promise<number> {
     const name = path.basename(directoryPath);
-    const directory = await this.prisma.directory.upsert({
+    const directory = await this._prisma.directory.upsert({
       where: { path: directoryPath },
       update: {},
       create: {
@@ -522,7 +537,7 @@ class PrismaDatabaseManager {
 
   async removeDirectory(directoryPath: string): Promise<boolean> {
     try {
-      await this.prisma.directory.delete({
+      await this._prisma.directory.delete({
         where: { path: directoryPath },
       });
       return true;
@@ -533,20 +548,20 @@ class PrismaDatabaseManager {
   }
 
   async getDirectories(): Promise<DirectoryRecord[]> {
-    return await this.prisma.directory.findMany({
+    return await this._prisma.directory.findMany({
       orderBy: { name: "asc" },
     });
   }
 
   // Tag management
   async getTags(): Promise<TagRecord[]> {
-    return await this.prisma.tag.findMany({
+    return await this._prisma.tag.findMany({
       orderBy: { name: "asc" },
     });
   }
 
   async addTag(name: string, color: string = "#007AFF"): Promise<number> {
-    const tag = await this.prisma.tag.upsert({
+    const tag = await this._prisma.tag.upsert({
       where: { name },
       update: {},
       create: {
@@ -560,7 +575,7 @@ class PrismaDatabaseManager {
   async addTagToVideo(videoId: number, tagName: string): Promise<boolean> {
     try {
       // First ensure the tag exists
-      const tag = await this.prisma.tag.upsert({
+      const tag = await this._prisma.tag.upsert({
         where: { name: tagName },
         update: {},
         create: {
@@ -570,7 +585,7 @@ class PrismaDatabaseManager {
       });
 
       // Then create the video-tag relationship
-      await this.prisma.videoTag.upsert({
+      await this._prisma.videoTag.upsert({
         where: {
           videoId_tagId: {
             videoId,
@@ -593,13 +608,13 @@ class PrismaDatabaseManager {
 
   async removeTagFromVideo(videoId: number, tagName: string): Promise<boolean> {
     try {
-      const tag = await this.prisma.tag.findUnique({
+      const tag = await this._prisma.tag.findUnique({
         where: { name: tagName },
       });
 
       if (!tag) return false;
 
-      await this.prisma.videoTag.delete({
+      await this._prisma.videoTag.delete({
         where: {
           videoId_tagId: {
             videoId,
@@ -617,7 +632,7 @@ class PrismaDatabaseManager {
 
   async deleteTag(tagName: string): Promise<boolean> {
     try {
-      await this.prisma.tag.delete({
+      await this._prisma.tag.delete({
         where: { name: tagName },
       });
       return true;
@@ -629,7 +644,7 @@ class PrismaDatabaseManager {
 
   async updateTag(oldName: string, newName: string): Promise<boolean> {
     try {
-      await this.prisma.tag.update({
+      await this._prisma.tag.update({
         where: { name: oldName },
         data: { name: newName },
       });
@@ -645,7 +660,7 @@ class PrismaDatabaseManager {
     const checkTime = new Date(lastCheckTime);
 
     try {
-      const count = await this.prisma.video.count({
+      const count = await this._prisma.video.count({
         where: {
           OR: [
             { updatedAt: { gt: checkTime } },
@@ -668,7 +683,7 @@ class PrismaDatabaseManager {
   }
 
   async close(): Promise<void> {
-    await this.prisma.$disconnect();
+    await this._prisma.$disconnect();
   }
 }
 

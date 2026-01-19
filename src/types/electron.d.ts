@@ -4,10 +4,9 @@ import type {
   Tag,
   ThumbnailSettings,
   ScanResult,
-  ScanProgress,
-  ThumbnailProgress,
-  ProgressManager,
-  ThemeManager,
+  DuplicateGroup,
+  DeleteVideosResult,
+  DeleteProgress,
 } from "./types";
 
 // Electron API専用の型拡張（IDが文字列の場合など）
@@ -56,11 +55,26 @@ declare global {
       regenerateAllThumbnails(): Promise<void>;
       regenerateMainThumbnail(videoId: string): Promise<ElectronVideo>;
       cleanupThumbnails(): Promise<void>;
+      getThumbnailsDir(): Promise<string>;
 
       // Progress callbacks
       onScanProgress(callback: (data: ScanProgress) => void): void;
       onThumbnailProgress(callback: (data: ThumbnailProgress) => void): void;
       onRescanProgress(callback: (data: ScanProgress) => void): void;
+      onDuplicateSearchProgress(
+        callback: (data: {
+          current: number;
+          total: number;
+          message: string;
+        }) => void,
+      ): void;
+      offDuplicateSearchProgress(
+        callback: (data: {
+          current: number;
+          total: number;
+          message: string;
+        }) => void,
+      ): void;
 
       // Event listeners
       onVideoAdded(callback: (filePath: string) => void): void;
@@ -68,9 +82,17 @@ declare global {
       onDirectoryRemoved(callback: (dirPath: string) => void): void;
       onOpenSettings(callback: () => void): void;
       onOpenAddDirectory(callback: () => void): void;
+      onDeleteProgress(callback: (data: DeleteProgress) => void): void;
 
       // Utility methods
       checkDirectoryExists(dirPath: string): Promise<boolean>;
+
+      // Duplicate detection
+      findDuplicates(): Promise<DuplicateGroup[]>;
+      deleteVideos(
+        videoIds: number[],
+        moveToTrash?: boolean,
+      ): Promise<DeleteVideosResult>;
 
       // Theme management
       theme: ThemeManager;
@@ -97,64 +119,6 @@ export interface ThumbnailProgress {
   file?: string;
   message?: string;
   error?: string;
-}
-
-export interface ElectronAPI {
-  // Video operations
-  getVideos(): Promise<Video[]>;
-  getVideo(id: string): Promise<Video>;
-  updateVideo(id: string, data: Partial<Video>): Promise<Video>;
-  searchVideos(query: string): Promise<Video[]>;
-  hasVideoUpdates(lastCheckTime: number): Promise<boolean>;
-  openVideo(filePath: string): Promise<void>;
-  loadVideos(forceReload?: boolean): Promise<Video[]>;
-  playVideo(path: string): Promise<void>;
-
-  // Directory operations
-  getDirectories(): Promise<Directory[]>;
-  addDirectory(directoryPath?: string): Promise<Directory[]>;
-  removeDirectory(directoryPath: string): Promise<void>;
-  chooseDirectory(): Promise<string[]>;
-  scanDirectories(): Promise<ScanResult>;
-  rescanAllVideos(): Promise<ScanResult>;
-
-  // Tag operations
-  getTags(): Promise<Tag[]>;
-  addTagToVideo(videoId: string, tagName: string): Promise<void>;
-  removeTagFromVideo(videoId: string, tagName: string): Promise<void>;
-  deleteTag(tagName: string): Promise<void>;
-  updateTag(oldName: string, newName: string): Promise<void>;
-
-  // Thumbnail operations
-  generateThumbnails(): Promise<void>;
-  updateThumbnailSettings(settings: ThumbnailSettings): Promise<void>;
-  regenerateAllThumbnails(): Promise<void>;
-  regenerateMainThumbnail(videoId: string): Promise<Video>;
-  setMainThumbnail(filePath: string, timestamp: number): Promise<void>;
-  cleanupThumbnails(): Promise<void>;
-
-  // Directory management
-  checkDirectoryExists(dirPath: string): Promise<boolean>;
-
-  // Event listeners
-  onScanProgress(callback: (data: ScanProgress) => void): void;
-  onRescanProgress(callback: (data: ScanProgress) => void): void;
-  onThumbnailProgress(callback: (data: ThumbnailProgress) => void): void;
-  onVideoAdded(callback: (filePath: string) => void): void;
-  onVideoRemoved(callback: (filePath: string) => void): void;
-  onDirectoryRemoved(callback: (dirPath: string) => void): void;
-  onOpenSettings(callback: () => void): void;
-  onOpenAddDirectory(callback: () => void): void;
-}
-
-declare global {
-  interface Window {
-    electronAPI: ElectronAPI;
-  }
-}
-
-export interface NotificationManager {
-  show(message: string, type?: "info" | "success" | "warning" | "error"): void;
 }
 
 export interface ProgressManager {

@@ -29,6 +29,8 @@ model Video {
   modifiedAt        String     @map("modified_at")
   addedAt           DateTime   @default(now()) @map("added_at")
   updatedAt         DateTime   @updatedAt @map("updated_at")
+  fileHash          String?    @map("file_hash")
+  partialHash       String?    @map("partial_hash")
   videoTags         VideoTag[]
 
   @@map("videos")

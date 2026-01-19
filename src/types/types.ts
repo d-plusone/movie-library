@@ -302,3 +302,31 @@ export interface VideoMetadata {
     bit_rate?: number | string;
   }>;
 }
+
+// Duplicate detection types
+export interface DuplicateVideo {
+  id: number;
+  path: string;
+  filename: string;
+  size: bigint;
+  width: number;
+  height: number;
+  duration: number;
+  partialHash: string;
+  thumbnailPath?: string | null;
+}
+
+export interface DuplicateGroup {
+  videos: DuplicateVideo[];
+  hash: string;
+}
+
+export interface DeleteVideosResult {
+  success: number;
+  failed: number;
+}
+
+export interface DeleteProgress {
+  current: number;
+  total: number;
+}

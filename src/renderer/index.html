@@ -33,6 +33,10 @@
                             <span class="icon">🏷️</span>
                             <span>タグ一括反映</span>
                         </button>
+                        <button id="findDuplicatesBtn" class="btn btn-secondary">
+                            <span class="icon">🔍</span>
+                            <span>重複を検索</span>
+                        </button>
                     </div>
                 </div>
                 <div class="header-right">
@@ -418,6 +422,7 @@
             </div>
         </div>
         <!-- Bulk Tag Apply Dialog -->
+        <!-- Bulk Tag Apply Dialog -->
         <div id="bulkTagApplyDialog" class="modal" style="display: none;">
             <div class="modal-content bulk-tag-apply-modal">
                 <div class="modal-header">
@@ -444,6 +449,34 @@
                 <div class="modal-actions">
                     <button id="applyBulkTagsBtn" class="btn btn-success bulk-tag-apply-btn">反映</button>
                     <button id="cancelBulkTagApplyBtn" class="btn btn-secondary">キャンセル</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Duplicate Finder Modal -->
+        <div id="duplicateModal" class="modal" style="display: none;">
+            <div class="modal-content duplicate-modal">
+                <div class="modal-header">
+                    <h2>重複動画の検索結果</h2>
+                    <button id="closeDuplicateModal" class="btn btn-icon">×</button>
+                </div>
+                <div class="modal-body">
+                    <div id="duplicateSearchingState" class="duplicate-searching">
+                        <div class="spinner"></div>
+                        <p>重複動画を検索中...</p>
+                    </div>
+                    <div id="duplicateResultsContainer" class="duplicate-results" style="display: none;">
+                        <div class="duplicate-summary">
+                            <p><strong id="duplicateGroupCount">0</strong> グループの重複が見つかりました</p>
+                        </div>
+                        <div id="duplicateGroupsList" class="duplicate-groups-list">
+                            <!-- Duplicate groups will be populated here -->
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-actions">
+                    <button id="deleteDuplicatesBtn" class="btn btn-danger" disabled>選択した動画を削除</button>
+                    <button id="cancelDuplicateBtn" class="btn btn-secondary">キャンセル</button>
                 </div>
             </div>
         </div>
