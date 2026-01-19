@@ -164,7 +164,7 @@ jobs:
           echo "Target: Universal Binary (Intel + Apple Silicon)"
 
           # ユニバーサルバイナリビルド（GitHubに公開）
-          pnpm run build:optimized -- --publish always
+          pnpm run build:optimized:publish
 
           # ビルド結果の確認
           echo "Build results:"

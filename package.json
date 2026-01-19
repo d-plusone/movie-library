@@ -83,6 +83,11 @@
     "build": {
         "appId": "com.yourcompany.movielibrary",
         "productName": "Movie Library",
+        "publish": {
+            "provider": "github",
+            "owner": "d-plusone",
+            "repo": "movie-library"
+        },
         "directories": {
             "output": "dist"
         },
