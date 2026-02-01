@@ -42,7 +42,10 @@ class ThumbnailGenerator {
       if (!this.ffmpegPath) {
         console.error("⚠️  FFmpeg binary not found!");
       } else {
-        console.log("✅ ThumbnailGenerator initialized with FFmpeg:", this.ffmpegPath);
+        console.log(
+          "✅ ThumbnailGenerator initialized with FFmpeg:",
+          this.ffmpegPath,
+        );
       }
     } catch (error) {
       console.error("❌ Failed to initialize ThumbnailGenerator:", error);
@@ -134,9 +137,11 @@ class ThumbnailGenerator {
     if (!this.ffmpegPath) {
       console.log("⏳ FFmpeg not initialized yet, initializing now...");
       await this.initialize();
-      
+
       if (!this.ffmpegPath) {
-        const error = new Error("FFmpeg binary not found after initialization attempt");
+        const error = new Error(
+          "FFmpeg binary not found after initialization attempt",
+        );
         console.error("❌", error);
         throw error;
       }
@@ -158,9 +163,11 @@ class ThumbnailGenerator {
       });
 
       // Build FFmpeg command arguments
+      // Format timestamp to 1 decimal place to ensure 0.1 second precision
+      const formattedTimestamp = timestamp.toFixed(1);
       const args = [
         "-ss",
-        timestamp.toString(),
+        formattedTimestamp,
         "-i",
         videoPath,
         "-vframes",

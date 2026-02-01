@@ -1651,10 +1651,22 @@ body {
     /* アスペクト比を保持 */
 }
 
-.refresh-thumbnail-btn {
+.thumbnail-actions {
     position: absolute;
     top: 8px;
     right: 8px;
+    display: flex;
+    gap: 8px;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.main-thumbnail:hover .thumbnail-actions {
+    opacity: 1;
+}
+
+.refresh-thumbnail-btn,
+.custom-thumbnail-btn {
     width: 32px;
     height: 32px;
     background: rgba(0, 0, 0, 0.6);
@@ -1669,20 +1681,17 @@ body {
     transition: all 0.2s ease;
     backdrop-filter: blur(10px);
     z-index: 10;
-    opacity: 0;
     pointer-events: auto;
 }
 
-.refresh-thumbnail-btn:hover {
+.refresh-thumbnail-btn:hover,
+.custom-thumbnail-btn:hover {
     background: rgba(0, 0, 0, 0.8);
     transform: scale(1.1);
 }
 
-.main-thumbnail:hover .refresh-thumbnail-btn {
-    opacity: 1;
-}
-
-.refresh-thumbnail-btn:active {
+.refresh-thumbnail-btn:active,
+.custom-thumbnail-btn:active {
     transform: scale(0.95);
 }
 
@@ -1691,13 +1700,15 @@ body {
     animation: rotate 1s linear infinite;
 }
 
-/* Dark theme support for refresh button */
-[data-theme="dark"] .refresh-thumbnail-btn {
+/* Dark theme support for thumbnail buttons */
+[data-theme="dark"] .refresh-thumbnail-btn,
+[data-theme="dark"] .custom-thumbnail-btn {
     background: rgba(255, 255, 255, 0.2);
     color: white;
 }
 
-[data-theme="dark"] .refresh-thumbnail-btn:hover {
+[data-theme="dark"] .refresh-thumbnail-btn:hover,
+[data-theme="dark"] .custom-thumbnail-btn:hover {
     background: rgba(255, 255, 255, 0.3);
 }
 
@@ -4768,6 +4779,7 @@ list-view .video-thumbnail .thumbnail-indicator {
         font-size: 8px;
     }
 }
+
 /* Danger button style (for delete actions) */
 .btn-danger {
     background-color: #dc3545 !important;
@@ -4791,6 +4803,226 @@ list-view .video-thumbnail .thumbnail-indicator {
 [data-theme="dark"] .btn-danger {
     background-color: #e74c3c !important;
     border-color: #e74c3c !important;
+}
+
+/* Custom Thumbnail Preview Dialog */
+.custom-thumbnail-modal {
+    max-width: 1100px;
+    width: 90%;
+}
+
+.custom-thumbnail-modal .modal-body {
+    overflow-x: visible;
+    overflow-y: auto;
+}
+
+.custom-thumbnail-container {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.thumbnail-preview-section {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.preview-image-container {
+    position: relative;
+    width: 100%;
+    min-height: 400px;
+    background: #000;
+    border-radius: 8px;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#customThumbnailPreview {
+    max-width: 100%;
+    max-height: 500px;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+    display: block;
+}
+
+.preview-loading {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.8);
+    color: white;
+    gap: 12px;
+    z-index: 10;
+}
+
+.preview-loading .spinner {
+    border: 3px solid rgba(255, 255, 255, 0.3);
+    border-top: 3px solid white;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% {
+        transform: rotate(0deg);
+    }
+
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+.seekbar-container {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.seekbar-time-display {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+}
+
+.thumbnail-seekbar {
+    width: 100%;
+    height: 8px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+    outline: none;
+}
+
+.thumbnail-seekbar::-webkit-slider-track {
+    width: 100%;
+    height: 8px;
+    background: var(--border-color);
+    border-radius: 4px;
+}
+
+.thumbnail-seekbar::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 20px;
+    height: 20px;
+    background: var(--accent-color);
+    border-radius: 50%;
+    cursor: pointer;
+    transition: transform 0.2s ease;
+}
+
+.thumbnail-seekbar::-webkit-slider-thumb:hover {
+    transform: scale(1.2);
+}
+
+.thumbnail-seekbar::-moz-range-track {
+    width: 100%;
+    height: 8px;
+    background: var(--border-color);
+    border-radius: 4px;
+}
+
+.thumbnail-seekbar::-moz-range-thumb {
+    width: 20px;
+    height: 20px;
+    background: var(--accent-color);
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+    transition: transform 0.2s ease;
+}
+
+.thumbnail-seekbar::-moz-range-thumb:hover {
+    transform: scale(1.2);
+}
+
+.seekbar-container {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    width: 85%;
+    margin: 0 auto;
+}
+
+.seekbar-wrapper {
+    position: relative;
+    width: 100%;
+    overflow: visible;
+}
+
+.seekbar-markers {
+    display: flex;
+    justify-content: space-between;
+    padding: 0 10px;
+    font-size: 12px;
+    color: var(--text-tertiary);
+}
+
+.seekbar-tooltip {
+    position: absolute;
+    bottom: 35px;
+    transform: translateX(-50%);
+    background: var(--bg-secondary);
+    border: 2px solid var(--border-color);
+    border-radius: 8px;
+    padding: 8px;
+    box-shadow: 0 4px 12px var(--shadow-medium);
+    pointer-events: none;
+    z-index: 1000;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.seekbar-tooltip.show {
+    opacity: 1;
+}
+
+.seekbar-tooltip img {
+    display: block;
+    width: 160px;
+    height: 90px;
+    object-fit: cover;
+    border-radius: 4px;
+    margin-bottom: 4px;
+}
+
+.seekbar-tooltip-time {
+    text-align: center;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+}
+
+[data-theme="dark"] .preview-image-container {
+    background: #1a1a1a;
+}
+
+[data-theme="dark"] .seekbar-time-display {
+    color: var(--text-primary);
+}
+
+[data-theme="dark"] .seekbar-tooltip {
+    background: var(--bg-secondary);
+    border-color: var(--border-color);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
 }
 
 [data-theme="dark"] .btn-danger:hover:not(:disabled) {

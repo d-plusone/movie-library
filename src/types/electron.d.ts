@@ -56,6 +56,14 @@ declare global {
       regenerateMainThumbnail(videoId: string): Promise<ElectronVideo>;
       cleanupThumbnails(): Promise<void>;
       getThumbnailsDir(): Promise<string>;
+      generatePreviewThumbnail(
+        videoPath: string,
+        timestamp: number,
+      ): Promise<string>;
+      regenerateMainThumbnailWithTimestamp(
+        videoId: string,
+        timestamp: number,
+      ): Promise<ElectronVideo>;
 
       // Progress callbacks
       onScanProgress(callback: (data: ScanProgress) => void): void;

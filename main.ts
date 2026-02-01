@@ -790,6 +790,117 @@ class MovieLibraryApp {
       return await this.db.deleteTag(tagName);
     });
 
+    // Generate preview thumbnail at specific timestamp
+    ipcMain.handle(
+      "generate-preview-thumbnail",
+      async (_event, videoPath: string, timestamp: number) => {
+        try {
+          const path = await import("path");
+          const { app } = await import("electron");
+          const tmpDir = app.getPath("temp");
+          const previewPath = path.join(tmpDir, `preview_${Date.now()}.jpg`);
+
+          await this.thumbnailGenerator.generateSingleThumbnail(
+            videoPath,
+            previewPath,
+            timestamp,
+          );
+
+          return previewPath;
+        } catch (error) {
+          console.error("Error generating preview thumbnail:", error);
+          throw error;
+        }
+      },
+    );
+
+    // Regenerate main thumbnail (without custom timestamp)
+    ipcMain.handle(
+      "regenerate-main-thumbnail",
+      async (_event, videoId: string) => {
+        try {
+          const video = await this.db.getVideo(parseInt(videoId));
+          if (!video) {
+            throw new Error("Video not found");
+          }
+
+          const path = await import("path");
+          const thumbnailsDir = path.join(
+            app.getPath("userData"),
+            "thumbnails",
+          );
+          const mainThumbnailPath = path.join(
+            thumbnailsDir,
+            `${video.id}_main.jpg`,
+          );
+
+          // Use random timestamp (10% to 90% into the video)
+          const randomPercent = 0.1 + Math.random() * 0.8; // 0.1 to 0.9
+          const timestamp = video.duration * randomPercent;
+
+          await this.thumbnailGenerator.generateSingleThumbnail(
+            video.path,
+            mainThumbnailPath,
+            timestamp,
+          );
+
+          await this.db.updateVideo(video.id, {
+            thumbnailPath: mainThumbnailPath,
+          });
+
+          // Return the updated video object
+          const updatedVideo = await this.db.getVideo(parseInt(videoId));
+          return updatedVideo;
+        } catch (error) {
+          console.error("Error regenerating main thumbnail:", error);
+          throw error;
+        }
+      },
+    );
+
+    // Regenerate main thumbnail with custom timestamp
+    ipcMain.handle(
+      "regenerate-main-thumbnail-with-timestamp",
+      async (_event, videoId: string, timestamp: number) => {
+        try {
+          const video = await this.db.getVideo(parseInt(videoId));
+          if (!video) {
+            throw new Error("Video not found");
+          }
+
+          const path = await import("path");
+          const thumbnailsDir = path.join(
+            app.getPath("userData"),
+            "thumbnails",
+          );
+          const mainThumbnailPath = path.join(
+            thumbnailsDir,
+            `${video.id}_main.jpg`,
+          );
+
+          await this.thumbnailGenerator.generateSingleThumbnail(
+            video.path,
+            mainThumbnailPath,
+            timestamp,
+          );
+
+          await this.db.updateVideo(video.id, {
+            thumbnailPath: mainThumbnailPath,
+          });
+
+          // Return the updated video object
+          const updatedVideo = await this.db.getVideo(parseInt(videoId));
+          return updatedVideo;
+        } catch (error) {
+          console.error(
+            "Error regenerating main thumbnail with timestamp:",
+            error,
+          );
+          throw error;
+        }
+      },
+    );
+
     // Find duplicate videos
     ipcMain.handle("find-duplicates", async () => {
       try {
@@ -842,33 +953,6 @@ class MovieLibraryApp {
       "has-video-updates",
       async (_event, lastCheckTime: number) => {
         return await this.db.hasVideoUpdates(lastCheckTime);
-      },
-    );
-
-    // Regenerate main thumbnail
-    ipcMain.handle(
-      "regenerate-main-thumbnail",
-      async (_event, videoId: string) => {
-        try {
-          console.log(
-            "IPC: regenerate-main-thumbnail called for video:",
-            videoId,
-          );
-          const video = await this.db.getVideo(parseInt(videoId));
-          if (!video || video.duration === undefined) {
-            const error = "Video not found or invalid duration";
-            console.error("IPC: regenerate-main-thumbnail error:", error);
-            throw new Error(error);
-          }
-          console.log("IPC: Starting thumbnail regeneration for:", video.path);
-          const result =
-            await this.thumbnailGenerator.regenerateMainThumbnail(video);
-          console.log("IPC: Thumbnail regeneration completed successfully");
-          return result;
-        } catch (error) {
-          console.error("IPC: regenerate-main-thumbnail caught error:", error);
-          throw error;
-        }
       },
     );
   }

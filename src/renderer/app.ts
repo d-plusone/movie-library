@@ -1463,6 +1463,456 @@ class MovieLibraryApp {
     }
   }
 
+  // カスタムサムネイルダイアログを開く
+  private async openCustomThumbnailDialog(video: Video): Promise<void> {
+    const dialog = document.getElementById("customThumbnailDialog");
+    const seekbar = document.getElementById(
+      "thumbnailSeekbar",
+    ) as HTMLInputElement;
+    const preview = document.getElementById(
+      "customThumbnailPreview",
+    ) as HTMLImageElement;
+    const currentTimeDisplay = document.getElementById("currentTimeDisplay");
+    const totalTimeDisplay = document.getElementById("totalTimeDisplay");
+
+    if (!dialog || !seekbar || !preview) {
+      console.error("Custom thumbnail dialog elements not found");
+      return;
+    }
+
+    // ダイアログを表示
+    dialog.style.display = "flex";
+
+    // シークバーの最大値を動画の長さに設定
+    seekbar.max = video.duration.toString();
+    seekbar.value = (video.duration * 0.05).toString(); // 初期値は5%の位置
+
+    // シークバーにフォーカスを設定（キーボード操作を有効にするため）
+    setTimeout(() => {
+      seekbar.focus();
+    }, 100);
+
+    // 時間表示を更新
+    if (totalTimeDisplay) {
+      totalTimeDisplay.textContent = this.formatDuration(video.duration);
+    }
+
+    // 初期プレビューを生成
+    // メインプレビューとツールチップで共有するキャッシュ
+    const previewCache = new Map<number, string>();
+
+    // 画像をクリア（前の動画のサムネイルが表示されないように）
+    preview.src = "";
+    // エラー時には非表示にしてリンク切れアイコンを防ぐ
+    preview.onerror = () => {
+      preview.style.display = "none";
+    };
+
+    await this.updateThumbnailPreview(
+      video,
+      parseFloat(seekbar.value),
+      preview,
+      currentTimeDisplay,
+      previewCache,
+    );
+
+    // ツールチップ要素を取得
+    const tooltip = document.getElementById("seekbarTooltip");
+    const tooltipImage = document.getElementById(
+      "seekbarTooltipImage",
+    ) as HTMLImageElement;
+    const tooltipTime = document.getElementById("seekbarTooltipTime");
+
+    // ツールチップ画像もクリア＆初期状態で非表示
+    if (tooltipImage) {
+      tooltipImage.src = "";
+      tooltipImage.style.display = "none";
+      // エラー時には必ず非表示にする
+      tooltipImage.onerror = () => {
+        tooltipImage.style.display = "none";
+      };
+    }
+
+    let tooltipUpdateTimeout: NodeJS.Timeout | null = null;
+
+    // ツールチップの位置を更新
+    const updateTooltipPosition = (event: MouseEvent) => {
+      if (!tooltip || !seekbar) return;
+
+      const rect = seekbar.getBoundingClientRect();
+      const percent = (event.clientX - rect.left) / rect.width;
+      const clampedPercent = Math.max(0, Math.min(1, percent));
+      const position = clampedPercent * rect.width;
+
+      tooltip.style.left = `${position}px`;
+    };
+
+    // ツールチップのプレビューを更新
+    const updateTooltipPreview = async (timestamp: number) => {
+      if (!tooltipImage || !tooltipTime) return;
+
+      const tooltipLoading = document.getElementById("seekbarTooltipLoading");
+
+      // 時間を表示
+      tooltipTime.textContent = this.formatDuration(timestamp);
+
+      // キャッシュから取得または生成（0.1秒単位で丸める）
+      const cacheKey = Math.round(timestamp * 10) / 10;
+      if (previewCache.has(cacheKey)) {
+        tooltipImage.style.display = "block";
+        tooltipImage.src = previewCache.get(cacheKey)!;
+        if (tooltipLoading) tooltipLoading.style.display = "none";
+      } else {
+        // ローディング表示中は画像を非表示
+        tooltipImage.style.display = "none";
+        if (tooltipLoading) tooltipLoading.style.display = "flex";
+        try {
+          const previewPath = await window.electronAPI.generatePreviewThumbnail(
+            video.path,
+            timestamp,
+          );
+          const imageSrc = `file://${previewPath}?t=${Date.now()}`;
+          previewCache.set(cacheKey, imageSrc);
+          tooltipImage.src = imageSrc;
+          tooltipImage.style.display = "block";
+        } catch (error) {
+          console.error("Error generating tooltip preview:", error);
+        } finally {
+          if (tooltipLoading) tooltipLoading.style.display = "none";
+        }
+      }
+    };
+
+    // シークバーのマウスイベント
+    const handleSeekbarMouseMove = async (event: MouseEvent) => {
+      if (!tooltip || !seekbar) return;
+
+      const rect = seekbar.getBoundingClientRect();
+      const percent = (event.clientX - rect.left) / rect.width;
+      const clampedPercent = Math.max(0, Math.min(1, percent));
+      // シークバーの範囲（0からmax）に基づいて計算
+      const rawTimestamp = clampedPercent * parseFloat(seekbar.max);
+
+      // シークバーのstep値に合わせて丸める（step="0.1"の場合、0.1秒単位）
+      const step = parseFloat(seekbar.step) || 1;
+      const timestamp = Math.round(rawTimestamp / step) * step;
+
+      console.log(
+        "Tooltip - raw:",
+        rawTimestamp,
+        "rounded:",
+        timestamp,
+        "step:",
+        step,
+      );
+
+      updateTooltipPosition(event);
+      tooltip.style.display = "block";
+      tooltip.classList.add("show");
+
+      // プレビューは少し遅延させて更新
+      if (tooltipUpdateTimeout) {
+        clearTimeout(tooltipUpdateTimeout);
+      }
+      tooltipUpdateTimeout = setTimeout(async () => {
+        await updateTooltipPreview(timestamp);
+      }, 150);
+    };
+
+    // シークバーをクリックした時に正確な値を設定
+    const handleSeekbarClick = (event: MouseEvent) => {
+      if (!seekbar) return;
+
+      const rect = seekbar.getBoundingClientRect();
+      const percent = (event.clientX - rect.left) / rect.width;
+      const clampedPercent = Math.max(0, Math.min(1, percent));
+      const rawTimestamp = clampedPercent * parseFloat(seekbar.max);
+      const step = parseFloat(seekbar.step) || 1;
+      const timestamp = Math.round(rawTimestamp / step) * step;
+
+      console.log("Click - setting seekbar to:", timestamp);
+      seekbar.value = timestamp.toString();
+
+      // inputイベントを手動でトリガー
+      seekbar.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+
+    const handleSeekbarMouseLeave = () => {
+      if (tooltip) {
+        tooltip.classList.remove("show");
+        setTimeout(() => {
+          if (tooltip && !tooltip.classList.contains("show")) {
+            tooltip.style.display = "none";
+          }
+        }, 200);
+      }
+      if (tooltipUpdateTimeout) {
+        clearTimeout(tooltipUpdateTimeout);
+      }
+    };
+
+    seekbar.addEventListener("mousemove", handleSeekbarMouseMove);
+    seekbar.addEventListener("click", handleSeekbarClick);
+    seekbar.addEventListener("mouseleave", handleSeekbarMouseLeave);
+
+    // シークバー変更時のイベントハンドラー
+    let updateTimeout: NodeJS.Timeout | null = null;
+    let isKeyboardSeek = false;
+
+    // キーボード操作を検出
+    const handleSeekbarKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        isKeyboardSeek = true;
+        e.stopPropagation();
+      }
+    };
+
+    const handleSeekbarKeyUp = (e: KeyboardEvent) => {
+      if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        isKeyboardSeek = false;
+        e.stopPropagation();
+      }
+    };
+
+    const handleSeekbarChange = async () => {
+      if (updateTimeout) {
+        clearTimeout(updateTimeout);
+      }
+
+      console.log("Seekbar value changed to:", seekbar.value);
+
+      // 時間表示を即座に更新
+      if (currentTimeDisplay) {
+        currentTimeDisplay.textContent = this.formatDuration(
+          parseFloat(seekbar.value),
+        );
+      }
+
+      // キーボード操作の場合は即座に更新、マウス操作の場合は遅延
+      const delay = isKeyboardSeek ? 0 : 300;
+
+      updateTimeout = setTimeout(async () => {
+        await this.updateThumbnailPreview(
+          video,
+          parseFloat(seekbar.value),
+          preview,
+          currentTimeDisplay,
+          previewCache,
+        );
+      }, delay);
+    };
+
+    seekbar.addEventListener("keydown", handleSeekbarKeyDown);
+    seekbar.addEventListener("keyup", handleSeekbarKeyUp);
+    seekbar.addEventListener("input", handleSeekbarChange);
+
+    // ダイアログ全体で方向キーをキャプチャしてシークバーに転送
+    const handleDialogKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        e.preventDefault();
+        e.stopPropagation();
+
+        // キーボード操作フラグを設定
+        isKeyboardSeek = true;
+
+        // シークバーの値を変更（シークバーのstep値を使用）
+        const step = parseFloat(seekbar.step) || 1;
+        const currentValue = parseFloat(seekbar.value);
+        const maxValue = parseFloat(seekbar.max);
+
+        let newValue: number;
+        if (e.key === "ArrowLeft") {
+          newValue = Math.max(0, currentValue - step);
+        } else {
+          newValue = Math.min(maxValue, currentValue + step);
+        }
+
+        seekbar.value = newValue.toString();
+
+        // inputイベントを手動でトリガー
+        seekbar.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+    };
+
+    const handleDialogKeyUp = (e: KeyboardEvent) => {
+      if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        isKeyboardSeek = false;
+      }
+    };
+
+    dialog.addEventListener("keydown", handleDialogKeyDown);
+    dialog.addEventListener("keyup", handleDialogKeyUp);
+
+    // 確定ボタン
+    const applyBtn = document.getElementById("applyCustomThumbnailBtn");
+    if (applyBtn) {
+      applyBtn.onclick = async () => {
+        await this.applyCustomThumbnail(video, parseFloat(seekbar.value));
+        dialog.style.display = "none";
+        dialog.removeEventListener("keydown", handleDialogKeyDown);
+        dialog.removeEventListener("keyup", handleDialogKeyUp);
+        seekbar.removeEventListener("input", handleSeekbarChange);
+        seekbar.removeEventListener("keydown", handleSeekbarKeyDown);
+        seekbar.removeEventListener("keyup", handleSeekbarKeyUp);
+        seekbar.removeEventListener("mousemove", handleSeekbarMouseMove);
+        seekbar.removeEventListener("click", handleSeekbarClick);
+        seekbar.removeEventListener("mouseleave", handleSeekbarMouseLeave);
+        if (tooltipUpdateTimeout) {
+          clearTimeout(tooltipUpdateTimeout);
+        }
+        previewCache.clear();
+      };
+    }
+
+    // キャンセルボタン
+    const cancelBtn = document.getElementById("cancelCustomThumbnailBtn");
+    const closeBtn = document.getElementById("closeCustomThumbnailDialog");
+    const closeHandler = () => {
+      dialog.style.display = "none";
+      dialog.removeEventListener("keydown", handleDialogKeyDown);
+      dialog.removeEventListener("keyup", handleDialogKeyUp);
+      seekbar.removeEventListener("input", handleSeekbarChange);
+      seekbar.removeEventListener("keydown", handleSeekbarKeyDown);
+      seekbar.removeEventListener("keyup", handleSeekbarKeyUp);
+      seekbar.removeEventListener("mousemove", handleSeekbarMouseMove);
+      seekbar.removeEventListener("click", handleSeekbarClick);
+      seekbar.removeEventListener("mouseleave", handleSeekbarMouseLeave);
+      if (updateTimeout) {
+        clearTimeout(updateTimeout);
+      }
+      if (tooltipUpdateTimeout) {
+        clearTimeout(tooltipUpdateTimeout);
+      }
+      previewCache.clear();
+    };
+
+    if (cancelBtn) {
+      cancelBtn.onclick = closeHandler;
+    }
+    if (closeBtn) {
+      closeBtn.onclick = closeHandler;
+    }
+  }
+
+  // サムネイルプレビューを更新
+  private async updateThumbnailPreview(
+    video: Video,
+    timestamp: number,
+    preview: HTMLImageElement,
+    currentTimeDisplay: HTMLElement | null,
+    previewCache?: Map<number, string>,
+  ): Promise<void> {
+    try {
+      // 時間表示を更新
+      if (currentTimeDisplay) {
+        currentTimeDisplay.textContent = this.formatDuration(timestamp);
+      }
+
+      // キャッシュキー（0.1秒単位で丸める）
+      const cacheKey = Math.round(timestamp * 10) / 10;
+
+      // キャッシュから取得できる場合
+      if (previewCache && previewCache.has(cacheKey)) {
+        preview.style.display = "block";
+        preview.src = previewCache.get(cacheKey)!;
+        return;
+      }
+
+      // プレビューサムネイルを生成
+      const previewPath = await window.electronAPI.generatePreviewThumbnail(
+        video.path,
+        timestamp,
+      );
+
+      const imageSrc = `file://${previewPath}?t=${Date.now()}`;
+
+      // プレビュー画像を表示
+      preview.src = imageSrc;
+      preview.style.display = "block";
+
+      // キャッシュに保存
+      if (previewCache) {
+        previewCache.set(cacheKey, imageSrc);
+      }
+    } catch (error) {
+      console.error("Error updating thumbnail preview:", error);
+      this.notificationManager.show("プレビューの生成に失敗しました", "error");
+    }
+  }
+
+  // カスタムサムネイルを適用
+  private async applyCustomThumbnail(
+    video: Video,
+    timestamp: number,
+  ): Promise<void> {
+    try {
+      this.progressManager.startProgress(1, "カスタムサムネイルを生成中...");
+
+      // メインサムネイルを指定タイムスタンプで再生成
+      const electronVideo =
+        await window.electronAPI.regenerateMainThumbnailWithTimestamp(
+          video.id.toString(),
+          timestamp,
+        );
+
+      this.progressManager.processItem(video.filename);
+
+      console.log("Custom thumbnail applied:", electronVideo);
+
+      // ElectronVideo から thumbnailPath を取得
+      const thumbnailPath = electronVideo.thumbnailPath;
+
+      // UIを更新
+      const detailsMainThumbnail = document.getElementById(
+        "detailsMainThumbnail",
+      ) as HTMLImageElement;
+      if (detailsMainThumbnail && thumbnailPath) {
+        detailsMainThumbnail.src = `file://${thumbnailPath}?t=${Date.now()}`;
+      }
+
+      // ローカルデータを更新
+      if (this.currentVideo && this.currentVideo.id === video.id) {
+        this.currentVideo.thumbnailPath = thumbnailPath;
+      }
+
+      // リスト内のデータも更新
+      const videoInList = this.filteredVideos.find((v) => v.id === video.id);
+      if (videoInList) {
+        videoInList.thumbnailPath = thumbnailPath;
+      }
+
+      // ビデオリストを再描画
+      await this.renderVideoList();
+
+      this.notificationManager.show(
+        "カスタムサムネイルを設定しました",
+        "success",
+      );
+
+      this.progressManager.completeProgress();
+    } catch (error) {
+      console.error("Error applying custom thumbnail:", error);
+      this.notificationManager.show(
+        "カスタムサムネイルの設定に失敗しました",
+        "error",
+      );
+      this.progressManager.hide();
+    }
+  }
+
+  // 時間をフォーマット（HH:MM:SS形式）
+  private formatDuration(seconds: number): string {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+
+    if (hours > 0) {
+      return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+    } else {
+      return `${minutes.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+    }
+  }
+
   private async cleanupThumbnails(): Promise<void> {
     console.log("cleanupThumbnails called");
 
@@ -2020,6 +2470,15 @@ class MovieLibraryApp {
       };
     }
 
+    const customThumbnailBtn = document.getElementById("customThumbnailBtn");
+    if (customThumbnailBtn) {
+      customThumbnailBtn.onclick = () => {
+        if (this.currentVideo) {
+          this.openCustomThumbnailDialog(this.currentVideo);
+        }
+      };
+    }
+
     // レーティング星のクリックイベント
     ratingStars.forEach((star, index) => {
       const starElement = star as HTMLElement;
@@ -2434,18 +2893,20 @@ class MovieLibraryApp {
     const tagEditDialog = document.getElementById("tagEditDialog");
     const bulkTagApplyDialog = document.getElementById("bulkTagApplyDialog");
     const errorDialog = document.getElementById("errorDialog");
+    const customThumbnailDialog = document.getElementById(
+      "customThumbnailDialog",
+    );
 
     if (
       (chapterModal && chapterModal.hasAttribute("is-open")) ||
       (settingsModal && settingsModal.hasAttribute("is-open")) ||
       (tagEditDialog && tagEditDialog.hasAttribute("is-open")) ||
       (bulkTagApplyDialog && bulkTagApplyDialog.hasAttribute("is-open")) ||
-      (errorDialog && errorDialog.hasAttribute("is-open"))
+      (errorDialog && errorDialog.hasAttribute("is-open")) ||
+      (customThumbnailDialog && customThumbnailDialog.style.display === "flex")
     ) {
       // 何らかのモーダル/ダイアログが開いている場合は何もしない
       // 各モーダル/ダイアログ側のキーボードハンドラーが処理する
-      e.preventDefault();
-      e.stopPropagation();
       return;
     }
 
@@ -3161,7 +3622,7 @@ class MovieLibraryApp {
 
     // Add checkbox event listeners
     const checkboxes = groupEl.querySelectorAll('input[type="checkbox"]');
-    
+
     // 初期表示時にチェックされているアイテムにselectedクラスを追加
     checkboxes.forEach((checkbox) => {
       const item = checkbox.closest(".duplicate-video-item");
@@ -3169,17 +3630,17 @@ class MovieLibraryApp {
         item.classList.add("selected");
       }
     });
-    
+
     checkboxes.forEach((checkbox) => {
       checkbox.addEventListener("change", () => {
         const item = checkbox.closest(".duplicate-video-item");
         const isChecked = (checkbox as HTMLInputElement).checked;
-        
+
         // 全てチェックされようとしている場合、最初にチェックされたものを自動的に外す
         if (isChecked) {
           const allCheckboxes = Array.from(checkboxes) as HTMLInputElement[];
           const checkedCount = allCheckboxes.filter((cb) => cb.checked).length;
-          
+
           if (checkedCount === allCheckboxes.length) {
             // 最初にチェックされている別のチェックボックスを外す
             const firstChecked = allCheckboxes.find(
@@ -3194,7 +3655,7 @@ class MovieLibraryApp {
             }
           }
         }
-        
+
         if (item) {
           item.classList.toggle("selected", isChecked);
         }
@@ -3220,14 +3681,16 @@ class MovieLibraryApp {
         ) as HTMLInputElement;
         if (checkbox) {
           const willBeChecked = !checkbox.checked;
-          
+
           // 全てチェックされようとしている場合、最初にチェックされたものを自動的に外す
           if (willBeChecked) {
             const allCheckboxes = Array.from(
               groupEl.querySelectorAll('input[type="checkbox"]'),
             ) as HTMLInputElement[];
-            const checkedCount = allCheckboxes.filter((cb) => cb.checked).length;
-            
+            const checkedCount = allCheckboxes.filter(
+              (cb) => cb.checked,
+            ).length;
+
             if (checkedCount === allCheckboxes.length - 1) {
               // 最初にチェックされている別のチェックボックスを外す
               const firstChecked = allCheckboxes.find(
@@ -3242,7 +3705,7 @@ class MovieLibraryApp {
               }
             }
           }
-          
+
           checkbox.checked = willBeChecked;
           item.classList.toggle("selected", willBeChecked);
           this.updateDeleteButtonState();
