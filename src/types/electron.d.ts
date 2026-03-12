@@ -51,6 +51,10 @@ declare global {
 
       // Thumbnail operations
       generateThumbnails(): Promise<void>;
+      generateIncompleteThumbnails(): Promise<{
+        total: number;
+        generated: number;
+      }>;
       updateThumbnailSettings(settings: ThumbnailSettings): Promise<void>;
       regenerateAllThumbnails(): Promise<void>;
       regenerateMainThumbnail(videoId: string): Promise<ElectronVideo>;

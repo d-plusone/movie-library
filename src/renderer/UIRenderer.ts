@@ -18,6 +18,7 @@ import {
 export class UIRenderer {
   private currentView: ViewType = "grid";
   private selectedVideoIndex: number = -1;
+  private tagFilterKeyword: string = ""; // タグフィルター用のキーワード
 
   // ビューを設定
   setView(view: ViewType): ViewType {
@@ -52,6 +53,21 @@ export class UIRenderer {
   // 選択されたビデオのインデックスを設定
   setSelectedVideoIndex(index: number): void {
     this.selectedVideoIndex = index;
+  }
+
+  // タグフィルターキーワードを設定
+  setTagFilterKeyword(keyword: string): void {
+    this.tagFilterKeyword = keyword;
+  }
+
+  // タグフィルターキーワードを取得
+  getTagFilterKeyword(): string {
+    return this.tagFilterKeyword;
+  }
+
+  // タグフィルターキーワードをクリア
+  clearTagFilterKeyword(): void {
+    this.tagFilterKeyword = "";
   }
 
   // 選択されたビデオをハイライト
@@ -522,7 +538,22 @@ export class UIRenderer {
 
     tagsList.innerHTML = "";
 
-    tags.forEach((tag) => {
+    // フィルター適用
+    const filteredTags = this.tagFilterKeyword
+      ? tags.filter((tag) =>
+          tag.name.toLowerCase().includes(this.tagFilterKeyword.toLowerCase()),
+        )
+      : tags;
+
+    if (filteredTags.length === 0 && this.tagFilterKeyword) {
+      const noResultMsg = document.createElement("div");
+      noResultMsg.className = "no-results-message";
+      noResultMsg.textContent = "一致するタグがありません";
+      tagsList.appendChild(noResultMsg);
+      return;
+    }
+
+    filteredTags.forEach((tag) => {
       const tagElement = document.createElement("div");
       tagElement.className = "tag-item";
 
@@ -749,6 +780,7 @@ export class UIRenderer {
 
       const chapterDiv = document.createElement("div");
       chapterDiv.className = "chapter-thumbnail";
+      chapterDiv.dataset.timestamp = chapter.timestamp.toString();
 
       const img = document.createElement("img");
       img.src = `file://${chapterPath}?t=${Date.now()}`;

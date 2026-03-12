@@ -869,6 +869,64 @@ body {
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
+/* Tag filter container */
+.tag-filter-container {
+    position: relative;
+    margin-bottom: 12px;
+}
+
+.tag-filter-input {
+    width: 100%;
+    padding: 8px 32px 8px 12px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 13px;
+    transition: all 0.2s ease;
+}
+
+.tag-filter-input:focus {
+    outline: none;
+    border-color: var(--accent-color);
+    background: var(--bg-secondary);
+}
+
+.tag-filter-input::placeholder {
+    color: var(--text-tertiary);
+}
+
+.tag-filter-clear-btn {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    font-size: 16px;
+    padding: 4px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.6;
+    transition: all 0.2s ease;
+}
+
+.tag-filter-clear-btn:hover {
+    opacity: 1;
+    background: var(--bg-hover);
+}
+
+.no-results-message {
+    padding: 12px;
+    text-align: center;
+    color: var(--text-tertiary);
+    font-size: 13px;
+}
+
 /* Tag controls */
 .tag-controls {
     display: flex;

@@ -409,6 +409,9 @@ class MovieLibraryApp {
       this.updateSortUI();
 
       console.log("Initial data load completed successfully");
+
+      // 不完全なサムネイルをバックグラウンドで補完生成
+      this.checkAndGenerateIncompleteThumbnails();
     } catch (error) {
       console.error("Error loading initial data:", error);
       this.notificationManager.show("データの読み込みに失敗しました", "error");
@@ -433,6 +436,26 @@ class MovieLibraryApp {
       this.filterManager.getSelectedDirectories(),
     );
     this.uiRenderer.updateStats(this.videoManager.getStats());
+  }
+
+  private checkAndGenerateIncompleteThumbnails(): void {
+    this.videoManager
+      .generateIncompleteThumbnails()
+      .then((result) => {
+        if (result.total > 0) {
+          console.log(
+            `Incomplete thumbnail generation: ${result.generated}/${result.total} processed`,
+          );
+          // サムネイル補完後に動画リストを再読み込みして表示を更新
+          this.videoManager.loadVideos(true).then(() => {
+            this.filteredVideos = [...this.videoManager.getVideos()];
+            this.applyFiltersAndSort();
+          });
+        }
+      })
+      .catch((error) => {
+        console.error("Error during incomplete thumbnail generation:", error);
+      });
   }
 
   private async applyFiltersAndSort(): Promise<void> {
@@ -666,6 +689,17 @@ class MovieLibraryApp {
       "searchClearBtn",
       "click",
       this.handleSearchClear.bind(this),
+    );
+    // Tag filter
+    this.safeAddEventListener(
+      "tagFilterInput",
+      "input",
+      this.handleTagFilterInput.bind(this),
+    );
+    this.safeAddEventListener(
+      "tagFilterClearBtn",
+      "click",
+      this.handleTagFilterClear.bind(this),
     );
     // View controls
     this.safeAddEventListener("gridViewBtn", "click", () =>
@@ -2375,6 +2409,24 @@ class MovieLibraryApp {
       searchInput.value = "";
       this.filterManager.updateSearch("");
       this.applyFiltersAndSort();
+    }
+  }
+
+  private handleTagFilterInput(e: Event): void {
+    const target = e.target as HTMLInputElement;
+    this.uiRenderer.setTagFilterKeyword(target.value);
+    // タグリストを再描画
+    this.renderSidebar();
+  }
+
+  private handleTagFilterClear(): void {
+    const tagFilterInput = document.getElementById(
+      "tagFilterInput",
+    ) as HTMLInputElement;
+    if (tagFilterInput) {
+      tagFilterInput.value = "";
+      this.uiRenderer.clearTagFilterKeyword();
+      this.renderSidebar();
     }
   }
 

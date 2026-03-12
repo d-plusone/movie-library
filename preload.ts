@@ -32,6 +32,10 @@ interface ElectronAPI {
 
   // Thumbnail operations
   generateThumbnails: () => Promise<void>;
+  generateIncompleteThumbnails: () => Promise<{
+    total: number;
+    generated: number;
+  }>;
   regenerateAllThumbnails: () => Promise<void>;
   regenerateMainThumbnail: (videoId: number) => Promise<Video>;
   updateThumbnailSettings: (settings: ThumbnailSettings) => Promise<boolean>;
@@ -114,6 +118,8 @@ const electronAPI: ElectronAPI = {
 
   // Thumbnail operations
   generateThumbnails: () => ipcRenderer.invoke("generate-thumbnails"),
+  generateIncompleteThumbnails: () =>
+    ipcRenderer.invoke("generate-incomplete-thumbnails"),
   regenerateAllThumbnails: () =>
     ipcRenderer.invoke("regenerate-all-thumbnails"),
   regenerateMainThumbnail: (videoId: number) =>

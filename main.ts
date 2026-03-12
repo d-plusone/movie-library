@@ -733,6 +733,108 @@ class MovieLibraryApp {
       return results;
     });
 
+    // Generate thumbnails for videos with incomplete thumbnails (startup check)
+    ipcMain.handle("generate-incomplete-thumbnails", async () => {
+      const allVideos = await this.db.getVideos();
+      const incompleteVideos: typeof allVideos = [];
+
+      // ファイルの存在確認：メインサムネイル + チャプターサムネイル5枚が揃っているか
+      for (const video of allVideos) {
+        try {
+          let isIncomplete = false;
+
+          // メインサムネイルのチェック
+          if (!video.thumbnailPath) {
+            isIncomplete = true;
+          } else {
+            try {
+              await fs.access(video.thumbnailPath);
+            } catch {
+              isIncomplete = true;
+            }
+          }
+
+          // チャプターサムネイルのチェック（5枚必要）
+          if (!isIncomplete) {
+            const chapters = video.chapterThumbnails || [];
+            if (chapters.length < 5) {
+              isIncomplete = true;
+            } else {
+              for (const chapter of chapters) {
+                try {
+                  await fs.access(chapter.path);
+                } catch {
+                  isIncomplete = true;
+                  break;
+                }
+              }
+            }
+          }
+
+          if (isIncomplete) {
+            incompleteVideos.push(video);
+          }
+        } catch (error) {
+          console.error(
+            "Error checking thumbnail completeness for:",
+            video.path,
+            error,
+          );
+        }
+      }
+
+      const totalVideos = incompleteVideos.length;
+      console.log(
+        `Found ${totalVideos} videos with incomplete thumbnails (out of ${allVideos.length})`,
+      );
+
+      if (totalVideos === 0) {
+        return { total: 0, generated: 0 };
+      }
+
+      let processedVideos = 0;
+
+      for (const video of incompleteVideos) {
+        try {
+          this.mainWindow?.webContents.send("thumbnail-progress", {
+            current: processedVideos,
+            total: totalVideos,
+            message: `サムネイル補完中: ${video.filename}`,
+            file: video.filename,
+          });
+
+          if (video.duration !== undefined) {
+            await this.thumbnailGenerator.generateThumbnails(video);
+          }
+
+          processedVideos++;
+
+          this.mainWindow?.webContents.send("thumbnail-progress", {
+            current: processedVideos,
+            total: totalVideos,
+            message: `サムネイル補完完了: ${video.filename}`,
+            file: video.filename,
+          });
+        } catch (error) {
+          console.error(
+            "Error generating incomplete thumbnails for:",
+            video.path,
+            error,
+          );
+          processedVideos++;
+        }
+      }
+
+      this.mainWindow?.webContents.send("thumbnail-progress", {
+        message: "サムネイル補完完了",
+      });
+
+      console.log(
+        `Incomplete thumbnail generation completed: ${processedVideos}/${totalVideos} processed`,
+      );
+      return { total: totalVideos, generated: processedVideos };
+    });
+
     // Update thumbnail settings
     ipcMain.handle("update-thumbnail-settings", async (_event, settings) => {
       this.thumbnailGenerator.updateSettings(settings);
