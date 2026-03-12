@@ -2601,7 +2601,12 @@ class MovieLibraryApp {
         const target = e.target as HTMLElement;
         const chapterThumbnail = target.closest(".chapter-thumbnail");
         if (chapterThumbnail && this.currentVideo) {
-          this.showChapterDialog(this.currentVideo);
+          // クリックされたチャプターの0-based index を取得
+          const siblings = Array.from(chapterContainer.children);
+          const clickedIndex = siblings.indexOf(chapterThumbnail as Element);
+          // allThumbnails[0] はメインサムネイルなので +1 してチャプター位置に変換
+          const startIndex = clickedIndex >= 0 ? clickedIndex + 1 : 1;
+          this.showChapterDialog(this.currentVideo, startIndex);
         }
       };
     }
@@ -2870,7 +2875,7 @@ class MovieLibraryApp {
   }
 
   // チャプターダイアログを表示
-  private showChapterDialog(video: Video): void {
+  private showChapterDialog(video: Video, startIndex: number = 0): void {
     console.log("showChapterDialog called for video:", video.id, video.title);
     console.log("video.chapterThumbnails:", video.chapterThumbnails);
     console.log(
@@ -2928,7 +2933,7 @@ class MovieLibraryApp {
       return;
     }
 
-    this.uiRenderer.showChapterDialog(video, chapters);
+    this.uiRenderer.showChapterDialog(video, chapters, startIndex);
   }
 
   // キーボードイベントハンドラー

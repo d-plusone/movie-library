@@ -1315,7 +1315,11 @@ export class UIRenderer {
   }
 
   // チャプターダイアログを表示
-  showChapterDialog(video: Video, chapters: ChapterThumbnail[]): void {
+  showChapterDialog(
+    video: Video,
+    chapters: ChapterThumbnail[],
+    startIndex: number = 0,
+  ): void {
     // 既存のダイアログがあれば削除
     const existingDialog = document.querySelector(".chapter-dialog-overlay");
     if (existingDialog) {
@@ -1338,16 +1342,21 @@ export class UIRenderer {
       })),
     ];
 
-    let currentIndex = 0; // 現在表示しているサムネイルのインデックス
+    // startIndex を allThumbnails の範囲内にクランプ
+    let currentIndex = Math.max(
+      0,
+      Math.min(startIndex, allThumbnails.length - 1),
+    );
 
     // ダイアログ要素を作成
+    const initialThumb = allThumbnails[currentIndex];
     const overlay = document.createElement("div");
     overlay.className = "chapter-dialog-overlay";
     overlay.innerHTML = `
       <div id="chapterDialog" class="chapter-dialog" is-open="true">
         <div class="chapter-dialog-header">
           <h3>${FormatUtils.escapeHtml(video.title)} - ${
-            allThumbnails[0].title
+            initialThumb.title
           }</h3>
           <button class="close-chapter-dialog" title="閉じる">×</button>
         </div>
@@ -1358,14 +1367,14 @@ export class UIRenderer {
               <div class="current-chapter">
                 <div class="chapter-image-container">
                   <img id="currentChapterImg" src="file://${
-                    allThumbnails[0].path
-                  }?t=${Date.now()}" alt="${allThumbnails[0].title}">
+                    initialThumb.path
+                  }?t=${Date.now()}" alt="${initialThumb.title}">
                   <div class="chapter-overlay-info">
-                    <div class="chapter-counter" id="chapterCounter">1 / ${
+                    <div class="chapter-counter" id="chapterCounter">${currentIndex + 1} / ${
                       allThumbnails.length
                     }</div>
                     <div class="chapter-timestamp" id="currentChapterTimestamp">${FormatUtils.formatTimestamp(
-                      allThumbnails[0].timestamp,
+                      initialThumb.timestamp,
                     )}</div>
                   </div>
                 </div>
