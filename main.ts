@@ -42,7 +42,8 @@ class MovieLibraryApp {
       dbPath = path.join(process.cwd(), "movie-library.db");
     }
 
-    process.env.DATABASE_URL = `file:${dbPath}`;
+    // Windows のバックスラッシュをフォワードスラッシュに変換 (Prisma SQLite URL の要件)
+    process.env.DATABASE_URL = `file:${dbPath.replace(/\\/g, "/")}`;
     console.log(`Database path: ${dbPath}`);
 
     this.db = new PrismaDatabaseManager();

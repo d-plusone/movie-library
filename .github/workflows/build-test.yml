@@ -107,6 +107,20 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
+      - name: Install @ffmpeg-installer/win32-x64 (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run: |
+          # pnpm install は現在のプラットフォーム向けバイナリしか入れないため
+          # Windows ffmpeg バイナリを明示的にインストールする
+          npm install @ffmpeg-installer/win32-x64 --no-save
+          if [ -f "node_modules/@ffmpeg-installer/win32-x64/ffmpeg.exe" ]; then
+            echo "✅ @ffmpeg-installer/win32-x64/ffmpeg.exe ready"
+          else
+            echo "❌ ffmpeg.exe not found - build may fail"
+            exit 1
+          fi
+
       - name: Install electron-rebuild
         run: pnpm install -g electron-rebuild
 

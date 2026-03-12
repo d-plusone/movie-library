@@ -204,7 +204,7 @@ export class UIRenderer {
     div.dataset.videoId = video.id.toString();
 
     const thumbnailSrc = video.thumbnailPath
-      ? `file://${video.thumbnailPath}?t=${Date.now()}`
+      ? `${FormatUtils.pathToFileUrl(video.thumbnailPath)}?t=${Date.now()}`
       : "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIwIiBoZWlnaHQ9IjE4MCIgdmlld0JveD0iMCAwIDMyMCAxODAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMjAiIGhlaWdodD0iMTgwIiBmaWxsPSIjRjVGNUY3Ii8+CjxwYXRoIGQ9Ik0xMjggNzJMMTkyIDEwOEwxMjggMTQ0VjcyWiIgZmlsbD0iIzk5OTk5OSIvPgo8L3N2Zz4K";
 
     console.log(
@@ -356,7 +356,7 @@ export class UIRenderer {
           console.log(`Chapter ${index} path:`, chapterPath);
           if (chapterPath) {
             thumbnails.push({
-              src: `file://${chapterPath}?t=${Date.now()}`,
+              src: `${FormatUtils.pathToFileUrl(chapterPath)}?t=${Date.now()}`,
               label: `チャプター ${index + 1}`,
             });
           }
@@ -764,7 +764,7 @@ export class UIRenderer {
       const chapterPath = chapter.path;
 
       if (existingImg && chapterPath) {
-        const newSrc = `file://${chapterPath}?t=${Date.now()}`;
+        const newSrc = `${FormatUtils.pathToFileUrl(chapterPath)}?t=${Date.now()}`;
         if (existingImg.src !== newSrc) {
           existingImg.src = newSrc;
           existingImg.alt = `Chapter ${i + 1}`;
@@ -783,7 +783,7 @@ export class UIRenderer {
       chapterDiv.dataset.timestamp = chapter.timestamp.toString();
 
       const img = document.createElement("img");
-      img.src = `file://${chapterPath}?t=${Date.now()}`;
+      img.src = `${FormatUtils.pathToFileUrl(chapterPath)}?t=${Date.now()}`;
       img.alt = `Chapter ${i + 1}`;
       img.loading = "lazy";
 
@@ -885,7 +885,7 @@ export class UIRenderer {
       "detailsMainThumbnail",
     ) as HTMLImageElement;
     if (mainThumbnailImg && video.thumbnailPath) {
-      const newSrc = `file://${video.thumbnailPath}?t=${Date.now()}`;
+      const newSrc = `${FormatUtils.pathToFileUrl(video.thumbnailPath)}?t=${Date.now()}`;
       if (mainThumbnailImg.src !== newSrc) {
         mainThumbnailImg.src = newSrc;
         mainThumbnailImg.alt = video.title;
@@ -961,7 +961,7 @@ export class UIRenderer {
     tooltip.className = "thumbnail-tooltip";
 
     const img = document.createElement("img");
-    img.src = `file://${imagePath}?t=${Date.now()}`;
+    img.src = `${FormatUtils.pathToFileUrl(imagePath)}?t=${Date.now()}`;
     img.alt = `Thumbnail - ${timestamp}`;
 
     const timeDiv = document.createElement("div");
@@ -1178,7 +1178,7 @@ export class UIRenderer {
       // サムネイルパスの設定（thumbnailPathのみを使用）
       const thumbPath = video.thumbnailPath;
       if (thumbPath && thumbPath !== "N/A") {
-        thumbnail.src = `file://${thumbPath}`;
+        thumbnail.src = `${FormatUtils.pathToFileUrl(thumbPath)}`;
       } else {
         // デフォルト画像またはプレースホルダー
         thumbnail.style.background =
@@ -1366,9 +1366,7 @@ export class UIRenderer {
               <button class="nav-btn prev-btn" title="前のサムネイル (←)">‹</button>
               <div class="current-chapter">
                 <div class="chapter-image-container">
-                  <img id="currentChapterImg" src="file://${
-                    initialThumb.path
-                  }?t=${Date.now()}" alt="${initialThumb.title}">
+                  <img id="currentChapterImg" src="${FormatUtils.pathToFileUrl(initialThumb.path)}?t=${Date.now()}" alt="${initialThumb.title}">
                   <div class="chapter-overlay-info">
                     <div class="chapter-counter" id="chapterCounter">${currentIndex + 1} / ${
                       allThumbnails.length
@@ -1403,7 +1401,7 @@ export class UIRenderer {
       const counter = overlay.querySelector("#chapterCounter") as HTMLElement;
 
       if (img && title && timestamp && counter) {
-        img.src = `file://${thumbnail.path}?t=${Date.now()}`;
+        img.src = `${FormatUtils.pathToFileUrl(thumbnail.path)}?t=${Date.now()}`;
         img.alt = thumbnail.title;
         title.textContent = `${FormatUtils.escapeHtml(video.title)} - ${
           thumbnail.title

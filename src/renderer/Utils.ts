@@ -171,7 +171,7 @@ export class UnifiedProgressManager {
     id: string,
     message: string,
     total: number,
-    isOwner: boolean
+    isOwner: boolean,
   ): void {
     if (this.activeProgresses.has(id)) {
       return; // 既に存在する場合は何もしない
@@ -309,7 +309,7 @@ export class UnifiedProgressManager {
 
     if (progressPercentage) {
       progressPercentage.textContent = `${Math.round(
-        progressItem.getPercentage()
+        progressItem.getPercentage(),
       )}%`;
     }
 
@@ -427,7 +427,7 @@ class ProgressItem {
       return `${this.message} - 完了`;
     }
     return `${this.message} (${this.current}/${this.total} - ${Math.round(
-      this.getPercentage()
+      this.getPercentage(),
     )}%)`;
   }
 
@@ -476,7 +476,7 @@ export class ProgressBarManager {
     this.unifiedManager.updateProgress(
       this.progressId,
       percentage,
-      this.baseMessage
+      this.baseMessage,
     );
   }
 
@@ -536,6 +536,19 @@ export class FormatUtils {
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&#039;");
+  }
+
+  // ファイルパスを file:// URL に変換（Windows パスに対応）
+  // macOS/Linux: /Users/... → file:///Users/...
+  // Windows:     C:\... → file:///C:/...
+  static pathToFileUrl(filePath: string): string {
+    if (!filePath) return "";
+    // Windows の絶対パス (C:\... または C:/...)
+    if (/^[a-zA-Z]:/.test(filePath)) {
+      return "file:///" + filePath.replace(/\\/g, "/");
+    }
+    // Unix/macOS の絶対パス
+    return "file://" + filePath;
   }
 }
 
@@ -598,7 +611,7 @@ export class ProgressManager {
     this.unifiedManager.updateProgress(
       this.progressId,
       this.currentCount,
-      displayText
+      displayText,
     );
   }
 
@@ -607,7 +620,7 @@ export class ProgressManager {
     current: number,
     total: number,
     baseText: string,
-    currentItem?: string
+    currentItem?: string,
   ): void {
     this.currentCount = current;
     this.totalCount = total;
@@ -653,7 +666,7 @@ export class ProgressManager {
     this.unifiedManager.updateProgress(
       this.progressId,
       percentage,
-      this.baseMessage
+      this.baseMessage,
     );
   }
 
@@ -728,7 +741,7 @@ export class EnhancedProgressManager {
     this.unifiedManager.updateProgress(
       this.progressId,
       this.currentCount,
-      displayText
+      displayText,
     );
   }
 
@@ -783,7 +796,7 @@ export class ThemeManager {
 
     // Update theme select
     const themeSelect = document.getElementById(
-      "themeSelect"
+      "themeSelect",
     ) as HTMLSelectElement;
     if (themeSelect) {
       themeSelect.value = this.currentTheme;
@@ -833,7 +846,7 @@ export class ThemeManager {
 
     // 動的にスタイルを追加
     let style = document.getElementById(
-      "dynamic-placeholder-styles"
+      "dynamic-placeholder-styles",
     ) as HTMLStyleElement;
     if (!style) {
       style = document.createElement("style");
@@ -851,7 +864,7 @@ export class ThemeManager {
   private applySystemTheme(): void {
     const body = document.body;
     const prefersDark = window.matchMedia(
-      "(prefers-color-scheme: dark)"
+      "(prefers-color-scheme: dark)",
     ).matches;
 
     if (prefersDark) {
@@ -900,7 +913,7 @@ export class KeyboardManager {
 
   initializeKeyboardEvents(): void {
     document.addEventListener("keydown", (e) =>
-      this.handleKeyboardNavigation(e)
+      this.handleKeyboardNavigation(e),
     );
   }
 
@@ -953,7 +966,7 @@ export class KeyboardManager {
   }
 
   updateCallbacks(
-    newCallbacks: Record<string, (e: KeyboardEvent) => void>
+    newCallbacks: Record<string, (e: KeyboardEvent) => void>,
   ): void {
     this.callbacks = { ...this.callbacks, ...newCallbacks };
   }
@@ -1029,7 +1042,7 @@ export function highlightText(text: string, query: string): string {
 
   const regex = new RegExp(
     `(${query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`,
-    "gi"
+    "gi",
   );
   return text.replace(regex, '<span class="highlight">$1</span>');
 }
@@ -1097,7 +1110,7 @@ export const DOMUtils = {
   createElement(
     tag: string,
     className: string = "",
-    textContent: string = ""
+    textContent: string = "",
   ): HTMLElement {
     const element = document.createElement(tag);
     if (className) element.className = className;
@@ -1114,7 +1127,7 @@ export const DOMUtils = {
       textContent?: string;
       innerHTML?: string;
       attributes?: Record<string, string>;
-    } = {}
+    } = {},
   ): HTMLElementTagNameMap[K] {
     const element = document.createElement(tagName);
 
@@ -1135,7 +1148,7 @@ export const DOMUtils = {
   // 複数のイベントリスナーを追加
   addEventListeners(
     element: HTMLElement | null,
-    events: Record<string, EventListener>
+    events: Record<string, EventListener>,
   ): void {
     if (!element) {
       console.warn("DOMUtils - Cannot add event listeners to null element");
@@ -1314,7 +1327,7 @@ export const Utils = {
   // デバウンス関数
   debounce<T extends (...args: Parameters<T>) => ReturnType<T>>(
     func: T,
-    wait: number
+    wait: number,
   ): (...args: Parameters<T>) => void {
     let timeout: NodeJS.Timeout;
     return function executedFunction(...args: Parameters<T>) {
@@ -1330,7 +1343,7 @@ export const Utils = {
   // スロットル関数
   throttle<T extends (...args: Parameters<T>) => ReturnType<T>>(
     func: T,
-    limit: number
+    limit: number,
   ): (...args: Parameters<T>) => void {
     let inThrottle: boolean;
     return function (...args: Parameters<T>) {

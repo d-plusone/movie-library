@@ -1404,7 +1404,7 @@ class MovieLibraryApp {
         if (thumbnail) {
           console.log("Updating list thumbnail:", thumbnailPath);
           // キャッシュバスターを追加してブラウザのキャッシュを回避
-          thumbnail.src = `file://${thumbnailPath}?t=${timestamp}`;
+          thumbnail.src = `${FormatUtils.pathToFileUrl(thumbnailPath)}?t=${timestamp}`;
 
           // 画像の読み込み成功をハンドリング
           thumbnail.onload = () => {
@@ -1442,7 +1442,7 @@ class MovieLibraryApp {
         this.currentVideo.id === video.id
       ) {
         console.log("Updating details thumbnail:", thumbnailPath);
-        detailsMainThumbnail.src = `file://${thumbnailPath}?t=${timestamp}`;
+        detailsMainThumbnail.src = `${FormatUtils.pathToFileUrl(thumbnailPath)}?t=${timestamp}`;
 
         // 画像の読み込み成功をハンドリング
         detailsMainThumbnail.onload = () => {
@@ -1605,7 +1605,7 @@ class MovieLibraryApp {
             video.path,
             timestamp,
           );
-          const imageSrc = `file://${previewPath}?t=${Date.now()}`;
+          const imageSrc = `${FormatUtils.pathToFileUrl(previewPath)}?t=${Date.now()}`;
           previewCache.set(cacheKey, imageSrc);
           tooltipImage.src = imageSrc;
           tooltipImage.style.display = "block";
@@ -1858,7 +1858,7 @@ class MovieLibraryApp {
         timestamp,
       );
 
-      const imageSrc = `file://${previewPath}?t=${Date.now()}`;
+      const imageSrc = `${FormatUtils.pathToFileUrl(previewPath)}?t=${Date.now()}`;
 
       // プレビュー画像を表示
       preview.src = imageSrc;
@@ -1901,7 +1901,7 @@ class MovieLibraryApp {
         "detailsMainThumbnail",
       ) as HTMLImageElement;
       if (detailsMainThumbnail && thumbnailPath) {
-        detailsMainThumbnail.src = `file://${thumbnailPath}?t=${Date.now()}`;
+        detailsMainThumbnail.src = `${FormatUtils.pathToFileUrl(thumbnailPath)}?t=${Date.now()}`;
       }
 
       // ローカルデータを更新
@@ -2846,7 +2846,7 @@ class MovieLibraryApp {
       const timestamp = tooltip.querySelector(".timestamp") as HTMLElement;
 
       if (img && timestamp) {
-        img.src = `file://${currentThumbnail.path}`;
+        img.src = `${FormatUtils.pathToFileUrl(currentThumbnail.path)}`;
         timestamp.textContent = FormatUtils.formatTimestamp(
           currentThumbnail.timestamp,
         );
@@ -3637,11 +3637,7 @@ class MovieLibraryApp {
       sortedVideos.map(async (video, index) => {
         let thumbnailSrc = "";
         if (video.thumbnailPath) {
-          const thumbnailsDir = await window.electronAPI.getThumbnailsDir();
-          const thumbnailFilename =
-            video.thumbnailPath.split("/").pop() || video.thumbnailPath;
-          const fullPath = `${thumbnailsDir}/${thumbnailFilename}`;
-          thumbnailSrc = `file://${fullPath}?t=${Date.now()}`;
+          thumbnailSrc = `${FormatUtils.pathToFileUrl(video.thumbnailPath)}?t=${Date.now()}`;
         }
 
         return `
