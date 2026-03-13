@@ -106,7 +106,11 @@
         "asarUnpack": [
             "node_modules/ffprobe-static/bin/**/*",
             "node_modules/prisma/**/*.node",
+            "node_modules/prisma/build/**/*",
             "node_modules/@prisma/engines/**/*",
+            "node_modules/@prisma/debug/**/*",
+            "node_modules/@prisma/get-platform/**/*",
+            "node_modules/@prisma/engines-version/**/*",
             "node_modules/.prisma/**/*.node",
             "node_modules/fsevents/**/*",
             "prisma/schema.prisma",
