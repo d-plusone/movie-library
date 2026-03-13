@@ -739,9 +739,16 @@ class MovieLibraryApp {
       const allVideos = await this.db.getVideos();
       const incompleteVideos: typeof allVideos = [];
 
-      // ファイルの存在確認：メインサムネイル + チャプターサムネイル5枚が揃っているか
+      // ファイルの存在確認：メインサムネイル + チャプターサムネイルが1枚以上あるか
       for (const video of allVideos) {
         try {
+          // 元動画ファイルが存在しない場合はスキップ（削除・移動済みファイルの無限リトライを防ぐ）
+          try {
+            await fs.access(video.path);
+          } catch {
+            continue;
+          }
+
           let isIncomplete = false;
 
           // メインサムネイルのチェック
@@ -755,19 +762,25 @@ class MovieLibraryApp {
             }
           }
 
-          // チャプターサムネイルのチェック（5枚必要）
+          // チャプターサムネイルのチェック（1枚以上あれば完了とみなす）
           if (!isIncomplete) {
             const chapters = video.chapterThumbnails || [];
-            if (chapters.length < 5) {
+            if (chapters.length === 0) {
               isIncomplete = true;
             } else {
+              // 存在するチャプターファイルが1枚もない場合のみ再生成
+              let anyExists = false;
               for (const chapter of chapters) {
                 try {
                   await fs.access(chapter.path);
-                } catch {
-                  isIncomplete = true;
+                  anyExists = true;
                   break;
+                } catch {
+                  // continue checking
                 }
+              }
+              if (!anyExists) {
+                isIncomplete = true;
               }
             }
           }
