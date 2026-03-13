@@ -132,6 +132,8 @@ body {
 
 .header-left {
     flex: 0 0 auto;
+    /* macOS hiddenInset: traffic lights (close/min/max) end at ~76px from left */
+    padding-left: 62px;
 }
 
 .header-center {
@@ -820,11 +822,40 @@ body {
 
 /* Sidebar */
 .sidebar {
+    /* width のみアニメーション → レイアウト再計算を最小化してガタつき防止 */
     width: 250px;
+    flex-shrink: 0;
+    overflow: hidden;
     background: var(--bg-secondary);
     border-right: 1px solid var(--border-color);
+    transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+                border-color 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    will-change: width;
+}
+
+/* 内側ラッパー: 固定幅・padding はアニメーションしないため滑らか */
+.sidebar-inner {
+    width: 250px;
+    min-width: 250px;
     padding: 20px;
     overflow-y: auto;
+    overflow-x: hidden;
+    height: 100%;
+    box-sizing: border-box;
+}
+
+.sidebar.collapsed {
+    width: 0;
+    border-right-color: transparent;
+}
+
+.sidebar-toggle-btn .icon {
+    display: inline-block;
+    transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.sidebar-toggle-btn.collapsed .icon {
+    transform: rotate(180deg);
 }
 
 .sidebar-section {

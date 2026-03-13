@@ -91,6 +91,7 @@ class MovieLibraryApp {
     this.initializeEventListeners();
     this.loadSettings(); // 設定を読み込み
     this.initializeThemeButton(); // テーマボタンの初期化
+    this.initializeSidebarToggle(); // サイドバートグルの初期化
 
     this.loadInitialData().catch((error) => {
       console.error("Failed to load initial data:", error);
@@ -338,6 +339,26 @@ class MovieLibraryApp {
         icon.textContent = currentTheme === "dark" ? "☀️" : "🌙";
       }
     }
+  }
+
+  private initializeSidebarToggle(): void {
+    const sidebar = document.getElementById("sidebar");
+    const toggleBtn = document.getElementById("sidebarToggleBtn");
+    if (!sidebar || !toggleBtn) return;
+
+    const collapsed = localStorage.getItem("sidebarCollapsed") === "true";
+    if (collapsed) {
+      sidebar.classList.add("collapsed");
+      toggleBtn.classList.add("collapsed");
+      toggleBtn.title = "サイドメニューを表示";
+    }
+
+    toggleBtn.addEventListener("click", () => {
+      const isCollapsed = sidebar.classList.toggle("collapsed");
+      toggleBtn.classList.toggle("collapsed", isCollapsed);
+      toggleBtn.title = isCollapsed ? "サイドメニューを表示" : "サイドメニューを隠す";
+      localStorage.setItem("sidebarCollapsed", String(isCollapsed));
+    });
   }
 
   private async loadInitialData(): Promise<void> {
