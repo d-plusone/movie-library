@@ -129,7 +129,7 @@
             "WINDOWS_UNINSTALL_GUIDE.md",
             "node_modules/chokidar/index.js",
             "node_modules/chokidar/lib/**/*",
-            "node_modules/@ffmpeg-installer/**/*",
+            "!node_modules/@ffmpeg-installer/**/*",
             "node_modules/ffprobe-static/**/*",
             "node_modules/prisma/**/*",
             "node_modules/@prisma/**/*",
@@ -173,23 +173,6 @@
             "darkModeSupport": true,
             "hardenedRuntime": false,
             "artifactName": "${productName}-${version}-${arch}.${ext}",
-            "files": [
-                "!**/node_modules/@ffmpeg-installer/**/*",
-                "!**/node_modules/ffprobe-static/bin/linux/**/*",
-                "!**/node_modules/ffprobe-static/bin/win32/**/*",
-                "!**/node_modules/ffprobe-static/bin/darwin/x64/**/*",
-                "!**/node_modules/prisma/libquery_engine-linux*",
-                "!**/node_modules/prisma/libquery_engine-darwin.dylib.node",
-                "!**/node_modules/prisma/query_engine-windows*",
-                "!dist-ts/generated/prisma/libquery_engine-linux*",
-                "!dist-ts/generated/prisma/libquery_engine-darwin.dylib.node",
-                "!dist-ts/generated/prisma/query_engine-windows*",
-                "!dist-ts/generated/prisma/query_engine_bg.wasm",
-                "!generated/prisma/libquery_engine-linux*",
-                "!generated/prisma/libquery_engine-darwin.dylib.node",
-                "!generated/prisma/query_engine-windows*",
-                "!generated/prisma/query_engine_bg.wasm"
-            ],
             "extraResources": [
                 {
                     "from": "node_modules/@ffmpeg-installer/darwin-arm64/ffmpeg",
@@ -205,19 +188,6 @@
         },
         "win": {
             "icon": "assets/icon.ico",
-            "files": [
-                "!**/node_modules/@ffmpeg-installer/**/*",
-                "!**/node_modules/ffprobe-static/bin/linux/**/*",
-                "!**/node_modules/ffprobe-static/bin/darwin/**/*",
-                "!**/node_modules/prisma/libquery_engine-linux*",
-                "!**/node_modules/prisma/libquery_engine-darwin*",
-                "!dist-ts/generated/prisma/libquery_engine-linux*",
-                "!dist-ts/generated/prisma/libquery_engine-darwin*",
-                "!dist-ts/generated/prisma/query_engine_bg.wasm",
-                "!generated/prisma/libquery_engine-linux*",
-                "!generated/prisma/libquery_engine-darwin*",
-                "!generated/prisma/query_engine_bg.wasm"
-            ],
             "extraResources": [
                 {
                     "from": "node_modules/@ffmpeg-installer/win32-x64/ffmpeg.exe",

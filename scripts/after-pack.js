@@ -108,6 +108,124 @@ exports.default = async function (context) {
     console.error("Error setting executable permissions:", error.message);
   }
 
+  // Remove platform-specific binaries that are not needed for this build
+  try {
+    const unpackedPath = path.join(resourcesPath, "app.asar.unpacked");
+
+    const deleteIfExists = (targetPath) => {
+      if (fs.existsSync(targetPath)) {
+        const stat = fs.statSync(targetPath);
+        if (stat.isDirectory()) {
+          fs.rmSync(targetPath, { recursive: true, force: true });
+        } else {
+          fs.unlinkSync(targetPath);
+        }
+        console.log(`🗑️  Deleted: ${path.relative(unpackedPath, targetPath)}`);
+      }
+    };
+
+    const prismaLocations = [
+      path.join(unpackedPath, "node_modules", "prisma"),
+      path.join(unpackedPath, "node_modules", ".prisma", "client"),
+      path.join(unpackedPath, "dist-ts", "generated", "prisma"),
+    ];
+
+    if (electronPlatformName === "darwin") {
+      // Remove non-darwin ffprobe binaries
+      deleteIfExists(
+        path.join(
+          unpackedPath,
+          "node_modules",
+          "ffprobe-static",
+          "bin",
+          "linux",
+        ),
+      );
+      deleteIfExists(
+        path.join(
+          unpackedPath,
+          "node_modules",
+          "ffprobe-static",
+          "bin",
+          "win32",
+        ),
+      );
+      if (archString === "arm64") {
+        deleteIfExists(
+          path.join(
+            unpackedPath,
+            "node_modules",
+            "ffprobe-static",
+            "bin",
+            "darwin",
+            "x64",
+          ),
+        );
+      } else {
+        deleteIfExists(
+          path.join(
+            unpackedPath,
+            "node_modules",
+            "ffprobe-static",
+            "bin",
+            "darwin",
+            "arm64",
+          ),
+        );
+      }
+
+      // Remove non-darwin / non-arch Prisma engines
+      const prismaToDelete = [
+        "libquery_engine-linux-musl.so.node",
+        "query_engine-windows.dll.node",
+        archString === "arm64"
+          ? "libquery_engine-darwin.dylib.node"
+          : "libquery_engine-darwin-arm64.dylib.node",
+      ];
+      for (const location of prismaLocations) {
+        for (const engineFile of prismaToDelete) {
+          deleteIfExists(path.join(location, engineFile));
+        }
+      }
+    } else if (electronPlatformName === "win32") {
+      // Remove non-win32 ffprobe binaries
+      deleteIfExists(
+        path.join(
+          unpackedPath,
+          "node_modules",
+          "ffprobe-static",
+          "bin",
+          "linux",
+        ),
+      );
+      deleteIfExists(
+        path.join(
+          unpackedPath,
+          "node_modules",
+          "ffprobe-static",
+          "bin",
+          "darwin",
+        ),
+      );
+
+      // Remove non-windows Prisma engines
+      const prismaToDelete = [
+        "libquery_engine-linux-musl.so.node",
+        "libquery_engine-darwin.dylib.node",
+        "libquery_engine-darwin-arm64.dylib.node",
+      ];
+      for (const location of prismaLocations) {
+        for (const engineFile of prismaToDelete) {
+          deleteIfExists(path.join(location, engineFile));
+        }
+      }
+    }
+
+    console.log("✓ Cleaned up platform-specific binaries");
+  } catch (error) {
+    console.error("Warning: Binary cleanup error:", error.message);
+  }
+
   // Copy Prisma build directory to ensure CLI works
   try {
     const prismaSourcePath = path.join(
