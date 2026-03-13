@@ -45,24 +45,6 @@ export class VideoManager {
 
       console.log("VideoManager: Loading videos from database");
       const electronVideos = await window.electronAPI.getVideos();
-      console.log(
-        "VideoManager: Received videos from electronAPI:",
-        electronVideos.length,
-        electronVideos.slice(0, 2),
-      );
-
-      // 最初の動画の詳細な情報をログ出力（BigInt対応）
-      if (electronVideos.length > 0) {
-        console.log(
-          "VideoManager: First video detailed:",
-          JSON.stringify(
-            electronVideos[0],
-            (_key, value) =>
-              typeof value === "bigint" ? value.toString() : value,
-            2,
-          ),
-        );
-      }
 
       // electronAPIの型をVideoManager.tsの型にマッピング
       this.videos = electronVideos.map((video) => ({
@@ -73,55 +55,6 @@ export class VideoManager {
         height: video.height || 0,
         chapterThumbnails: video.chapterThumbnails,
       }));
-      console.log(
-        "VideoManager: Processed videos:",
-        this.videos.length,
-        this.videos.slice(0, 2),
-      );
-
-      // 最初の動画の処理後詳細情報をログ出力（BigInt対応）
-      if (this.videos.length > 0) {
-        console.log(
-          "VideoManager: First processed video detailed:",
-          JSON.stringify(
-            this.videos[0],
-            (_key, value) =>
-              typeof value === "bigint" ? value.toString() : value,
-            2,
-          ),
-        );
-
-        // チャプターサムネイルのデバッグ情報
-        const firstVideo = this.videos[0];
-        console.log(
-          "VideoManager: First video chapterThumbnails:",
-          firstVideo.chapterThumbnails,
-        );
-        console.log(
-          "VideoManager: First video chapterThumbnails type:",
-          typeof firstVideo.chapterThumbnails,
-        );
-
-        // チャプターサムネイルがある動画を探してログ出力
-        const videoWithChapters = this.videos.find((v) => v.chapterThumbnails);
-        if (videoWithChapters) {
-          console.log(
-            "VideoManager: Found video with chapters:",
-            videoWithChapters.id,
-            videoWithChapters.title,
-          );
-          console.log(
-            "VideoManager: Chapter data:",
-            videoWithChapters.chapterThumbnails,
-          );
-          console.log(
-            "VideoManager: Chapter data type:",
-            typeof videoWithChapters.chapterThumbnails,
-          );
-        } else {
-          console.log("VideoManager: No videos with chapterThumbnails found");
-        }
-      }
       this.lastLoadTime = Date.now();
       this.hasChanges = true;
       return [...this.videos];
@@ -138,7 +71,6 @@ export class VideoManager {
     try {
       if (!forceReload && this.lastLoadTime) {
         // タグの場合は簡単な差分チェック（実装を簡素化するため、現在は全件取得）
-        console.log("VideoManager: Loading tags from database");
       }
 
       this.tags = (await window.electronAPI.getTags()).map((tag) => ({
@@ -157,7 +89,7 @@ export class VideoManager {
   async loadDirectories(forceReload: boolean = false): Promise<Directory[]> {
     try {
       if (!forceReload && this.lastLoadTime) {
-        console.log("VideoManager: Loading directories from database");
+        // ディレクトリも差分チェックは未実装のため全件取得
       }
 
       const electronDirectories = await window.electronAPI.getDirectories();

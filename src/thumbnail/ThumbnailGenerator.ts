@@ -76,33 +76,33 @@ class ThumbnailGenerator {
         mainTimestamp,
       );
 
-      // Generate chapter thumbnails (5 thumbnails at different timestamps)
+      // Generate chapter thumbnails (5 thumbnails at different timestamps) in parallel
       const chapterThumbnails: ChapterThumbnail[] = [];
       const timestamps = [0.2, 0.35, 0.5, 0.65, 0.8]; // 20%, 35%, 50%, 65%, 80%
 
-      for (let i = 0; i < timestamps.length; i++) {
-        const timestamp = video.duration * timestamps[i];
-        const chapterPath = path.join(
-          this.thumbnailsDir,
-          `${videoId}_chapter_${i}.jpg`,
-        );
-
-        try {
-          await this.generateSingleThumbnail(
+      const chapterResults = await Promise.allSettled(
+        timestamps.map((ratio, i) => {
+          const timestamp = video.duration * ratio;
+          const chapterPath = path.join(
+            this.thumbnailsDir,
+            `${videoId}_chapter_${i}.jpg`,
+          );
+          return this.generateSingleThumbnail(
             video.path,
             chapterPath,
             timestamp,
-          );
-          chapterThumbnails.push({
-            path: chapterPath,
-            timestamp: timestamp,
-            index: i,
-          });
-        } catch (error) {
+          ).then(() => ({ path: chapterPath, timestamp, index: i }));
+        }),
+      );
+
+      for (const result of chapterResults) {
+        if (result.status === "fulfilled") {
+          chapterThumbnails.push(result.value);
+        } else {
           console.error(
-            `Failed to generate chapter thumbnail ${i} for video:`,
+            `Failed to generate chapter thumbnail for video:`,
             video.path,
-            error,
+            result.reason,
           );
         }
       }
