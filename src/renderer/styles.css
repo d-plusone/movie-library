@@ -4585,6 +4585,32 @@ list-view .video-thumbnail .thumbnail-indicator {
     flex-direction: column;
 }
 
+.bulk-tag-filter-container {
+    margin-bottom: 10px;
+    flex-shrink: 0;
+}
+
+.bulk-tag-filter-input {
+    padding: 7px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 13px;
+    width: 260px;
+    outline: none;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.bulk-tag-filter-input::placeholder {
+    color: var(--text-secondary);
+}
+
+.bulk-tag-filter-input:focus {
+    border-color: var(--accent-color);
+    box-shadow: 0 0 0 2px rgba(0, 122, 255, 0.15);
+}
+
 .bulk-tag-apply-table-container {
     overflow: auto;
     flex: 1;

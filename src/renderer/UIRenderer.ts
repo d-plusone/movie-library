@@ -1107,6 +1107,7 @@ export class UIRenderer {
       const th = document.createElement("th");
       th.className = "tag-column-header sticky-header";
       th.title = `${tag.name} (${tag.count}個の動画で使用)`;
+      th.dataset.tagName = tag.name;
 
       // タグヘッダーのコンテンツコンテナ
       const headerContent = document.createElement("div");
@@ -1220,6 +1221,7 @@ export class UIRenderer {
       allTags.forEach((tag: Tag) => {
         const td = document.createElement("td");
         td.className = "tag-checkbox-cell";
+        td.dataset.tagName = tag.name;
 
         const checkbox = document.createElement("input");
         checkbox.type = "checkbox";
@@ -1259,6 +1261,27 @@ export class UIRenderer {
     allTags.forEach((tag: Tag) => {
       this.updateSelectAllCheckboxState(tag.name);
     });
+
+    // タグフィルター機能の設定
+    const tagFilterInput = DOMUtils.getElementById("bulkTagFilterInput") as HTMLInputElement;
+    if (tagFilterInput) {
+      tagFilterInput.value = "";
+      const newFilterInput = tagFilterInput.cloneNode(true) as HTMLInputElement;
+      tagFilterInput.parentNode?.replaceChild(newFilterInput, tagFilterInput);
+      newFilterInput.addEventListener("input", () => {
+        const filterText = newFilterInput.value.toLowerCase().trim();
+        const tagHeaders = bulkTagApplyTable.querySelectorAll("thead th[data-tag-name]") as NodeListOf<HTMLElement>;
+        tagHeaders.forEach((thEl: HTMLElement) => {
+          const tagName = thEl.dataset.tagName || "";
+          const matches = filterText === "" || tagName.toLowerCase().includes(filterText);
+          const display = matches ? "" : "none";
+          thEl.style.display = display;
+          (bulkTagApplyTable.querySelectorAll(`tbody td[data-tag-name="${tagName}"]`) as NodeListOf<HTMLElement>).forEach((tdEl: HTMLElement) => {
+            tdEl.style.display = display;
+          });
+        });
+      });
+    }
 
     bulkTagApplyDialog.style.display = "flex";
     bulkTagApplyDialog.setAttribute("is-open", "true");
