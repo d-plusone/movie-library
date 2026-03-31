@@ -178,6 +178,7 @@
             "category": "public.app-category.video",
             "darkModeSupport": true,
             "hardenedRuntime": false,
+            "identity": null,
             "artifactName": "${productName}-${version}-${arch}.${ext}",
             "extraResources": [
                 {
