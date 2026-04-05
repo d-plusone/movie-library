@@ -156,7 +156,8 @@ jobs:
       - name: Test build (macOS)
         if: matrix.os == 'macos-latest'
         env:
-          CSC_IDENTITY_AUTO_DISCOVERY: false
+          # アドホック署名: package.json の identity: "-" が使われる
+          DEBUG: electron-builder
         run: pnpm run build:optimized
 
       - name: Test build (Windows)

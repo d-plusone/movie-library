@@ -165,13 +165,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # 開発用ビルド: 署名なしで許可
-          CSC_IDENTITY_AUTO_DISCOVERY: false
-          # デバッグ情報を有効化
-          DEBUG: electron-builder
-          # 本格的なリリースでは以下を有効にする:
+          # アドホック署名（"-"）: Apple Developer証明書不要でGatekeeperをパス可能にする
+          # 本格リリース時は以下を有効化:
           # CSC_LINK: ${{ secrets.CSC_LINK }}
           # CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          DEBUG: electron-builder
         run: |
           echo "Building macOS Universal Binary..."
           echo "Current architecture: $(uname -m)"
