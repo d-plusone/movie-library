@@ -118,19 +118,45 @@ export async function getFfmpegPath(): Promise<string | null> {
 // Function to get ffprobe path
 export async function getFfprobePath(): Promise<string | null> {
   try {
-    const ffprobeStatic = require("ffprobe-static");
-    let ffprobePath = ffprobeStatic.path;
+    let ffprobePath: string;
 
-    if (!ffprobePath) {
-      console.error("❌ FFprobe path not found in ffprobe-static");
-      return null;
+    if (isDevelopment()) {
+      // Development mode: prefer native arm64 ffprobe on Apple Silicon to avoid Rosetta 2 warning
+      if (process.platform === "darwin" && process.arch === "arm64") {
+        const homebrewFfprobe = "/opt/homebrew/bin/ffprobe";
+        try {
+          await accessAsync(homebrewFfprobe, constants.F_OK);
+          console.log("  - Dev mode: using Homebrew arm64 ffprobe ✅");
+          ffprobePath = homebrewFfprobe;
+        } catch {
+          console.log("  - Dev mode: Homebrew ffprobe not found, falling back to ffprobe-static");
+          const ffprobeStatic = require("ffprobe-static");
+          ffprobePath = ffprobeStatic.path;
+        }
+      } else {
+        const ffprobeStatic = require("ffprobe-static");
+        ffprobePath = ffprobeStatic.path;
+      }
+    } else {
+      // Production mode: use bundled arm64 ffprobe binary on Apple Silicon
+      if (process.platform === "darwin" && process.arch === "arm64") {
+        const resourcesPath = process.resourcesPath;
+        ffprobePath = path.join(resourcesPath, "ffprobe-bin", "darwin-arm64", "ffprobe");
+        console.log("  - Prod mode: using bundled arm64 ffprobe ✅");
+        console.log("  - Constructed path:", ffprobePath);
+      } else {
+        const ffprobeStatic = require("ffprobe-static");
+        ffprobePath = ffprobeStatic.path;
+        // Fix ASAR path if needed
+        if (ffprobePath.includes("app.asar") && !ffprobePath.includes("app.asar.unpacked")) {
+          ffprobePath = ffprobePath.replace("app.asar", "app.asar.unpacked");
+        }
+      }
     }
 
-    // Fix ASAR path if needed (production mode)
-    if (!isDevelopment()) {
-      if (ffprobePath.includes("app.asar") && !ffprobePath.includes("app.asar.unpacked")) {
-        ffprobePath = ffprobePath.replace("app.asar", "app.asar.unpacked");
-      }
+    if (!ffprobePath) {
+      console.error("❌ FFprobe path not found");
+      return null;
     }
 
     // Normalize path

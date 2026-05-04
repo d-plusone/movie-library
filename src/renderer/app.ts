@@ -775,6 +775,21 @@ class MovieLibraryApp {
       this.uiRenderer.hideBulkTagApplyDialog(),
     );
 
+    // Quick bulk tag input
+    this.safeAddEventListener(
+      "quickBulkTagApplyBtn",
+      "click",
+      this.applyQuickBulkTag.bind(this),
+    );
+    const quickBulkTagInput = document.getElementById("quickBulkTagInput");
+    if (quickBulkTagInput) {
+      quickBulkTagInput.addEventListener("keydown", (e: Event) => {
+        if ((e as KeyboardEvent).key === "Enter") {
+          this.applyQuickBulkTag();
+        }
+      });
+    }
+
     // Duplicate detection
     this.safeAddEventListener(
       "findDuplicatesBtn",
@@ -3388,6 +3403,67 @@ class MovieLibraryApp {
 
     // UIRendererのメソッドを呼び出し
     this.uiRenderer.showBulkTagApplyDialog(currentVideos, allTags);
+  }
+
+  // 表示中の全動画にタグを一括付与（クイック入力）
+  private async applyQuickBulkTag(): Promise<void> {
+    const input = document.getElementById(
+      "quickBulkTagInput",
+    ) as HTMLInputElement | null;
+    if (!input) return;
+
+    const rawValue = input.value.trim();
+    if (!rawValue) {
+      this.notificationManager.show("タグ名を入力してください", "warning");
+      return;
+    }
+
+    const tagNames = rawValue
+      .split(/[\s,]+/)
+      .map((t) => t.trim())
+      .filter((t) => t.length > 0);
+
+    if (tagNames.length === 0) return;
+
+    const targetVideos = this.filteredVideos || [];
+    if (targetVideos.length === 0) {
+      this.notificationManager.show("表示中の動画がありません", "warning");
+      return;
+    }
+
+    try {
+      let addedCount = 0;
+
+      for (const video of targetVideos) {
+        for (const tagName of tagNames) {
+          const alreadyHas = video.tags && video.tags.includes(tagName);
+          if (!alreadyHas) {
+            await this.videoManager.addTagToVideo(video.id, tagName);
+            if (!video.tags) video.tags = [];
+            video.tags.push(tagName);
+            this.uiRenderer.updateVideoTags(video.id, video.tags);
+            addedCount++;
+          }
+        }
+      }
+
+      this.renderSidebar();
+      input.value = "";
+
+      const tagLabel =
+        tagNames.length === 1 ? `「${tagNames[0]}」` : `${tagNames.length}個のタグ`;
+      const message =
+        addedCount > 0
+          ? `${targetVideos.length}本の動画に${tagLabel}を付与しました`
+          : `対象動画は既に${tagLabel}を持っています`;
+      this.notificationManager.show(
+        message,
+        addedCount > 0 ? "success" : "info",
+      );
+    } catch (error) {
+      console.error("Error applying quick bulk tag:", error);
+      this.notificationManager.show("タグの付与に失敗しました", "error");
+    }
   }
 
   private async applyBulkTags(): Promise<void> {

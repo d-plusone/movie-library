@@ -1431,6 +1431,64 @@ body {
     border-bottom: 1px solid var(--border-color);
 }
 
+.quick-bulk-tag-container {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 0 16px;
+}
+
+.quick-bulk-tag-icon {
+    font-size: 14px;
+    flex-shrink: 0;
+}
+
+.quick-bulk-tag-input {
+    width: 260px;
+    max-width: 100%;
+    padding: 7px 12px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 13px;
+    transition: all 0.2s ease;
+}
+
+.quick-bulk-tag-input:focus {
+    outline: none;
+    border-color: var(--accent-color);
+    background: var(--bg-secondary);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-color) 20%, transparent);
+}
+
+.quick-bulk-tag-input::placeholder {
+    color: var(--text-tertiary);
+}
+
+.quick-bulk-tag-apply-btn {
+    padding: 7px 14px;
+    background: var(--accent-color);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+}
+
+.quick-bulk-tag-apply-btn:hover {
+    opacity: 0.85;
+}
+
+.quick-bulk-tag-apply-btn:active {
+    transform: scale(0.97);
+}
+
 .view-controls {
     display: flex;
     gap: 4px;

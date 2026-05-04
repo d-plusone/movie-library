@@ -184,6 +184,10 @@
                 {
                     "from": "node_modules/@ffmpeg-installer/darwin-arm64/ffmpeg",
                     "to": "ffmpeg-bin/darwin-arm64/ffmpeg"
+                },
+                {
+                    "from": "ffprobe-bin/darwin-arm64/ffprobe",
+                    "to": "ffprobe-bin/darwin-arm64/ffprobe"
                 }
             ],
             "target": [
