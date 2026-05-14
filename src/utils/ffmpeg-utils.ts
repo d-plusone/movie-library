@@ -22,12 +22,26 @@ async function ensureExecutable(binaryPath: string): Promise<void> {
   try {
     // Check if file exists
     await accessAsync(binaryPath, constants.F_OK);
-    
+
+    // Check if already executable - if so, no need to chmod
+    try {
+      await accessAsync(binaryPath, constants.X_OK);
+      return; // Already executable
+    } catch {
+      // Not executable, try to chmod
+    }
+
     // Add execute permissions (0o755 = rwxr-xr-x)
-    await chmodAsync(binaryPath, 0o755);
-    console.log(`✅ Set executable permissions on: ${binaryPath}`);
+    try {
+      await chmodAsync(binaryPath, 0o755);
+      console.log(`✅ Set executable permissions on: ${binaryPath}`);
+    } catch (chmodError) {
+      // chmod failed (e.g. read-only app bundle), warn but don't throw
+      // The spawn will fail with a clear error if the binary truly can't execute
+      console.warn(`⚠️  Could not chmod ${binaryPath}:`, chmodError);
+    }
   } catch (error) {
-    console.error(`⚠️  Failed to set executable permissions on ${binaryPath}:`, error);
+    console.error(`⚠️  Binary not found: ${binaryPath}:`, error);
     throw error;
   }
 }
@@ -40,7 +54,7 @@ export async function getFfmpegPath(): Promise<string | null> {
     console.log("  - Is packaged:", !isDevelopment());
     console.log("  - __dirname:", __dirname);
     console.log("  - process.resourcesPath:", process.resourcesPath);
-    
+
     let ffmpegPath: string;
 
     if (isDevelopment()) {
@@ -51,7 +65,9 @@ export async function getFfmpegPath(): Promise<string | null> {
         console.log("  - Dev mode: using @ffmpeg-installer/ffmpeg ✅");
         console.log("  - Raw path:", ffmpegPath);
       } catch (requireError: any) {
-        console.error("  - Dev mode: @ffmpeg-installer/ffmpeg require failed ❌");
+        console.error(
+          "  - Dev mode: @ffmpeg-installer/ffmpeg require failed ❌",
+        );
         console.error("  - Error:", requireError.message);
         throw requireError;
       }
@@ -61,7 +77,7 @@ export async function getFfmpegPath(): Promise<string | null> {
       const platform = process.platform;
       console.log("  - Prod mode: using extraResources");
       console.log("  - Platform:", platform, "Arch:", arch);
-      
+
       // Determine the correct architecture subdirectory
       let archDir: string;
       if (platform === "darwin") {
@@ -71,14 +87,14 @@ export async function getFfmpegPath(): Promise<string | null> {
       } else {
         archDir = "linux-x64";
       }
-      
+
       const resourcesPath = process.resourcesPath;
       ffmpegPath = path.join(resourcesPath, "ffmpeg-bin", archDir, "ffmpeg");
-      
+
       if (platform === "win32") {
         ffmpegPath += ".exe";
       }
-      
+
       console.log("  - Constructed path:", ffmpegPath);
       console.log("  - Resources path:", resourcesPath);
     }
@@ -101,7 +117,7 @@ export async function getFfmpegPath(): Promise<string | null> {
       console.error("  - Access error:", err);
       throw err;
     }
-    
+
     // Ensure binary is executable
     await ensureExecutable(ffmpegPath);
 
@@ -129,7 +145,9 @@ export async function getFfprobePath(): Promise<string | null> {
           console.log("  - Dev mode: using Homebrew arm64 ffprobe ✅");
           ffprobePath = homebrewFfprobe;
         } catch {
-          console.log("  - Dev mode: Homebrew ffprobe not found, falling back to ffprobe-static");
+          console.log(
+            "  - Dev mode: Homebrew ffprobe not found, falling back to ffprobe-static",
+          );
           const ffprobeStatic = require("ffprobe-static");
           ffprobePath = ffprobeStatic.path;
         }
@@ -141,14 +159,22 @@ export async function getFfprobePath(): Promise<string | null> {
       // Production mode: use bundled arm64 ffprobe binary on Apple Silicon
       if (process.platform === "darwin" && process.arch === "arm64") {
         const resourcesPath = process.resourcesPath;
-        ffprobePath = path.join(resourcesPath, "ffprobe-bin", "darwin-arm64", "ffprobe");
+        ffprobePath = path.join(
+          resourcesPath,
+          "ffprobe-bin",
+          "darwin-arm64",
+          "ffprobe",
+        );
         console.log("  - Prod mode: using bundled arm64 ffprobe ✅");
         console.log("  - Constructed path:", ffprobePath);
       } else {
         const ffprobeStatic = require("ffprobe-static");
         ffprobePath = ffprobeStatic.path;
         // Fix ASAR path if needed
-        if (ffprobePath.includes("app.asar") && !ffprobePath.includes("app.asar.unpacked")) {
+        if (
+          ffprobePath.includes("app.asar") &&
+          !ffprobePath.includes("app.asar.unpacked")
+        ) {
           ffprobePath = ffprobePath.replace("app.asar", "app.asar.unpacked");
         }
       }
@@ -164,7 +190,7 @@ export async function getFfprobePath(): Promise<string | null> {
 
     // Ensure binary exists
     await accessAsync(ffprobePath, constants.F_OK);
-    
+
     // Ensure binary is executable
     await ensureExecutable(ffprobePath);
 
@@ -183,7 +209,7 @@ export async function initializeFFmpeg(): Promise<{
 }> {
   try {
     console.log("🎬 Initializing FFmpeg...");
-    
+
     const ffmpegPath = await getFfmpegPath();
     const ffprobePath = await getFfprobePath();
 

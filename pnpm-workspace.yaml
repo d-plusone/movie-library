@@ -1,0 +1,10 @@
+allowBuilds:
+  '@ffmpeg-installer/darwin-arm64': true
+  '@prisma/client': true
+  '@prisma/engines': true
+  electron: true
+  fsevents: true
+  prisma: true
+
+settings:
+  blockExoticSubdeps: false
