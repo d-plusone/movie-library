@@ -21,6 +21,24 @@ import { initializeFFmpeg } from "./src/utils/ffmpeg-utils.js";
 // This must be done before any app.getPath() calls
 app.setName("movie-library");
 
+async function runConcurrent<T>(
+  items: T[],
+  concurrency: number,
+  task: (item: T) => Promise<void>,
+): Promise<void> {
+  let index = 0;
+  const workers = Array.from(
+    { length: Math.min(concurrency, items.length) },
+    async () => {
+      while (index < items.length) {
+        const item = items[index++];
+        await task(item);
+      }
+    },
+  );
+  await Promise.allSettled(workers);
+}
+
 class MovieLibraryApp {
   private mainWindow: BrowserWindow | null = null;
   private db: PrismaDatabaseManager;
@@ -499,78 +517,55 @@ class MovieLibraryApp {
       // 自動的にサムネイル生成を実行
       console.log("Starting automatic thumbnail generation after rescan...");
       try {
-        const videos = await this.db.getVideos(); // 全動画を取得
+        const BATCH_SIZE = 50;
+        const totalVideos = await this.db.getVideoCount();
         const results: ThumbnailResult[] = [];
         let processedVideos = 0;
-        const totalVideos = videos.length;
 
-        console.log(
-          `Auto-generating thumbnails for ${totalVideos} videos after rescan`,
-        );
+        console.log(`Auto-generating thumbnails for ${totalVideos} videos after rescan`);
 
-        for (const video of videos) {
-          try {
-            // プログレス送信（処理開始前）
-            this.mainWindow?.webContents.send("thumbnail-progress", {
-              current: processedVideos,
-              total: totalVideos,
-              message: `自動サムネイル生成中: ${video.filename}`,
-              file: video.filename,
-            });
+        for (let offset = 0; offset < totalVideos; offset += BATCH_SIZE) {
+          const videos = await this.db.getVideos("filename", "ASC", BATCH_SIZE, offset);
+          await runConcurrent(videos, 3, async (video) => {
+            try {
+              this.mainWindow?.webContents.send("thumbnail-progress", {
+                current: processedVideos,
+                total: totalVideos,
+                message: `自動サムネイル生成中: ${video.filename}`,
+                file: video.filename,
+              });
 
-            console.log(
-              `Auto-generating thumbnail ${
-                processedVideos + 1
-              }/${totalVideos}: ${video.filename}`,
-            );
+              if (video.duration !== undefined) {
+                const thumbnailResult = await this.thumbnailGenerator.generateThumbnails(video);
+                results.push(thumbnailResult);
+              }
 
-            if (video.duration !== undefined) {
-              const thumbnailResult =
-                await this.thumbnailGenerator.generateThumbnails(video);
-              results.push(thumbnailResult);
+              processedVideos++;
+
+              this.mainWindow?.webContents.send("thumbnail-progress", {
+                current: processedVideos,
+                total: totalVideos,
+                message: `自動サムネイル生成完了: ${video.filename}`,
+                file: video.filename,
+              });
+            } catch (error) {
+              console.error("Error auto-generating thumbnails for:", video.path, error);
+              processedVideos++;
+              this.mainWindow?.webContents.send("thumbnail-progress", {
+                current: processedVideos,
+                total: totalVideos,
+                message: `自動サムネイル生成エラー: ${video.filename}`,
+                file: video.filename,
+              });
             }
-
-            // 処理完了後にカウンターを増加
-            processedVideos++;
-
-            // 完了時プログレス送信
-            this.mainWindow?.webContents.send("thumbnail-progress", {
-              current: processedVideos,
-              total: totalVideos,
-              message: `自動サムネイル生成完了: ${video.filename}`,
-              file: video.filename,
-            });
-
-            console.log(
-              `Auto-thumbnail generation completed ${processedVideos}/${totalVideos}: ${video.filename}`,
-            );
-          } catch (error) {
-            console.error(
-              "Error auto-generating thumbnails for:",
-              video.path,
-              error,
-            );
-            // エラー時もカウンターを増加
-            processedVideos++;
-
-            // エラー時のプログレス送信
-            this.mainWindow?.webContents.send("thumbnail-progress", {
-              current: processedVideos,
-              total: totalVideos,
-              message: `自動サムネイル生成エラー: ${video.filename}`,
-              file: video.filename,
-            });
-          }
+          });
         }
 
-        // 最終プログレス送信
         this.mainWindow?.webContents.send("thumbnail-progress", {
           message: "自動サムネイル生成完了",
         });
 
-        console.log(
-          `Auto thumbnail generation completed: ${processedVideos}/${totalVideos} processed`,
-        );
+        console.log(`Auto thumbnail generation completed: ${processedVideos}/${totalVideos} processed`);
       } catch (error) {
         console.error("Error during automatic thumbnail generation:", error);
         this.mainWindow?.webContents.send("thumbnail-progress", {
@@ -590,253 +585,191 @@ class MovieLibraryApp {
 
     // Generate thumbnails
     ipcMain.handle("generate-thumbnails", async () => {
-      const videos = await this.db.getVideosWithoutThumbnails();
+      const BATCH_SIZE = 50;
+      const totalVideos = await this.db.getVideosWithoutThumbnailsCount();
       const results: ThumbnailResult[] = [];
       let processedVideos = 0;
-      const totalVideos = videos.length;
 
       console.log(`Starting generation of ${totalVideos} thumbnails`);
 
-      for (const video of videos) {
-        try {
-          // プログレス送信（処理開始前）
-          this.mainWindow?.webContents.send("thumbnail-progress", {
-            current: processedVideos,
-            total: totalVideos,
-            message: `サムネイル生成中: ${video.filename}`,
-            file: video.filename,
-          });
+      for (let offset = 0; offset < totalVideos; offset += BATCH_SIZE) {
+        const videos = await this.db.getVideosWithoutThumbnails(BATCH_SIZE, offset);
+        await runConcurrent(videos, 3, async (video) => {
+          try {
+            this.mainWindow?.webContents.send("thumbnail-progress", {
+              current: processedVideos,
+              total: totalVideos,
+              message: `サムネイル生成中: ${video.filename}`,
+              file: video.filename,
+            });
 
-          console.log(
-            `Generating thumbnail ${processedVideos + 1}/${totalVideos}: ${
-              video.filename
-            }`,
-          );
+            if (video.duration !== undefined) {
+              const result = await this.thumbnailGenerator.generateThumbnails(video);
+              results.push(result);
+            }
 
-          if (video.duration !== undefined) {
-            const result =
-              await this.thumbnailGenerator.generateThumbnails(video);
-            results.push(result);
+            processedVideos++;
+
+            this.mainWindow?.webContents.send("thumbnail-progress", {
+              current: processedVideos,
+              total: totalVideos,
+              message: `サムネイル生成完了: ${video.filename}`,
+              file: video.filename,
+            });
+          } catch (error) {
+            console.error("Error generating thumbnails for:", video.path, error);
+            processedVideos++;
+            this.mainWindow?.webContents.send("thumbnail-progress", {
+              current: processedVideos,
+              total: totalVideos,
+              message: `サムネイル生成エラー: ${video.filename}`,
+              file: video.filename,
+            });
           }
-
-          // 処理完了後にカウンターを増加
-          processedVideos++;
-
-          // 完了時プログレス送信
-          this.mainWindow?.webContents.send("thumbnail-progress", {
-            current: processedVideos,
-            total: totalVideos,
-            message: `サムネイル生成完了: ${video.filename}`,
-            file: video.filename,
-          });
-
-          console.log(
-            `Completed thumbnail ${processedVideos}/${totalVideos}: ${video.filename}`,
-          );
-        } catch (error) {
-          console.error("Error generating thumbnails for:", video.path, error);
-          // エラー時もカウンターを増加
-          processedVideos++;
-
-          // エラー時のプログレス送信
-          this.mainWindow?.webContents.send("thumbnail-progress", {
-            current: processedVideos,
-            total: totalVideos,
-            message: `サムネイル生成エラー: ${video.filename}`,
-            file: video.filename,
-          });
-        }
+        });
       }
 
-      // 最終プログレス送信
       this.mainWindow?.webContents.send("thumbnail-progress", {
         message: "サムネイル生成完了",
       });
 
-      console.log(
-        `Thumbnail generation completed: ${processedVideos}/${totalVideos} processed`,
-      );
+      console.log(`Thumbnail generation completed: ${processedVideos}/${totalVideos} processed`);
       return results;
     });
 
     // Regenerate all thumbnails
     ipcMain.handle("regenerate-all-thumbnails", async () => {
-      const videos = await this.db.getVideos();
+      const BATCH_SIZE = 50;
+      const totalVideos = await this.db.getVideoCount();
       const results: ThumbnailResult[] = [];
       let processedVideos = 0;
-      const totalVideos = videos.length;
 
       console.log(`Starting regeneration of ${totalVideos} thumbnails`);
 
-      for (const video of videos) {
-        try {
-          // プログレス送信（処理開始前）
-          this.mainWindow?.webContents.send("thumbnail-progress", {
-            current: processedVideos,
-            total: totalVideos,
-            message: `サムネイル再生成中: ${video.filename}`,
-            file: video.filename,
-          });
+      for (let offset = 0; offset < totalVideos; offset += BATCH_SIZE) {
+        const videos = await this.db.getVideos("filename", "ASC", BATCH_SIZE, offset);
+        await runConcurrent(videos, 3, async (video) => {
+          try {
+            this.mainWindow?.webContents.send("thumbnail-progress", {
+              current: processedVideos,
+              total: totalVideos,
+              message: `サムネイル再生成中: ${video.filename}`,
+              file: video.filename,
+            });
 
-          console.log(
-            `Regenerating thumbnail ${processedVideos + 1}/${totalVideos}: ${
-              video.filename
-            }`,
-          );
+            if (video.duration !== undefined) {
+              const result = await this.thumbnailGenerator.generateThumbnails(video);
+              results.push(result);
+            }
 
-          if (video.duration !== undefined) {
-            const result =
-              await this.thumbnailGenerator.generateThumbnails(video);
-            results.push(result);
+            processedVideos++;
+
+            this.mainWindow?.webContents.send("thumbnail-progress", {
+              current: processedVideos,
+              total: totalVideos,
+              message: `サムネイル再生成完了: ${video.filename}`,
+              file: video.filename,
+            });
+          } catch (error) {
+            console.error("Error regenerating thumbnails for:", video.path, error);
+            processedVideos++;
+            this.mainWindow?.webContents.send("thumbnail-progress", {
+              current: processedVideos,
+              total: totalVideos,
+              message: `サムネイル再生成エラー: ${video.filename}`,
+              file: video.filename,
+            });
           }
-
-          // 処理完了後にカウンターを増加
-          processedVideos++;
-
-          // 完了時プログレス送信
-          this.mainWindow?.webContents.send("thumbnail-progress", {
-            current: processedVideos,
-            total: totalVideos,
-            message: `サムネイル再生成完了: ${video.filename}`,
-            file: video.filename,
-          });
-
-          console.log(
-            `Completed thumbnail ${processedVideos}/${totalVideos}: ${video.filename}`,
-          );
-        } catch (error) {
-          console.error(
-            "Error regenerating thumbnails for:",
-            video.path,
-            error,
-          );
-          // エラー時もカウンターを増加
-          processedVideos++;
-
-          // エラー時のプログレス送信
-          this.mainWindow?.webContents.send("thumbnail-progress", {
-            current: processedVideos,
-            total: totalVideos,
-            message: `サムネイル再生成エラー: ${video.filename}`,
-            file: video.filename,
-          });
-        }
+        });
       }
 
-      // 最終プログレス送信
       this.mainWindow?.webContents.send("thumbnail-progress", {
         message: "全サムネイル再生成完了",
       });
 
-      console.log(
-        `Thumbnail regeneration completed: ${processedVideos}/${totalVideos} processed`,
-      );
+      console.log(`Thumbnail regeneration completed: ${processedVideos}/${totalVideos} processed`);
       return results;
     });
 
     // Generate thumbnails for videos with incomplete thumbnails (startup check)
     ipcMain.handle("generate-incomplete-thumbnails", async () => {
-      const allVideos = await this.db.getVideos();
-      const incompleteVideos: typeof allVideos = [];
+      const BATCH_SIZE = 50;
+      const totalCount = await this.db.getVideoCount();
+      let generatedVideos = 0;
+      let scannedVideos = 0;
 
-      // ファイルの存在確認：メインサムネイル + チャプターサムネイルが1枚以上あるか
-      for (const video of allVideos) {
-        try {
-          // 元動画ファイルが存在しない場合はスキップ（削除・移動済みファイルの無限リトライを防ぐ）
+      console.log(`Scanning ${totalCount} videos for incomplete thumbnails`);
+
+      for (let offset = 0; offset < totalCount; offset += BATCH_SIZE) {
+        const videos = await this.db.getVideos("filename", "ASC", BATCH_SIZE, offset);
+
+        await runConcurrent(videos, 3, async (video) => {
+          scannedVideos++;
           try {
-            await fs.access(video.path);
-          } catch {
-            continue;
-          }
-
-          let isIncomplete = false;
-
-          // メインサムネイルのチェック
-          if (!video.thumbnailPath) {
-            isIncomplete = true;
-          } else {
             try {
-              await fs.access(video.thumbnailPath);
+              await fs.access(video.path);
             } catch {
-              isIncomplete = true;
+              return;
             }
-          }
 
-          // チャプターサムネイルのチェック（1枚以上あれば完了とみなす）
-          if (!isIncomplete) {
-            const chapters = video.chapterThumbnails || [];
-            if (chapters.length === 0) {
+            let isIncomplete = false;
+
+            if (!video.thumbnailPath) {
               isIncomplete = true;
             } else {
-              // 存在するチャプターファイルが1枚もない場合のみ再生成
-              let anyExists = false;
-              for (const chapter of chapters) {
-                try {
-                  await fs.access(chapter.path);
-                  anyExists = true;
-                  break;
-                } catch {
-                  // continue checking
-                }
-              }
-              if (!anyExists) {
+              try {
+                await fs.access(video.thumbnailPath);
+              } catch {
                 isIncomplete = true;
               }
             }
+
+            if (!isIncomplete) {
+              const chapters = video.chapterThumbnails || [];
+              if (chapters.length === 0) {
+                isIncomplete = true;
+              } else {
+                let anyExists = false;
+                for (const chapter of chapters) {
+                  try {
+                    await fs.access(chapter.path);
+                    anyExists = true;
+                    break;
+                  } catch {
+                    // continue checking
+                  }
+                }
+                if (!anyExists) {
+                  isIncomplete = true;
+                }
+              }
+            }
+
+            if (isIncomplete) {
+              this.mainWindow?.webContents.send("thumbnail-progress", {
+                current: generatedVideos,
+                total: totalCount,
+                message: `サムネイル補完中: ${video.filename}`,
+                file: video.filename,
+              });
+
+              if (video.duration !== undefined) {
+                await this.thumbnailGenerator.generateThumbnails(video);
+              }
+
+              generatedVideos++;
+
+              this.mainWindow?.webContents.send("thumbnail-progress", {
+                current: generatedVideos,
+                total: totalCount,
+                message: `サムネイル補完完了: ${video.filename}`,
+                file: video.filename,
+              });
+            }
+          } catch (error) {
+            console.error("Error checking thumbnail completeness for:", video.path, error);
           }
-
-          if (isIncomplete) {
-            incompleteVideos.push(video);
-          }
-        } catch (error) {
-          console.error(
-            "Error checking thumbnail completeness for:",
-            video.path,
-            error,
-          );
-        }
-      }
-
-      const totalVideos = incompleteVideos.length;
-      console.log(
-        `Found ${totalVideos} videos with incomplete thumbnails (out of ${allVideos.length})`,
-      );
-
-      if (totalVideos === 0) {
-        return { total: 0, generated: 0 };
-      }
-
-      let processedVideos = 0;
-
-      for (const video of incompleteVideos) {
-        try {
-          this.mainWindow?.webContents.send("thumbnail-progress", {
-            current: processedVideos,
-            total: totalVideos,
-            message: `サムネイル補完中: ${video.filename}`,
-            file: video.filename,
-          });
-
-          if (video.duration !== undefined) {
-            await this.thumbnailGenerator.generateThumbnails(video);
-          }
-
-          processedVideos++;
-
-          this.mainWindow?.webContents.send("thumbnail-progress", {
-            current: processedVideos,
-            total: totalVideos,
-            message: `サムネイル補完完了: ${video.filename}`,
-            file: video.filename,
-          });
-        } catch (error) {
-          console.error(
-            "Error generating incomplete thumbnails for:",
-            video.path,
-            error,
-          );
-          processedVideos++;
-        }
+        });
       }
 
       this.mainWindow?.webContents.send("thumbnail-progress", {
@@ -844,9 +777,9 @@ class MovieLibraryApp {
       });
 
       console.log(
-        `Incomplete thumbnail generation completed: ${processedVideos}/${totalVideos} processed`,
+        `Incomplete thumbnail generation completed: ${generatedVideos} generated out of ${scannedVideos} scanned`,
       );
-      return { total: totalVideos, generated: processedVideos };
+      return { total: generatedVideos, generated: generatedVideos };
     });
 
     // Update thumbnail settings

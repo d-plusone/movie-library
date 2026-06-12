@@ -3083,6 +3083,7 @@ class MovieLibraryApp {
 
     if (newIndex !== selectedIndex) {
       this.uiRenderer.setSelectedVideoIndex(newIndex);
+      this.uiRenderer.ensureIndexRendered(newIndex);
       this.uiRenderer.highlightSelectedVideo();
       this.scrollToSelectedVideo();
 

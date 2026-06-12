@@ -34,6 +34,9 @@ model Video {
   videoTags         VideoTag[]
 
   @@map("videos")
+  @@index([updatedAt])
+  @@index([addedAt])
+  @@index([thumbnailPath])
 }
 
 model Directory {
@@ -63,4 +66,5 @@ model VideoTag {
 
   @@id([videoId, tagId])
   @@map("video_tags")
+  @@index([tagId])
 }

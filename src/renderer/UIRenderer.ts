@@ -18,7 +18,13 @@ import {
 export class UIRenderer {
   private currentView: ViewType = "grid";
   private selectedVideoIndex: number = -1;
-  private tagFilterKeyword: string = ""; // タグフィルター用のキーワード
+  private tagFilterKeyword: string = "";
+
+  private virtualVideos: Video[] = [];
+  private virtualOffset = 0;
+  private virtualCallback?: (path: string) => Promise<void>;
+  private loadMoreObserver: IntersectionObserver | null = null;
+  private static readonly VIRTUAL_BATCH_SIZE = 50;
 
   // ビューを設定
   setView(view: ViewType): ViewType {
@@ -102,6 +108,8 @@ export class UIRenderer {
       return 0;
     }
 
+    this.loadMoreObserver?.disconnect();
+    this.loadMoreObserver = null;
     videoList.innerHTML = "";
 
     if (filteredVideos.length === 0) {
@@ -113,19 +121,13 @@ export class UIRenderer {
       return 0;
     }
 
-    filteredVideos.forEach((video, index) => {
-      const videoElement = this.createVideoElement(
-        video,
-        index,
-        playVideoCallback,
-      );
-      videoList.appendChild(videoElement);
-    });
+    this.virtualVideos = filteredVideos;
+    this.virtualOffset = 0;
+    this.virtualCallback = playVideoCallback;
 
-    // Update video count
+    this.renderNextBatch(videoList);
     this.updateVideoCount(filteredVideos.length);
 
-    // Update selected video if needed
     if (
       this.selectedVideoIndex >= 0 &&
       this.selectedVideoIndex < filteredVideos.length
@@ -134,6 +136,60 @@ export class UIRenderer {
     }
 
     return filteredVideos.length;
+  }
+
+  private renderNextBatch(videoList: HTMLElement): void {
+    this.renderUntil(
+      videoList,
+      this.virtualOffset + UIRenderer.VIRTUAL_BATCH_SIZE,
+    );
+  }
+
+  // index が未描画範囲なら DOM に追加してから呼び出し元に返す
+  ensureIndexRendered(index: number): void {
+    if (index < this.virtualOffset) return;
+
+    const videoList = document.getElementById("videoList");
+    if (!videoList) return;
+
+    // 既存 sentinel を一旦外す
+    this.loadMoreObserver?.disconnect();
+    this.loadMoreObserver = null;
+    videoList.querySelector(".virtual-scroll-sentinel")?.remove();
+
+    this.renderUntil(videoList, index + UIRenderer.VIRTUAL_BATCH_SIZE);
+  }
+
+  private renderUntil(videoList: HTMLElement, targetIndex: number): void {
+    const end = Math.min(targetIndex, this.virtualVideos.length);
+
+    for (let i = this.virtualOffset; i < end; i++) {
+      videoList.appendChild(
+        this.createVideoElement(this.virtualVideos[i], i, this.virtualCallback),
+      );
+    }
+
+    this.virtualOffset = end;
+
+    if (this.virtualOffset < this.virtualVideos.length) {
+      const sentinel = document.createElement("div");
+      sentinel.className = "virtual-scroll-sentinel";
+      videoList.appendChild(sentinel);
+
+      this.loadMoreObserver = new IntersectionObserver(
+        (entries) => {
+          if (entries[0].isIntersecting) {
+            this.loadMoreObserver!.disconnect();
+            this.loadMoreObserver = null;
+            sentinel.remove();
+            this.renderNextBatch(videoList);
+          }
+        },
+        { rootMargin: "300px" },
+      );
+
+      this.loadMoreObserver.observe(sentinel);
+    }
   }
 
   // 特定の動画のタグ表示だけを更新（サムネイルは再読み込みしない）
@@ -203,8 +259,9 @@ export class UIRenderer {
     div.dataset.index = index.toString();
     div.dataset.videoId = video.id.toString();
 
+    const thumbVersion = video.updatedAt instanceof Date ? video.updatedAt.getTime() : 0;
     const thumbnailSrc = video.thumbnailPath
-      ? `${FormatUtils.pathToFileUrl(video.thumbnailPath)}?t=${Date.now()}`
+      ? `${FormatUtils.pathToFileUrl(video.thumbnailPath)}?t=${thumbVersion}`
       : "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIwIiBoZWlnaHQ9IjE4MCIgdmlld0JveD0iMCAwIDMyMCAxODAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMjAiIGhlaWdodD0iMTgwIiBmaWxsPSIjRjVGNUY3Ii8+CjxwYXRoIGQ9Ik0xMjggNzJMMTkyIDEwOEwxMjggMTQ0VjcyWiIgZmlsbD0iIzk5OTk5OSIvPgo8L3N2Zz4K";
 
     console.log(
@@ -356,7 +413,7 @@ export class UIRenderer {
           console.log(`Chapter ${index} path:`, chapterPath);
           if (chapterPath) {
             thumbnails.push({
-              src: `${FormatUtils.pathToFileUrl(chapterPath)}?t=${Date.now()}`,
+              src: `${FormatUtils.pathToFileUrl(chapterPath)}?t=${thumbVersion}`,
               label: `チャプター ${index + 1}`,
             });
           }
@@ -714,6 +771,7 @@ export class UIRenderer {
   // ビデオ詳細の描画
   // チャプターサムネイルを効率的に更新
   private updateChapterThumbnails(video: Video): void {
+    const thumbVersion = video.updatedAt instanceof Date ? video.updatedAt.getTime() : 0;
     const chapterContainer = document.getElementById(
       "detailsChapterThumbnails",
     );
@@ -764,7 +822,7 @@ export class UIRenderer {
       const chapterPath = chapter.path;
 
       if (existingImg && chapterPath) {
-        const newSrc = `${FormatUtils.pathToFileUrl(chapterPath)}?t=${Date.now()}`;
+        const newSrc = `${FormatUtils.pathToFileUrl(chapterPath)}?t=${thumbVersion}`;
         if (existingImg.src !== newSrc) {
           existingImg.src = newSrc;
           existingImg.alt = `Chapter ${i + 1}`;
@@ -783,7 +841,7 @@ export class UIRenderer {
       chapterDiv.dataset.timestamp = chapter.timestamp.toString();
 
       const img = document.createElement("img");
-      img.src = `${FormatUtils.pathToFileUrl(chapterPath)}?t=${Date.now()}`;
+      img.src = `${FormatUtils.pathToFileUrl(chapterPath)}?t=${thumbVersion}`;
       img.alt = `Chapter ${i + 1}`;
       img.loading = "lazy";
 
@@ -885,7 +943,8 @@ export class UIRenderer {
       "detailsMainThumbnail",
     ) as HTMLImageElement;
     if (mainThumbnailImg && video.thumbnailPath) {
-      const newSrc = `${FormatUtils.pathToFileUrl(video.thumbnailPath)}?t=${Date.now()}`;
+      const thumbVersion = video.updatedAt instanceof Date ? video.updatedAt.getTime() : 0;
+      const newSrc = `${FormatUtils.pathToFileUrl(video.thumbnailPath)}?t=${thumbVersion}`;
       if (mainThumbnailImg.src !== newSrc) {
         mainThumbnailImg.src = newSrc;
         mainThumbnailImg.alt = video.title;
@@ -961,7 +1020,7 @@ export class UIRenderer {
     tooltip.className = "thumbnail-tooltip";
 
     const img = document.createElement("img");
-    img.src = `${FormatUtils.pathToFileUrl(imagePath)}?t=${Date.now()}`;
+    img.src = FormatUtils.pathToFileUrl(imagePath);
     img.alt = `Thumbnail - ${timestamp}`;
 
     const timeDiv = document.createElement("div");
@@ -1389,7 +1448,7 @@ export class UIRenderer {
               <button class="nav-btn prev-btn" title="前のサムネイル (←)">‹</button>
               <div class="current-chapter">
                 <div class="chapter-image-container">
-                  <img id="currentChapterImg" src="${FormatUtils.pathToFileUrl(initialThumb.path)}?t=${Date.now()}" alt="${initialThumb.title}">
+                  <img id="currentChapterImg" src="${FormatUtils.pathToFileUrl(initialThumb.path)}?t=${video.updatedAt instanceof Date ? video.updatedAt.getTime() : 0}" alt="${initialThumb.title}">
                   <div class="chapter-overlay-info">
                     <div class="chapter-counter" id="chapterCounter">${currentIndex + 1} / ${
                       allThumbnails.length
@@ -1424,7 +1483,7 @@ export class UIRenderer {
       const counter = overlay.querySelector("#chapterCounter") as HTMLElement;
 
       if (img && title && timestamp && counter) {
-        img.src = `${FormatUtils.pathToFileUrl(thumbnail.path)}?t=${Date.now()}`;
+        img.src = `${FormatUtils.pathToFileUrl(thumbnail.path)}?t=${video.updatedAt instanceof Date ? video.updatedAt.getTime() : 0}`;
         img.alt = thumbnail.title;
         title.textContent = `${FormatUtils.escapeHtml(video.title)} - ${
           thumbnail.title

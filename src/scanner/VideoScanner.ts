@@ -148,6 +148,7 @@ class VideoScanner {
     );
 
     // 5. 新規・更新・問題動画の処理
+    const existingVideoMap = new Map(existingVideos.map((v) => [v.path, v]));
     const totalFiles = allCurrentFiles.length + problematicVideos.length;
     let processedCount = 0;
 
@@ -162,7 +163,7 @@ class VideoScanner {
           });
         }
 
-        const existingVideo = existingVideos.find((v) => v.path === filePath);
+        const existingVideo = existingVideoMap.get(filePath);
         const stats = await fs.stat(filePath);
 
         if (!existingVideo) {
@@ -617,6 +618,7 @@ class VideoScanner {
     }
 
     // 4. 存在する全ての動画ファイルを強制的に再処理
+    const existingVideoMap = new Map(existingVideos.map((v) => [v.path, v]));
     const totalFiles = allCurrentFiles.length;
     let processedCount = 0;
 
@@ -639,7 +641,7 @@ class VideoScanner {
         );
 
         // 既存の動画データがあるかチェック
-        const existingVideo = existingVideos.find((v) => v.path === filePath);
+        const existingVideo = existingVideoMap.get(filePath);
 
         // ファイルを強制的に再処理（既存データがあっても無視）
         const video = await this.processFile(filePath, true); // 強制処理フラグを追加

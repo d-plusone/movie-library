@@ -474,7 +474,22 @@ class PrismaDatabaseManager {
     }));
   }
 
-  async getVideosWithoutThumbnails(): Promise<VideoRecord[]> {
+  async getVideoCount(): Promise<number> {
+    return this._prisma.video.count();
+  }
+
+  async getVideosWithoutThumbnailsCount(): Promise<number> {
+    return this._prisma.video.count({
+      where: {
+        OR: [{ thumbnailPath: null }, { thumbnailPath: "" }],
+      },
+    });
+  }
+
+  async getVideosWithoutThumbnails(
+    limit: number | null = null,
+    offset: number = 0,
+  ): Promise<VideoRecord[]> {
     try {
       console.log("getVideosWithoutThumbnails: Starting Prisma query");
 
@@ -489,6 +504,8 @@ class PrismaDatabaseManager {
             },
           },
         },
+        take: limit || undefined,
+        skip: offset,
       });
 
       console.log(
