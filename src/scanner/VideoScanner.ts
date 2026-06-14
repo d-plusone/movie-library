@@ -128,17 +128,37 @@ class VideoScanner {
 
     // 2. 現在のファイルシステムから全動画ファイルを取得
     const allCurrentFiles: string[] = [];
+    const scannedDirs = new Set<string>();
+
     for (const dir of directories) {
-      const files = await this.getAllFiles(dir);
-      allCurrentFiles.push(...files.filter((file) => this.isVideoFile(file)));
+      try {
+        await fs.access(dir);
+        const files = await this.getAllFiles(dir);
+        allCurrentFiles.push(...files.filter((file) => this.isVideoFile(file)));
+        scannedDirs.add(dir);
+      } catch (error) {
+        console.warn(`Skipping inaccessible directory during scan: ${dir}`, error);
+        result.errors.push({
+          filePath: dir,
+          error: `Directory inaccessible: ${error instanceof Error ? error.message : String(error)}`,
+          errorCode: error instanceof Error && "code" in error ? String((error as any).code) : undefined,
+          timestamp: new Date(),
+        });
+      }
     }
     const currentPaths = new Set(allCurrentFiles);
 
-    // 3. 削除された動画を検出
+    // 3. 削除された動画を検出（アクセスできたディレクトリ配下のみ対象）
+    // アクセス不能なディレクトリの動画を誤って削除しないよう保護
     for (const existingVideo of existingVideos) {
       if (!currentPaths.has(existingVideo.path)) {
-        result.deletedVideos.push(existingVideo.path);
-        console.log(`Detected deleted video: ${existingVideo.path}`);
+        const belongsToScannedDir = [...scannedDirs].some(
+          (dir) => existingVideo.path.startsWith(dir + "/") || existingVideo.path.startsWith(dir + "\\")
+        );
+        if (belongsToScannedDir) {
+          result.deletedVideos.push(existingVideo.path);
+          console.log(`Detected deleted video: ${existingVideo.path}`);
+        }
       }
     }
 
@@ -603,17 +623,37 @@ class VideoScanner {
 
     // 2. 現在のファイルシステムから全動画ファイルを取得
     const allCurrentFiles: string[] = [];
+    const scannedDirs = new Set<string>();
+
     for (const dir of directories) {
-      const files = await this.getAllFiles(dir);
-      allCurrentFiles.push(...files.filter((file) => this.isVideoFile(file)));
+      try {
+        await fs.access(dir);
+        const files = await this.getAllFiles(dir);
+        allCurrentFiles.push(...files.filter((file) => this.isVideoFile(file)));
+        scannedDirs.add(dir);
+      } catch (error) {
+        console.warn(`Skipping inaccessible directory during rescan: ${dir}`, error);
+        result.errors.push({
+          filePath: dir,
+          error: `Directory inaccessible: ${error instanceof Error ? error.message : String(error)}`,
+          errorCode: error instanceof Error && "code" in error ? String((error as any).code) : undefined,
+          timestamp: new Date(),
+        });
+      }
     }
     const currentPaths = new Set(allCurrentFiles);
 
-    // 3. 削除された動画を検出
+    // 3. 削除された動画を検出（アクセスできたディレクトリ配下のみ対象）
+    // アクセス不能なディレクトリの動画を誤って削除しないよう保護
     for (const existingVideo of existingVideos) {
       if (!currentPaths.has(existingVideo.path)) {
-        result.deletedVideos.push(existingVideo.path);
-        console.log(`Detected deleted video: ${existingVideo.path}`);
+        const belongsToScannedDir = [...scannedDirs].some(
+          (dir) => existingVideo.path.startsWith(dir + "/") || existingVideo.path.startsWith(dir + "\\")
+        );
+        if (belongsToScannedDir) {
+          result.deletedVideos.push(existingVideo.path);
+          console.log(`Detected deleted video: ${existingVideo.path}`);
+        }
       }
     }
 

@@ -1126,7 +1126,20 @@ class MovieLibraryApp {
       // 監視しているディレクトリ自体が削除された場合
       if (dirPath === directoryPath) {
         try {
-          console.log("Directory removed:", dirPath);
+          console.log("Directory unlinkDir event:", dirPath);
+
+          // 外付けドライブの一時的な切断など誤検知を防ぐため、少し待ってから再確認する
+          await new Promise<void>((resolve) => setTimeout(resolve, 3000));
+
+          const { promises: fsPromises } = await import("fs");
+          try {
+            await fsPromises.access(dirPath);
+            // ディレクトリが復活していた（一時的なイベントだった）
+            console.log("Directory re-appeared after unlinkDir (transient event), keeping:", dirPath);
+            return;
+          } catch {
+            // ディレクトリが本当に存在しない
+          }
 
           // データベースからディレクトリを削除
           await this.db.removeDirectory(dirPath);
