@@ -37,6 +37,8 @@ class MovieLibraryApp {
   private filteredVideos: Video[] = [];
   private currentVideo: Video | null = null;
   private currentSort: SortState = { field: "addedAt", order: "DESC" };
+  private tagInputKeydownHandler: ((e: KeyboardEvent) => void) | null = null;
+  private isScanOperationInProgress = false;
 
   // Thumbnail and tooltip state
   private currentThumbnails: ChapterThumbnail[] = [];
@@ -356,7 +358,9 @@ class MovieLibraryApp {
     toggleBtn.addEventListener("click", () => {
       const isCollapsed = sidebar.classList.toggle("collapsed");
       toggleBtn.classList.toggle("collapsed", isCollapsed);
-      toggleBtn.title = isCollapsed ? "サイドメニューを表示" : "サイドメニューを隠す";
+      toggleBtn.title = isCollapsed
+        ? "サイドメニューを表示"
+        : "サイドメニューを隠す";
       localStorage.setItem("sidebarCollapsed", String(isCollapsed));
     });
   }
@@ -1186,13 +1190,28 @@ class MovieLibraryApp {
   private async scanDirectories(): Promise<void> {
     console.log("scanDirectories called");
 
+    if (this.isScanOperationInProgress) {
+      this.notificationManager.show(
+        "他のスキャン処理が実行中です。完了までお待ちください",
+        "warning",
+      );
+      return;
+    }
+    this.isScanOperationInProgress = true;
+
     // ボタンを無効化
     const scanBtn = document.getElementById(
       "scanDirectoriesBtn",
     ) as HTMLButtonElement;
+    const rescanBtn = document.getElementById(
+      "rescanAllBtn",
+    ) as HTMLButtonElement;
     if (scanBtn) {
       scanBtn.disabled = true;
       scanBtn.textContent = "スキャン中...";
+    }
+    if (rescanBtn) {
+      rescanBtn.disabled = true;
     }
 
     try {
@@ -1274,11 +1293,15 @@ class MovieLibraryApp {
       this.notificationManager.show("スキャンに失敗しました", "error");
     } finally {
       this.unifiedProgress.completeProgress("scan-progress");
+      this.isScanOperationInProgress = false;
 
       // ボタンを有効化
       if (scanBtn) {
         scanBtn.disabled = false;
         scanBtn.innerHTML = '<span class="icon">🔄</span><span>スキャン</span>';
+      }
+      if (rescanBtn) {
+        rescanBtn.disabled = false;
       }
     }
   }
@@ -1949,6 +1972,7 @@ class MovieLibraryApp {
       const videoInList = this.filteredVideos.find((v) => v.id === video.id);
       if (videoInList) {
         videoInList.thumbnailPath = thumbnailPath;
+        videoInList.updatedAt = new Date(); // キャッシュバスティング用に更新日時を更新
       }
 
       // ビデオリストを再描画
@@ -2029,13 +2053,28 @@ class MovieLibraryApp {
   private async rescanAllVideos(): Promise<void> {
     console.log("rescanAllVideos called");
 
+    if (this.isScanOperationInProgress) {
+      this.notificationManager.show(
+        "他のスキャン処理が実行中です。完了までお待ちください",
+        "warning",
+      );
+      return;
+    }
+    this.isScanOperationInProgress = true;
+
     // ボタンを無効化
     const rescanBtn = document.getElementById(
       "rescanAllBtn",
     ) as HTMLButtonElement;
+    const scanBtn = document.getElementById(
+      "scanDirectoriesBtn",
+    ) as HTMLButtonElement;
     if (rescanBtn) {
       rescanBtn.disabled = true;
       rescanBtn.textContent = "再スキャン中...";
+    }
+    if (scanBtn) {
+      scanBtn.disabled = true;
     }
 
     try {
@@ -2105,12 +2144,16 @@ class MovieLibraryApp {
     } finally {
       // プログレスを完了（これでモーダルも閉じる）
       this.unifiedProgress.completeProgress("settings-rescan-all");
+      this.isScanOperationInProgress = false;
 
       // ボタンを有効化
       if (rescanBtn) {
         rescanBtn.disabled = false;
         rescanBtn.innerHTML =
           '<span class="icon">🔄</span><span>全ての動画を再スキャン</span>';
+      }
+      if (scanBtn) {
+        scanBtn.disabled = false;
       }
     }
   }
@@ -2425,6 +2468,10 @@ class MovieLibraryApp {
       this.currentSort.order = target.value as "ASC" | "DESC";
     }
 
+    // ソート状態をlocalStorageに保存
+    localStorage.setItem("sortField", this.currentSort.field);
+    localStorage.setItem("sortOrder", this.currentSort.order);
+
     console.log("Sort changed:", this.currentSort);
     this.applyFiltersAndSort();
   }
@@ -2572,38 +2619,44 @@ class MovieLibraryApp {
       const starElement = star as HTMLElement;
 
       // クリックイベント
-      starElement.addEventListener("click", () => {
+      starElement.onclick = () => {
         this.setVideoRating(index + 1);
-      });
+      };
 
       // ホバーイベント
-      starElement.addEventListener("mouseenter", () => {
+      starElement.onmouseenter = () => {
         this.uiRenderer.updateDetailsRatingHover(index + 1, true);
-      });
+      };
 
-      starElement.addEventListener("mouseleave", () => {
+      starElement.onmouseleave = () => {
         const currentRating = this.currentVideo?.rating || 0;
         this.uiRenderer.updateDetailsRatingHover(currentRating, false);
-      });
+      };
     });
 
     // 評価削除ボタンのクリックイベント
-    const clearRatingBtn = document.querySelector(".clear-rating-btn");
+    const clearRatingBtn = document.querySelector(
+      ".clear-rating-btn",
+    ) as HTMLElement;
     if (clearRatingBtn) {
-      clearRatingBtn.addEventListener("click", () => {
+      clearRatingBtn.onclick = () => {
         this.setVideoRating(0);
-      });
+      };
     }
 
     // タグ入力のイベント処理
     const tagInput = document.getElementById("tagInput") as HTMLInputElement;
     if (tagInput) {
-      tagInput.addEventListener("keypress", (e) => {
+      if (this.tagInputKeydownHandler) {
+        tagInput.removeEventListener("keydown", this.tagInputKeydownHandler);
+      }
+      this.tagInputKeydownHandler = (e: KeyboardEvent) => {
         if (e.key === "Enter") {
           e.preventDefault();
           this.addTagToCurrentVideo();
         }
-      });
+      };
+      tagInput.addEventListener("keydown", this.tagInputKeydownHandler);
     }
 
     // タグ削除ボタンのイベント処理
@@ -3362,6 +3415,17 @@ class MovieLibraryApp {
         this.filterManager.isSaveFilterStateEnabled();
     }
 
+    // 保存されたソート状態を復元
+    const savedSortField = localStorage.getItem("sortField");
+    const savedSortOrder = localStorage.getItem("sortOrder");
+    if (savedSortField) {
+      this.currentSort.field = savedSortField;
+    }
+    if (savedSortOrder === "ASC" || savedSortOrder === "DESC") {
+      this.currentSort.order = savedSortOrder;
+    }
+    this.updateSortUI();
+
     // サムネイル設定はVideoManagerから取得する必要があるかもしれません
     // 必要に応じて実装
   }
@@ -3440,9 +3504,8 @@ class MovieLibraryApp {
           const alreadyHas = video.tags && video.tags.includes(tagName);
           if (!alreadyHas) {
             await this.videoManager.addTagToVideo(video.id, tagName);
-            if (!video.tags) video.tags = [];
-            video.tags.push(tagName);
-            this.uiRenderer.updateVideoTags(video.id, video.tags);
+            // addTagToVideo がすでに同一オブジェクトのタグを更新済みのため push は不要
+            this.uiRenderer.updateVideoTags(video.id, video.tags || []);
             addedCount++;
           }
         }
@@ -3452,7 +3515,9 @@ class MovieLibraryApp {
       input.value = "";
 
       const tagLabel =
-        tagNames.length === 1 ? `「${tagNames[0]}」` : `${tagNames.length}個のタグ`;
+        tagNames.length === 1
+          ? `「${tagNames[0]}」`
+          : `${tagNames.length}個のタグ`;
       const message =
         addedCount > 0
           ? `${targetVideos.length}本の動画に${tagLabel}を付与しました`

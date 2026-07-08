@@ -136,32 +136,26 @@ class MovieLibraryApp {
     this.mainWindow.loadFile(htmlPath);
 
     // 開発モードでのみキーボードショートカットで開発者ツールを開く
-    // FIXME 一時的に開発者ツールが開けるようにする
-    // if (process.env.NODE_ENV === "development" || !app.isPackaged) {
-    this.mainWindow.webContents.on("before-input-event", (_event, input) => {
-      // macOS: Cmd+Option+I または F12
-      if (
-        process.platform === "darwin" &&
-        ((input.meta && input.alt && input.key.toLowerCase() === "i") ||
-          input.key === "F12")
-      ) {
-        this.mainWindow!.webContents.toggleDevTools();
-      }
-      // Windows/Linux: Ctrl+Shift+I または F12
-      else if (
-        process.platform !== "darwin" &&
-        ((input.control && input.shift && input.key.toLowerCase() === "i") ||
-          input.key === "F12")
-      ) {
-        this.mainWindow!.webContents.toggleDevTools();
-      }
-    });
-    // }
-
-    // Development mode - DevTools can be opened with F12
-    // if (process.env.NODE_ENV === "development" || !app.isPackaged) {
-    //   this.mainWindow.webContents.openDevTools();
-    // }
+    if (process.env.NODE_ENV === "development" || !app.isPackaged) {
+      this.mainWindow.webContents.on("before-input-event", (_event, input) => {
+        // macOS: Cmd+Option+I または F12
+        if (
+          process.platform === "darwin" &&
+          ((input.meta && input.alt && input.key.toLowerCase() === "i") ||
+            input.key === "F12")
+        ) {
+          this.mainWindow!.webContents.toggleDevTools();
+        }
+        // Windows/Linux: Ctrl+Shift+I または F12
+        else if (
+          process.platform !== "darwin" &&
+          ((input.control && input.shift && input.key.toLowerCase() === "i") ||
+            input.key === "F12")
+        ) {
+          this.mainWindow!.webContents.toggleDevTools();
+        }
+      });
+    }
 
     // ウィンドウが閉じられたときの処理
     this.mainWindow.on("closed", () => {
@@ -1094,6 +1088,18 @@ class MovieLibraryApp {
       if (this.videoScanner.isVideoFile(filePath)) {
         try {
           console.log("Processing video file removal:", filePath);
+
+          // 外付けドライブの一時的な切断など誤検知を防ぐため、少し待ってから再確認する
+          await new Promise<void>((resolve) => setTimeout(resolve, 3000));
+
+          try {
+            await fs.access(filePath);
+            // ファイルが復活していた（一時的なイベントだった）
+            console.log("File re-appeared after unlink (transient event), keeping:", filePath);
+            return;
+          } catch {
+            // ファイルが本当に存在しない
+          }
 
           // プログレス通知を送信
           if (this.mainWindow) {
