@@ -2920,6 +2920,160 @@ body[data-theme="dark"] .search-input::-moz-placeholder {
     border-top: 1px solid var(--border-color);
 }
 
+/* ==========================================
+   Video Player Modal
+   ========================================== */
+.video-player-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.9);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    /* ダイアログ（通知1001・モーダル1000・エラーダイアログ2001など）より下に置く。
+       再生中に表示される通知やダイアログが必ずプレーヤーの上に出るようにする */
+    z-index: 900;
+}
+
+.video-player-container {
+    width: 90%;
+    max-width: 1200px;
+    max-height: 90%;
+    background: #000;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+    display: flex;
+    flex-direction: column;
+}
+
+.video-player-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    background: rgba(255, 255, 255, 0.05);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.video-player-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: #eee;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+}
+
+.video-player-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.video-player-body {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: #000;
+    min-height: 0;
+}
+
+.video-player-body video {
+    width: 100%;
+    max-height: calc(90vh - 96px);
+    background: #000;
+    outline: none;
+    /* GPU コンポジションレイヤーに載せて描画を高速化（ヌルヌル再生） */
+    transform: translateZ(0);
+    will-change: transform;
+    backface-visibility: hidden;
+}
+
+.video-player-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    background: rgba(255, 255, 255, 0.05);
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.video-player-progress {
+    font-size: 12px;
+    color: #aaa;
+}
+
+.video-player-footer .btn-small {
+    color: #ccc;
+    border-color: rgba(255, 255, 255, 0.25);
+}
+
+.video-player-footer .btn-small:hover {
+    color: #fff;
+    border-color: var(--accent-color);
+}
+
+/* ダーク/ライト共通: タイトル文字色 */
+[data-theme="light"] .video-player-title {
+    color: #333;
+}
+
+[data-theme="light"] .video-player-footer .btn-small {
+    color: #555;
+    border-color: rgba(0, 0, 0, 0.25);
+}
+
+/* ==========================================
+   スクリーンショット保存先設定
+   ========================================== */
+.screenshot-dir-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+}
+
+.screenshot-dir-path {
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+    color: var(--text-color);
+    background: var(--bg-color, rgba(128, 128, 128, 0.1));
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 6px 10px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    user-select: text;
+}
+
+/* 内蔵プレーヤーのヘッダーボタン（スクショ/サムネイル） */
+.video-player-header .btn-small {
+    color: #ccc;
+    border-color: rgba(255, 255, 255, 0.25);
+    white-space: nowrap;
+}
+
+.video-player-header .btn-small:hover {
+    color: #fff;
+    border-color: var(--accent-color);
+}
+
+[data-theme="light"] .video-player-header .btn-small {
+    color: #555;
+    border-color: rgba(0, 0, 0, 0.25);
+}
+
+
 /* [data-theme="dark"] .modal-actions .btn {
     color: white !important;
     background: rgba(255, 255, 255, 0.15) !important;

@@ -56,6 +56,17 @@ class MovieLibraryApp {
   private tooltipTimeout: NodeJS.Timeout | null = null;
   private tooltipInterval: NodeJS.Timeout | null = null;
 
+  // Video player state
+  private internalPlayer: HTMLVideoElement | null = null;
+  private currentPlaybackVideo: Video | null = null;
+  private lastSavedWatchPosition = 0;
+  private playerLoadedMetadataHandler: (() => void) | null = null;
+  private playerTimeUpdateHandler: ((e: Event) => void) | null = null;
+  private playerEndedHandler: ((e: Event) => void) | null = null;
+  private playerErrorHandler: ((e: Event) => void) | null = null;
+  // 内蔵プレーヤー用のキーボードハンドラ参照（重複登録防止のためフィールドに保持）
+  private playerKeydownHandler: ((e: KeyboardEvent) => void) | null = null;
+
   // Event delegation setup flag
   private eventDelegationSetup: boolean = false;
 
@@ -828,6 +839,96 @@ class MovieLibraryApp {
       "click",
       this.addDirectory.bind(this),
     );
+
+    // Video player modal
+    this.safeAddEventListener("closePlayerBtn", "click", () =>
+      this.closeInternalPlayer(),
+    );
+    this.safeAddEventListener("playerExternalPlayBtn", "click", () =>
+      this.handlePlayerExternalPlay(),
+    );
+    this.safeAddEventListener("resetWatchProgressBtn", "click", () =>
+      this.resetWatchProgress(),
+    );
+    this.safeAddEventListener("playerScreenshotBtn", "click", () =>
+      this.captureScreenshot(),
+    );
+    this.safeAddEventListener("playerThumbnailBtn", "click", () =>
+      this.createThumbnailFromPlayer(),
+    );
+    this.safeAddEventListener("selectScreenshotDirBtn", "click", () =>
+      this.selectScreenshotDir(),
+    );
+
+    // 内蔵プレーヤーのキーボード操作
+    // - スペース: 再生/一時停止
+    // - ←/→: 5秒シーク、Shift+←/→: 1秒送り、Option(Alt)+←/→: コマ送り
+    // - ↑/↓: 音量調整
+    // - Cmd+S / Ctrl+S: スクリーンショット保存
+    // キャプチャフェーズで登録して KeyboardManager（バブリング）より先に処理する
+    if (this.playerKeydownHandler) {
+      document.removeEventListener("keydown", this.playerKeydownHandler, true);
+    }
+    this.playerKeydownHandler = (e: KeyboardEvent) => {
+      const playerModal = document.getElementById("videoPlayerModal");
+      const isPlayerOpen =
+        !!playerModal && playerModal.style.display === "flex";
+
+      // スクリーンショット保存（プレーヤー表示中のみ）
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
+        if (isPlayerOpen) {
+          e.preventDefault();
+          this.captureScreenshot();
+        }
+        return;
+      }
+
+      if (!isPlayerOpen) return;
+
+      // 入力フィールドでは操作しない
+      const target = e.target as HTMLElement;
+      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") {
+        return;
+      }
+
+      const videoEl = this.internalPlayer;
+      if (!videoEl) return;
+
+      // Option(Alt)+←/→: コマ送り（フレーム単位）
+      if (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.stepPlayerFrame(e.key === "ArrowRight" ? 1 : -1);
+        return;
+      }
+
+      switch (e.key) {
+        case " ":
+          e.preventDefault();
+          e.stopPropagation();
+          this.togglePlayerPlayback();
+          break;
+        case "ArrowLeft":
+        case "ArrowRight": {
+          e.preventDefault();
+          e.stopPropagation();
+          // Shift で 1 秒送り、通常は 5 秒送り
+          const seconds = e.shiftKey ? 1 : 5;
+          const delta = e.key === "ArrowLeft" ? -seconds : seconds;
+          this.seekPlayer(delta);
+          break;
+        }
+        case "ArrowUp":
+        case "ArrowDown": {
+          e.preventDefault();
+          e.stopPropagation();
+          const volumeDelta = e.key === "ArrowUp" ? 0.1 : -0.1;
+          this.adjustPlayerVolume(volumeDelta);
+          break;
+        }
+      }
+    };
+    document.addEventListener("keydown", this.playerKeydownHandler, true);
 
     // Bulk tag management
     this.safeAddEventListener(
@@ -2671,11 +2772,489 @@ class MovieLibraryApp {
 
   private async playVideo(videoPath: string): Promise<void> {
     try {
-      await this.videoManager.playVideo(videoPath);
+      const video = this.videoManager
+        .getVideos()
+        .find((v) => v.path === videoPath);
+      if (!video) {
+        throw new Error("Video not found");
+      }
+
+      // 設定された再生方法に従う（デフォルト: 内蔵プレーヤー）
+      const playbackMode = localStorage.getItem("playbackMode") || "internal";
+      if (playbackMode === "external") {
+        await this.playVideoExternal(video);
+      } else {
+        this.openInternalPlayer(video);
+      }
     } catch (error) {
       console.error("Error playing video:", error);
       this.notificationManager.show("動画の再生に失敗しました", "error");
     }
+  }
+
+  // 外部プレーヤー（デフォルトアプリ）で再生
+  private async playVideoExternal(video: Video): Promise<void> {
+    try {
+      await this.videoManager.playVideo(video.path);
+    } catch (error) {
+      console.error("Error playing video externally:", error);
+      this.notificationManager.show(
+        "外部プレーヤーでの再生に失敗しました",
+        "error",
+      );
+    }
+  }
+
+  // ============================================
+  // 内蔵プレーヤー
+  // ============================================
+
+  // 視聴進捗の保存が有効かどうか（設定から判定）
+  private isSaveWatchProgressEnabled(): boolean {
+    return localStorage.getItem("saveWatchProgress") !== "false";
+  }
+
+  // 内蔵プレーヤーで動画を開く
+  private openInternalPlayer(video: Video): void {
+    const modal = document.getElementById("videoPlayerModal");
+    const videoEl = document.getElementById(
+      "internalPlayer",
+    ) as HTMLVideoElement;
+    if (!modal || !videoEl) {
+      console.error("Video player modal elements not found!");
+      this.notificationManager.show("動画を再生できませんでした", "error");
+      return;
+    }
+
+    // 前回の再生で残っているリスナーを確実にクリーンアップ
+    if (this.playerLoadedMetadataHandler) {
+      videoEl.removeEventListener(
+        "loadedmetadata",
+        this.playerLoadedMetadataHandler,
+      );
+      this.playerLoadedMetadataHandler = null;
+    }
+    if (this.playerTimeUpdateHandler) {
+      videoEl.removeEventListener("timeupdate", this.playerTimeUpdateHandler);
+      this.playerTimeUpdateHandler = null;
+    }
+    if (this.playerEndedHandler) {
+      videoEl.removeEventListener("ended", this.playerEndedHandler);
+      this.playerEndedHandler = null;
+    }
+    if (this.playerErrorHandler) {
+      videoEl.removeEventListener("error", this.playerErrorHandler);
+      this.playerErrorHandler = null;
+    }
+
+    this.currentPlaybackVideo = video;
+    this.lastSavedWatchPosition = 0;
+    this.internalPlayer = videoEl;
+
+    // タイトル表示
+    const titleEl = document.getElementById("playerVideoTitle");
+    if (titleEl) {
+      titleEl.textContent = video.title;
+    }
+
+    // ソース設定（サムネイル更新と同様にキャッシュ対策）
+    videoEl.src = FormatUtils.pathToFileUrl(video.path);
+    videoEl.load();
+
+    // 続きから再生（視聴進捗保存が有効かつ保存位置がある場合）
+    const saveProgress = this.isSaveWatchProgressEnabled();
+    if (saveProgress && video.watchPosition && video.watchPosition > 0) {
+      const resumeAt = video.watchPosition;
+      this.playerLoadedMetadataHandler = () => {
+        // 動画長の 95% 以上まで視聴済みの場合は最初から再生
+        if (videoEl.duration > 0 && resumeAt < videoEl.duration * 0.95) {
+          videoEl.currentTime = resumeAt;
+        }
+      };
+      videoEl.addEventListener(
+        "loadedmetadata",
+        this.playerLoadedMetadataHandler,
+      );
+    }
+
+    // watchedAt を記録（視聴進捗保存が有効な場合のみ）
+    if (saveProgress) {
+      this.videoManager
+        .updateVideo(video.id, { watchedAt: new Date() })
+        .catch((error) => console.error("Failed to record watchedAt:", error));
+    }
+
+    // プログレス表示の初期化
+    this.updatePlayerProgressText(0, video.duration);
+
+    // イベントリスナー設定
+    this.playerTimeUpdateHandler = () => this.handlePlayerTimeUpdate();
+    this.playerEndedHandler = () => this.handlePlayerEnded();
+    this.playerErrorHandler = () => this.handlePlayerError();
+    videoEl.addEventListener("timeupdate", this.playerTimeUpdateHandler);
+    videoEl.addEventListener("ended", this.playerEndedHandler);
+    videoEl.addEventListener("error", this.playerErrorHandler);
+
+    // モーダル表示
+    modal.style.display = "flex";
+    modal.setAttribute("is-open", "true");
+
+    // 再生開始
+    videoEl.play().catch((error) => {
+      console.error("Failed to start playback:", error);
+      this.notificationManager.show(
+        "動画を再生できませんでした（コーデック非対応の可能性があります）",
+        "error",
+      );
+    });
+  }
+
+  // 再生位置の更新（timeupdate イベント）
+  private handlePlayerTimeUpdate(): void {
+    const videoEl = this.internalPlayer;
+    if (!videoEl || !this.currentPlaybackVideo) return;
+
+    const position = Math.floor(videoEl.currentTime) || 0;
+    const duration =
+      videoEl.duration || this.currentPlaybackVideo.duration || 0;
+
+    // 表示更新
+    this.updatePlayerProgressText(position, duration);
+
+    // 5 秒ごとに進捗を保存（DB 書き込みの頻度を抑える）
+    if (this.isSaveWatchProgressEnabled()) {
+      if (Math.abs(position - this.lastSavedWatchPosition) >= 5) {
+        this.lastSavedWatchPosition = position;
+        this.videoManager
+          .updateVideo(this.currentPlaybackVideo.id, {
+            watchPosition: position,
+          })
+          .catch((error) =>
+            console.error("Failed to save watch position:", error),
+          );
+      }
+    }
+  }
+
+  // 再生完了時（ended イベント）
+  private handlePlayerEnded(): void {
+    // 視聴完了: 視聴位置をリセット
+    if (this.isSaveWatchProgressEnabled() && this.currentPlaybackVideo) {
+      this.videoManager
+        .updateVideo(this.currentPlaybackVideo.id, { watchPosition: 0 })
+        .catch((error) =>
+          console.error("Failed to reset watch position:", error),
+        );
+    }
+    this.updatePlayerProgressText(0, 0);
+  }
+
+  // 再生エラー時
+  private handlePlayerError(): void {
+    const videoEl = this.internalPlayer;
+    if (videoEl && videoEl.error) {
+      console.error("Video player error:", videoEl.error);
+      this.notificationManager.show(
+        "動画を再生できませんでした（コーデック非対応の可能性があります）",
+        "error",
+      );
+    }
+  }
+
+  // 内蔵プレーヤーを閉じる（最終位置を保存してから閉じる）
+  private closeInternalPlayer(): void {
+    const modal = document.getElementById("videoPlayerModal");
+    const videoEl = document.getElementById(
+      "internalPlayer",
+    ) as HTMLVideoElement;
+    if (!modal || !videoEl) return;
+
+    // 最終視聴位置を保存
+    if (this.isSaveWatchProgressEnabled() && this.currentPlaybackVideo) {
+      const position = Math.floor(videoEl.currentTime) || 0;
+      if (position > 0) {
+        this.videoManager
+          .updateVideo(this.currentPlaybackVideo.id, {
+            watchPosition: position,
+          })
+          .catch((error) =>
+            console.error("Failed to save final watch position:", error),
+          );
+      }
+    }
+
+    // イベントリスナー解除
+    if (this.playerLoadedMetadataHandler) {
+      videoEl.removeEventListener(
+        "loadedmetadata",
+        this.playerLoadedMetadataHandler,
+      );
+      this.playerLoadedMetadataHandler = null;
+    }
+    if (this.playerTimeUpdateHandler) {
+      videoEl.removeEventListener("timeupdate", this.playerTimeUpdateHandler);
+      this.playerTimeUpdateHandler = null;
+    }
+    if (this.playerEndedHandler) {
+      videoEl.removeEventListener("ended", this.playerEndedHandler);
+      this.playerEndedHandler = null;
+    }
+    if (this.playerErrorHandler) {
+      videoEl.removeEventListener("error", this.playerErrorHandler);
+      this.playerErrorHandler = null;
+    }
+
+    // 再生停止・ソース解放（動画ファイルのロックを解除）
+    videoEl.pause();
+    videoEl.removeAttribute("src");
+    videoEl.load();
+
+    this.currentPlaybackVideo = null;
+    this.internalPlayer = null;
+    this.lastSavedWatchPosition = 0;
+
+    modal.style.display = "none";
+    modal.removeAttribute("is-open");
+  }
+
+  // プレーヤー内の「外部再生」ボタン
+  private handlePlayerExternalPlay(): void {
+    const video = this.currentPlaybackVideo;
+    if (!video) return;
+    this.closeInternalPlayer();
+    this.playVideoExternal(video);
+  }
+
+  // 視聴位置をリセット
+  private resetWatchProgress(): void {
+    const videoEl = document.getElementById(
+      "internalPlayer",
+    ) as HTMLVideoElement;
+    if (!videoEl || !this.currentPlaybackVideo) return;
+
+    videoEl.currentTime = 0;
+    this.lastSavedWatchPosition = 0;
+
+    if (this.isSaveWatchProgressEnabled()) {
+      this.videoManager
+        .updateVideo(this.currentPlaybackVideo.id, { watchPosition: 0 })
+        .catch((error) =>
+          console.error("Failed to reset watch position:", error),
+        );
+    }
+    this.updatePlayerProgressText(0, videoEl.duration || 0);
+    this.notificationManager.show("視聴位置をリセットしました", "success");
+  }
+
+  // プレーヤーの進捗表示を更新
+  private updatePlayerProgressText(position: number, duration: number): void {
+    const el = document.getElementById("playerProgressText");
+    if (!el) return;
+    if (duration > 0) {
+      const percent = Math.min(100, Math.round((position / duration) * 100));
+      el.textContent = `${FormatUtils.formatDuration(position)} / ${FormatUtils.formatDuration(duration)} (${percent}%)`;
+    } else {
+      el.textContent = FormatUtils.formatDuration(position);
+    }
+  }
+
+  // 再生/一時停止の切り替え（スペースキー）
+  private togglePlayerPlayback(): void {
+    const videoEl = this.internalPlayer;
+    if (!videoEl) return;
+    if (videoEl.paused) {
+      videoEl.play().catch((error) => {
+        console.error("Failed to resume playback:", error);
+      });
+    } else {
+      videoEl.pause();
+    }
+  }
+
+  // 指定秒数シーク（負の値で巻き戻し）
+  private seekPlayer(seconds: number): void {
+    const videoEl = this.internalPlayer;
+    if (!videoEl) return;
+    const duration = videoEl.duration || 0;
+    const newTime = Math.max(
+      0,
+      Math.min(duration, videoEl.currentTime + seconds),
+    );
+    videoEl.currentTime = newTime;
+    this.updatePlayerProgressText(Math.floor(newTime), duration);
+  }
+
+  // コマ送り（1 フレーム進める/戻す。静止画を見る用途なので一時停止する）
+  private stepPlayerFrame(direction: number): void {
+    const videoEl = this.internalPlayer;
+    const video = this.currentPlaybackVideo;
+    if (!videoEl || !video) return;
+
+    videoEl.pause();
+
+    // FPS から 1 フレームの秒数を計算（不明なら 30fps とみなす）
+    const fps = video.fps && video.fps > 0 ? video.fps : 30;
+    const frameDuration = 1 / fps;
+    const duration = videoEl.duration || 0;
+    const newTime = Math.max(
+      0,
+      Math.min(duration, videoEl.currentTime + direction * frameDuration),
+    );
+    videoEl.currentTime = newTime;
+    this.updatePlayerProgressText(Math.floor(newTime), duration);
+  }
+
+  // 音量調整（↑/↓）
+  private adjustPlayerVolume(delta: number): void {
+    const videoEl = this.internalPlayer;
+    if (!videoEl) return;
+    videoEl.volume = Math.max(0, Math.min(1, videoEl.volume + delta));
+    if (videoEl.volume > 0 && videoEl.muted) {
+      videoEl.muted = false;
+    }
+  }
+
+  // ============================================
+  // スクリーンショット / サムネイル作成
+  // ============================================
+
+  // スクリーンショットの保存先フォルダを取得（設定 or デフォルト）
+  private getScreenshotDir(): string {
+    const saved = localStorage.getItem("screenshotDir");
+    if (saved && saved.trim()) {
+      return saved.trim();
+    }
+    // デフォルト: ホームのピクチャフォルダ
+    return "~/Pictures";
+  }
+
+  // 現在のフレームを最高画質でスクリーンショット保存
+  private async captureScreenshot(): Promise<void> {
+    const videoEl = this.internalPlayer;
+    if (!videoEl || !this.currentPlaybackVideo) return;
+
+    const position = Math.floor(videoEl.currentTime) || 0;
+    const outputDir = this.getScreenshotDir();
+
+    try {
+      this.notificationManager.show(
+        `スクリーンショットを保存中... (${FormatUtils.formatDuration(position)})`,
+        "info",
+      );
+
+      const result = await window.electronAPI.captureFrame(
+        this.currentPlaybackVideo.path,
+        position,
+        outputDir,
+      );
+
+      if (result.success && result.outputPath) {
+        this.notificationManager.show(
+          `スクリーンショットを保存しました: ${result.outputPath}`,
+          "success",
+        );
+      } else {
+        const message = result.error || "不明なエラー";
+        console.error("Failed to capture frame:", message);
+        this.notificationManager.show(
+          `スクリーンショットの保存に失敗しました（${message}）`,
+          "error",
+        );
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("Failed to capture frame:", error);
+      this.notificationManager.show(
+        `スクリーンショットの保存に失敗しました（${message}）`,
+        "error",
+      );
+    }
+  }
+
+  // 現在のフレームを動画のサムネイルに設定
+  private async createThumbnailFromPlayer(): Promise<void> {
+    const videoEl = this.internalPlayer;
+    const video = this.currentPlaybackVideo;
+    if (!videoEl || !video) return;
+
+    const position = Math.floor(videoEl.currentTime) || 0;
+
+    try {
+      this.notificationManager.show(
+        `サムネイルを作成中... (${FormatUtils.formatDuration(position)})`,
+        "info",
+      );
+
+      const updated =
+        await window.electronAPI.regenerateMainThumbnailWithTimestamp(
+          video.id,
+          position,
+        );
+
+      // キャッシュを更新
+      this.videoManager.updateVideoCache(updated.id, updated);
+
+      // 詳細表示のサムネイルを更新
+      if (this.currentVideo && this.currentVideo.id === updated.id) {
+        this.currentVideo.thumbnailPath = updated.thumbnailPath;
+        const detailsMainThumbnail = document.getElementById(
+          "detailsMainThumbnail",
+        ) as HTMLImageElement;
+        if (detailsMainThumbnail && updated.thumbnailPath) {
+          detailsMainThumbnail.src = `${FormatUtils.pathToFileUrl(updated.thumbnailPath)}?t=${Date.now()}`;
+        }
+      }
+
+      // リスト内のデータも更新
+      const videoInList = this.filteredVideos.find((v) => v.id === updated.id);
+      if (videoInList) {
+        videoInList.thumbnailPath = updated.thumbnailPath;
+        videoInList.updatedAt = new Date(); // キャッシュバスティング用
+      }
+
+      // グリッド/リストを再描画してサムネイルを反映
+      await this.renderVideoList();
+
+      this.notificationManager.show("サムネイルを作成しました", "success");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("Failed to create thumbnail:", error);
+      this.notificationManager.show(
+        `サムネイルの作成に失敗しました（${message}）`,
+        "error",
+      );
+    }
+  }
+
+  // スクショ保存先フォルダを選択
+  private async selectScreenshotDir(): Promise<void> {
+    try {
+      const selected = await window.electronAPI.selectScreenshotDir();
+      if (selected) {
+        localStorage.setItem("screenshotDir", selected);
+        this.updateScreenshotDirDisplay();
+        this.notificationManager.show(
+          `スクリーンショット保存先: ${selected}`,
+          "success",
+        );
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("Failed to select screenshot dir:", error);
+      this.notificationManager.show(
+        `フォルダの選択に失敗しました（${message}）`,
+        "error",
+      );
+    }
+  }
+
+  // 保存先フォルダ表示を更新
+  private updateScreenshotDirDisplay(): void {
+    const el = document.getElementById("screenshotDirPath");
+    if (!el) return;
+    const dir = this.getScreenshotDir();
+    el.textContent = dir;
+    el.title = dir;
   }
 
   private showVideoDetails(video: Video): void {
@@ -2713,6 +3292,16 @@ class MovieLibraryApp {
       playBtn.onclick = () => {
         if (this.currentVideo) {
           this.playVideo(this.currentVideo.path);
+        }
+      };
+    }
+
+    // 外部プレーヤーで開くボタン
+    const externalPlayBtn = document.getElementById("externalPlayVideoBtn");
+    if (externalPlayBtn) {
+      externalPlayBtn.onclick = () => {
+        if (this.currentVideo) {
+          this.playVideoExternal(this.currentVideo);
         }
       };
     }
@@ -3155,6 +3744,13 @@ class MovieLibraryApp {
 
   // キーボードイベントハンドラー
   private handleEscapeKey(_e: KeyboardEvent): void {
+    // 内蔵プレーヤーが開いている場合はプレーヤーを優先して閉じる
+    const playerModal = document.getElementById("videoPlayerModal");
+    if (playerModal && playerModal.style.display === "flex") {
+      this.closeInternalPlayer();
+      return;
+    }
+
     if (this.currentVideo) {
       this.hideVideoDetails();
     }
@@ -3170,6 +3766,7 @@ class MovieLibraryApp {
     const customThumbnailDialog = document.getElementById(
       "customThumbnailDialog",
     );
+    const playerModal = document.getElementById("videoPlayerModal");
 
     if (
       (chapterModal && chapterModal.hasAttribute("is-open")) ||
@@ -3177,7 +3774,9 @@ class MovieLibraryApp {
       (tagEditDialog && tagEditDialog.hasAttribute("is-open")) ||
       (bulkTagApplyDialog && bulkTagApplyDialog.hasAttribute("is-open")) ||
       (errorDialog && errorDialog.hasAttribute("is-open")) ||
-      (customThumbnailDialog && customThumbnailDialog.style.display === "flex")
+      (customThumbnailDialog &&
+        customThumbnailDialog.style.display === "flex") ||
+      (playerModal && playerModal.style.display === "flex")
     ) {
       // 何らかのモーダル/ダイアログが開いている場合は何もしない
       // 各モーダル/ダイアログ側のキーボードハンドラーが処理する
@@ -3335,6 +3934,12 @@ class MovieLibraryApp {
   }
 
   private handleEnterKey(_e: KeyboardEvent): void {
+    // 内蔵プレーヤー表示中は無効（プレーヤー側のキーハンドラが処理する）
+    const playerModal = document.getElementById("videoPlayerModal");
+    if (playerModal && playerModal.style.display === "flex") {
+      return;
+    }
+
     const selectedIndex = this.uiRenderer.getSelectedVideoIndex();
     if (selectedIndex >= 0 && this.filteredVideos[selectedIndex]) {
       // Enterキーで動画を再生
@@ -3345,6 +3950,12 @@ class MovieLibraryApp {
   }
 
   private handleSpaceKey(_e: KeyboardEvent): void {
+    // 内蔵プレーヤー表示中は無効（プレーヤー側のキーハンドラが処理する）
+    const playerModal = document.getElementById("videoPlayerModal");
+    if (playerModal && playerModal.style.display === "flex") {
+      return;
+    }
+
     const selectedIndex = this.uiRenderer.getSelectedVideoIndex();
     if (selectedIndex >= 0 && this.filteredVideos[selectedIndex]) {
       this.showVideoDetails(this.filteredVideos[selectedIndex]);
@@ -3493,6 +4104,12 @@ class MovieLibraryApp {
       const saveFilterStateCheckbox = document.getElementById(
         "saveFilterState",
       ) as HTMLInputElement;
+      const playbackModeSelect = document.getElementById(
+        "playbackMode",
+      ) as HTMLSelectElement;
+      const saveWatchProgressCheckbox = document.getElementById(
+        "saveWatchProgress",
+      ) as HTMLInputElement;
 
       // サムネイル設定があれば保存
       if (qualityInput && sizeInput) {
@@ -3515,6 +4132,17 @@ class MovieLibraryApp {
       if (saveFilterStateCheckbox) {
         this.filterManager.setSaveFilterStateEnabled(
           saveFilterStateCheckbox.checked,
+        );
+      }
+
+      // 再生設定を保存
+      if (playbackModeSelect) {
+        localStorage.setItem("playbackMode", playbackModeSelect.value);
+      }
+      if (saveWatchProgressCheckbox) {
+        localStorage.setItem(
+          "saveWatchProgress",
+          String(saveWatchProgressCheckbox.checked),
         );
       }
 
@@ -3560,6 +4188,25 @@ class MovieLibraryApp {
       saveFilterStateCheckbox.checked =
         this.filterManager.isSaveFilterStateEnabled();
     }
+
+    // 再生設定を復元
+    const playbackModeSelect = document.getElementById(
+      "playbackMode",
+    ) as HTMLSelectElement;
+    if (playbackModeSelect) {
+      playbackModeSelect.value =
+        localStorage.getItem("playbackMode") || "internal";
+    }
+    const saveWatchProgressCheckbox = document.getElementById(
+      "saveWatchProgress",
+    ) as HTMLInputElement;
+    if (saveWatchProgressCheckbox) {
+      saveWatchProgressCheckbox.checked =
+        localStorage.getItem("saveWatchProgress") !== "false";
+    }
+
+    // スクリーンショット保存先フォルダを表示
+    this.updateScreenshotDirDisplay();
 
     // 保存されたソート状態を復元
     const savedSortField = localStorage.getItem("sortField");

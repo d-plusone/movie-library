@@ -1424,7 +1424,7 @@ export const Utils = {
 // フォーカストラップ対象のモーダルセレクタ
 // （.chapter-dialog-overlay / .dialog-overlay は動的に body へ追加/削除される）
 const MODAL_SELECTOR =
-  ".modal, #thumbnailModal, .chapter-dialog-overlay, .dialog-overlay";
+  ".modal, #thumbnailModal, .chapter-dialog-overlay, .dialog-overlay, .video-player-modal";
 
 // モーダル内のフォーカス可能な要素を取得
 function getFocusableElements(container: HTMLElement): HTMLElement[] {

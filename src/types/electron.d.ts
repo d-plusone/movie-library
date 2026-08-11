@@ -70,6 +70,14 @@ declare global {
         timestamp: number,
       ): Promise<ElectronVideo>;
 
+      // フレームキャプチャ（スクリーンショット）
+      captureFrame(
+        videoPath: string,
+        timestamp: number,
+        outputDir: string,
+      ): Promise<{ success: boolean; outputPath?: string; error?: string }>;
+      selectScreenshotDir(): Promise<string | null>;
+
       // Progress callbacks
       onScanProgress(callback: (data: ScanProgress) => void): void;
       onThumbnailProgress(callback: (data: ThumbnailProgress) => void): void;

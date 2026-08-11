@@ -24,6 +24,12 @@ interface ElectronAPI {
   searchVideos: (query: string) => Promise<Video[]>;
   openVideo: (filePath: string) => Promise<void>;
   hasVideoUpdates: (lastCheckTime: number) => Promise<boolean>;
+  captureFrame: (
+    videoPath: string,
+    timestamp: number,
+    outputDir: string,
+  ) => Promise<{ success: boolean; outputPath?: string; error?: string }>;
+  selectScreenshotDir: () => Promise<string | null>;
 
   // Directory operations
   getDirectories: () => Promise<Directory[]>;
@@ -129,6 +135,9 @@ const electronAPI: ElectronAPI = {
   openVideo: (filePath: string) => ipcRenderer.invoke("open-video", filePath),
   hasVideoUpdates: (lastCheckTime: number) =>
     ipcRenderer.invoke("has-video-updates", lastCheckTime),
+  captureFrame: (videoPath: string, timestamp: number, outputDir: string) =>
+    ipcRenderer.invoke("capture-frame", videoPath, timestamp, outputDir),
+  selectScreenshotDir: () => ipcRenderer.invoke("select-screenshot-dir"),
 
   // Directory operations
   getDirectories: () => ipcRenderer.invoke("get-directories"),

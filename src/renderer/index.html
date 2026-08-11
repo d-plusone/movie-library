@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' file: data:;">
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' file: data:; media-src 'self' file:;">
     <title>Movie Library</title>
     <link rel="stylesheet" href="./styles.css">
 </head>
@@ -319,6 +319,10 @@
                         <div class="details-actions">
                             <button id="saveDetailsBtn" class="btn btn-primary">保存</button>
                             <button id="playVideoBtn" class="btn btn-secondary">再生</button>
+                            <button id="externalPlayVideoBtn" class="btn btn-secondary" title="外部プレーヤーで開く">
+                                <span class="icon">↗</span>
+                                外部プレーヤーで開く
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -368,6 +372,39 @@
                             </label>
                             <div class="setting-description">
                                 評価、タグ、フォルダフィルターの状態を次回起動時まで保持します
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3>再生</h3>
+                        <div class="setting-item">
+                            <label for="playbackMode">デフォルトの再生方法</label>
+                            <select id="playbackMode" class="setting-select">
+                                <option value="internal">内蔵プレーヤー</option>
+                                <option value="external">外部プレーヤー</option>
+                            </select>
+                            <div class="setting-description">
+                                動画を再生するときの既定の方法を選択します
+                            </div>
+                        </div>
+                        <div class="setting-item">
+                            <label for="saveWatchProgress">
+                                <input type="checkbox" id="saveWatchProgress" class="setting-checkbox">
+                                視聴進捗を保存する
+                            </label>
+                            <div class="setting-description">
+                                前回の視聴位置を記憶し、内蔵プレーヤーで続きから再生できます
+                            </div>
+                        </div>
+                        <div class="setting-item">
+                            <label>スクリーンショット保存先</label>
+                            <div class="screenshot-dir-row">
+                                <span id="screenshotDirPath" class="screenshot-dir-path">未設定</span>
+                                <button id="selectScreenshotDirBtn" class="btn btn-small">フォルダを選択</button>
+                            </div>
+                            <div class="setting-description">
+                                内蔵プレーヤーのスクリーンショット保存先です。未設定の場合は「ピクチャ」フォルダに保存します
                             </div>
                         </div>
                     </div>
@@ -550,6 +587,42 @@
                 <div class="modal-actions">
                     <button id="deleteDuplicatesBtn" class="btn btn-danger" disabled>選択した動画を削除</button>
                     <button id="cancelDuplicateBtn" class="btn btn-secondary">キャンセル</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Video Player Modal -->
+        <div id="videoPlayerModal" class="video-player-modal" style="display: none;" role="dialog" aria-modal="true"
+            aria-label="動画プレーヤー">
+            <div class="video-player-container">
+                <div class="video-player-header">
+                    <span id="playerVideoTitle" class="video-player-title"></span>
+                    <div class="video-player-actions">
+                        <button id="playerScreenshotBtn" class="btn btn-small" title="現在のフレームを最高画質で保存（⌘S）">
+                            <span class="icon">📷</span>
+                            スクショ
+                        </button>
+                        <button id="playerThumbnailBtn" class="btn btn-small" title="現在のフレームを動画のサムネイルに設定">
+                            <span class="icon">🖼️</span>
+                            サムネイル
+                        </button>
+                        <button id="playerExternalPlayBtn" class="btn btn-small" title="外部プレーヤーで開く">
+                            <span class="icon">↗</span>
+                            外部再生
+                        </button>
+                        <button id="closePlayerBtn" class="btn btn-icon" aria-label="プレーヤーを閉じる">
+                            <span class="icon">✕</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="video-player-body">
+                    <video id="internalPlayer" controls playsinline preload="auto"></video>
+                </div>
+                <div class="video-player-footer">
+                    <span id="playerProgressText" class="video-player-progress"></span>
+                    <button id="resetWatchProgressBtn" class="btn btn-small" title="視聴位置をリセット">
+                        視聴位置をリセット
+                    </button>
                 </div>
             </div>
         </div>

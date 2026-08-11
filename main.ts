@@ -9,6 +9,8 @@ import {
 } from "electron";
 import path from "path";
 import { promises as fs } from "fs";
+import { execFile } from "child_process";
+import { promisify } from "util";
 import * as chokidar from "chokidar";
 import PrismaDatabaseManager from "./src/database/PrismaDatabaseManager.js";
 import VideoScanner from "./src/scanner/VideoScanner.js";
@@ -19,7 +21,7 @@ import {
   ThumbnailResult,
   VideoUpdateData,
 } from "./src/types/types.js";
-import { initializeFFmpeg } from "./src/utils/ffmpeg-utils.js";
+import { initializeFFmpeg, getFfmpegPath } from "./src/utils/ffmpeg-utils.js";
 import { createLogger } from "./src/utils/logger.js";
 
 // production ビルドではデバッグログを抑制
@@ -38,6 +40,31 @@ for (const stream of [process.stdout, process.stderr]) {
     throw error;
   });
 }
+
+const execFileAsync = promisify(execFile);
+
+// ============================================================
+// GPU アクセラレーション強化（動画再生のヌルヌル化。before ready で有効化）
+// ============================================================
+// 基本のラスタライズ高速化
+app.commandLine.appendSwitch("enable-gpu-rasterization");
+app.commandLine.appendSwitch("enable-zero-copy");
+app.commandLine.appendSwitch("ignore-gpu-blocklist");
+
+// macOS では ANGLE バックエンドに Metal を使用（OpenGL より高速）
+app.commandLine.appendSwitch("use-angle", "metal");
+
+// デュアル GPU（M シリーズ + 外付け）時に高性能 GPU を強制
+app.commandLine.appendSwitch("force_high_performance_gpu");
+
+// ハードウェアデコード機能の強化（HEVC/H.265 のネイティブデコードを含む）
+// 注意: enable-hardware-overlays / enable-gpu-memory-buffer-video-frames /
+// disable-frame-rate-limit は macOS で GPU プロセスがクラッシュする
+// （exit_code=11: SIGSEGV）ため使用しない
+app.commandLine.appendSwitch(
+  "enable-features",
+  "PlatformHEVCDecoderSupport,HardwareMediaKeyHandling,CanvasOopRasterization",
+);
 
 // Set app name BEFORE app is ready to ensure consistent userData path across versions
 // This must be done before any app.getPath() calls
@@ -149,6 +176,8 @@ class MovieLibraryApp {
         nodeIntegration: false,
         contextIsolation: true,
         preload: path.join(__dirname, "preload.js"),
+        // 動画再生中にタイマーが抑制されてカクつくのを防ぐ
+        backgroundThrottling: false,
         // preload に production フラグを渡す（sandbox 下でも process.argv で読める）
         additionalArguments: [
           `--movie-library-production=${app.isPackaged ? "1" : "0"}`,
@@ -1044,6 +1073,74 @@ class MovieLibraryApp {
     // Open video
     ipcMain.handle("open-video", async (_event, videoPath: string) => {
       await shell.openPath(videoPath);
+    });
+
+    // フレームキャプチャ（最高画質スクリーンショット）
+    // ffmpeg で指定タイムスタンプのフレームを PNG として保存する
+    ipcMain.handle(
+      "capture-frame",
+      async (
+        _event,
+        videoPath: string,
+        timestamp: number,
+        outputDir: string,
+      ) => {
+        try {
+          const ffmpegPath = await getFfmpegPath();
+          if (!ffmpegPath) {
+            throw new Error("FFmpeg binary not found");
+          }
+
+          await fs.mkdir(outputDir, { recursive: true });
+
+          // ファイル名: <動画ファイル名>_<タイムスタンプ>.png
+          // （パスに使えない文字を除去）
+          const parsed = path.parse(videoPath);
+          const safeBase = parsed.name.replace(/[\\/:*?"<>|]/g, "_");
+          const tsLabel = timestamp.toFixed(1).replace(".", "_");
+          const outputPath = path.join(outputDir, `${safeBase}_${tsLabel}.png`);
+
+          // 最高画質: PNG（ロスレス）。-ss を -i の前に置いて高速シーク
+          const args = [
+            "-ss",
+            timestamp.toFixed(3),
+            "-i",
+            videoPath,
+            "-frames:v",
+            "1",
+            "-f",
+            "image2",
+            "-y", // 上書き
+            outputPath,
+          ];
+
+          logger.debug("🎬 Capturing frame:", ffmpegPath, args.join(" "));
+
+          await execFileAsync(ffmpegPath, args, {
+            maxBuffer: 1024 * 1024 * 10,
+          });
+
+          logger.log("✅ Frame captured:", outputPath);
+          return { success: true, outputPath } as const;
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          console.error("❌ Failed to capture frame:", message);
+          return { success: false, error: message } as const;
+        }
+      },
+    );
+
+    // スクリーンショット保存先フォルダの選択ダイアログ
+    ipcMain.handle("select-screenshot-dir", async () => {
+      const result = await dialog.showOpenDialog({
+        title: "スクリーンショットの保存先フォルダを選択",
+        properties: ["openDirectory", "createDirectory"],
+      });
+      if (result.canceled || result.filePaths.length === 0) {
+        return null;
+      }
+      return result.filePaths[0];
     });
 
     // Check for video updates

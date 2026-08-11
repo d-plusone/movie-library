@@ -48,6 +48,8 @@ function mapVideoRecord(video: VideoWithTags): VideoRecord {
     modifiedAt: video.modifiedAt ? new Date(video.modifiedAt) : undefined,
     createdAt: video.createdAt ? new Date(video.createdAt) : undefined,
     updatedAt: video.updatedAt ? new Date(video.updatedAt) : undefined,
+    watchedAt: video.watchedAt ?? undefined,
+    watchPosition: video.watchPosition,
     tags: video.videoTags.map((vt) => vt.tag.name),
     chapterThumbnails: video.chapterThumbnails
       ? (JSON.parse(video.chapterThumbnails) as ChapterThumbnail[])
@@ -134,10 +136,12 @@ class PrismaDatabaseManager {
       // データベーステーブルの存在をチェック
       await this._prisma.video.findFirst();
     } catch (error) {
-      // テーブルが存在しない場合（Prisma エラーコード P2021）、自動でマイグレーションを実行
+      // テーブルまたはカラムが存在しない場合（Prisma エラーコード P2021/P2022）、
+      // 旧バージョンのスキーマの DB とみなして自動でマイグレーションを実行
+      // （P2022 は古いバージョンのアプリで作られた DB に新カラムが無いケース）
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === "P2021"
+        (error.code === "P2021" || error.code === "P2022")
       ) {
         await this.runDatabaseMigration();
       } else {
@@ -155,17 +159,18 @@ class PrismaDatabaseManager {
     } catch (error) {
       console.error("Prisma migrate deploy failed:", error);
 
-      // P3005エラー（データベースが空でない）の場合、db pushを試行
+      // マイグレーション履歴が無い/食い違っている DB
+      // （旧バージョンで db push により作られた DB など）では migrate deploy が
+      // 失敗するため、db push でスキーマを同期する
       const message = error instanceof Error ? error.message : String(error);
       if (
         message.includes("P3005") ||
-        message.includes("database schema is not empty")
+        message.includes("database schema is not empty") ||
+        message.includes("P3006") ||
+        message.includes("failed to apply") ||
+        process.platform === "win32"
       ) {
         logger.log("Database not empty, attempting db push to sync schema...");
-        await this.runPrismaDbPush();
-      } else if (process.platform === "win32") {
-        // Windows環境での代替アプローチ：prisma db push を試行
-        logger.log("Attempting alternative migration approach for Windows...");
         await this.runPrismaDbPush();
       } else {
         throw error;
@@ -455,6 +460,8 @@ class PrismaDatabaseManager {
         description?: string;
         thumbnailPath?: string;
         chapterThumbnails?: string;
+        watchedAt?: Date;
+        watchPosition?: number;
         updatedAt?: Date;
       } = {};
 
@@ -467,6 +474,9 @@ class PrismaDatabaseManager {
       if (data.chapterThumbnails !== undefined) {
         updateData.chapterThumbnails = JSON.stringify(data.chapterThumbnails);
       }
+      if (data.watchedAt !== undefined) updateData.watchedAt = data.watchedAt;
+      if (data.watchPosition !== undefined)
+        updateData.watchPosition = data.watchPosition;
 
       if (Object.keys(updateData).length === 0) return false;
 

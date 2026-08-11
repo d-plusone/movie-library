@@ -34,6 +34,8 @@ export interface Video {
   bitrate?: number;
   createdAt?: Date;
   updatedAt?: Date;
+  watchedAt?: Date;
+  watchPosition?: number;
 }
 
 export interface Directory {
@@ -78,6 +80,8 @@ export interface VideoUpdateData {
   description?: string;
   thumbnailPath?: string;
   chapterThumbnails?: ChapterThumbnail[];
+  watchedAt?: Date;
+  watchPosition?: number;
 }
 
 // ========================================

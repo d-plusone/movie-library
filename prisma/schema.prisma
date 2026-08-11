@@ -31,12 +31,14 @@ model Video {
   updatedAt         DateTime   @updatedAt @map("updated_at")
   fileHash          String?    @map("file_hash")
   partialHash       String?    @map("partial_hash")
+  watchedAt         DateTime?  @map("watched_at")
+  watchPosition     Int        @default(0) @map("watch_position")
   videoTags         VideoTag[]
 
-  @@map("videos")
   @@index([updatedAt])
   @@index([addedAt])
   @@index([thumbnailPath])
+  @@map("videos")
 }
 
 model Directory {
@@ -65,6 +67,6 @@ model VideoTag {
   video   Video @relation(fields: [videoId], references: [id], onDelete: Cascade)
 
   @@id([videoId, tagId])
-  @@map("video_tags")
   @@index([tagId])
+  @@map("video_tags")
 }

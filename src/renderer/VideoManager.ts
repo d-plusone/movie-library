@@ -442,6 +442,18 @@ export class VideoManager {
     }
   }
 
+  // 既にサーバー側で更新済みの動画データでキャッシュのみ更新する
+  updateVideoCache(videoId: number, videoData: Video): void {
+    const videoIndex = this.videos.findIndex((v) => v.id === videoId);
+    if (videoIndex !== -1) {
+      this.videos[videoIndex] = {
+        ...this.videos[videoIndex],
+        ...videoData,
+      };
+    }
+    this.hasChanges = true;
+  }
+
   // 動画を再生
   async playVideo(videoPath: string): Promise<void> {
     try {
