@@ -48,6 +48,9 @@
     ],
     "author": "iku",
     "license": "MIT",
+    "engines": {
+        "node": ">=22.12"
+    },
     "repository": {
         "type": "git",
         "url": "https://github.com/d-plusone/movie-library/"
@@ -239,15 +242,5 @@
             "uninstallDisplayName": "${productName}",
             "include": "build/installer.nsh"
         }
-    },
-    "pnpm": {
-        "onlyBuiltDependencies": [
-            "@ffmpeg-installer/darwin-arm64",
-            "@prisma/client",
-            "@prisma/engines",
-            "electron",
-            "fsevents",
-            "prisma"
-        ]
     }
 }

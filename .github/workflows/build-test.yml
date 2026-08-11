@@ -9,40 +9,23 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: build-test-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  test-build:
-    runs-on: ${{ matrix.os }}
-
-    strategy:
-      matrix:
-        os: [macos-latest, windows-latest]
-
+  # lint / type-check を高速に検証するジョブ（フルビルドより先に失敗させる）
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Check out Git repository
         uses: actions/checkout@v5
 
-      - name: Extract version from tag (if exists)
-        id: get_version
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            version=$(echo "$GITHUB_REF_NAME" | sed 's/^v//')
-            echo "VERSION=$version" >> $GITHUB_OUTPUT
-            echo "Tag version: $version"
-          else
-            echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
-            echo "Tag version: ${GITHUB_REF_NAME#v}"
-          fi
-        shell: bash
-
-      - name: Update package.json version (if tag exists)
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: pnpm version ${{ steps.get_version.outputs.VERSION }} --no-git-tag-version
-
       - name: Install Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Install pnpm
         uses: pnpm/action-setup@v6
@@ -63,57 +46,83 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pnpm-store-
 
-      - name: Install Python and dependencies
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma Client
+        run: pnpm run prisma:generate
+
+      - name: Lint
+        run: pnpm run lint:check
+
+      - name: Type check
+        run: pnpm run type-check
+
+  test-build:
+    needs: quality
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+
+    strategy:
+      matrix:
+        os: [macos-latest, windows-latest]
+
+    steps:
+      - name: Check out Git repository
+        uses: actions/checkout@v5
+
+      - name: Install Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v6
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install Python
         uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
-      - name: Install Python setuptools
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install setuptools wheel
-
-      - name: Setup build environment (macOS)
-        if: matrix.os == 'macos-latest'
-        run: |
-          pnpm install -g node-gyp
-          rm -rf node_modules/.cache
-
-      - name: Setup build environment (Windows)
-        if: matrix.os == 'windows-latest'
-        run: |
-          pnpm install -g node-gyp
-          pnpm config set msvs_version 2022 --global
-          pnpm config set python python --global
-          # Verify Visual Studio Build Tools
-          if (Get-Command "cl.exe" -ErrorAction SilentlyContinue) {
-            Write-Host "Visual Studio Build Tools found"
-          } else {
-            Write-Host "Visual Studio Build Tools not found, but continuing..."
-          }
-          python -m pip install setuptools wheel || echo "setuptools installation failed"
-
-      - name: Clear node_modules cache (Unix)
-        if: matrix.os == 'macos-latest'
-        run: |
-          # ロックファイルは削除しない（再現性のあるインストールのため）
-          rm -rf node_modules || true
-
-      - name: Clear node_modules cache (Windows)
-        if: matrix.os == 'windows-latest'
-        run: |
-          if (Test-Path "node_modules") { Remove-Item -Recurse -Force "node_modules" }
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Install @ffmpeg-installer/win32-x64 (Windows)
+      - name: Verify ffmpeg binary (macOS)
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        run: |
+          # @ffmpeg-installer/darwin-arm64 は optionalDependencies のため
+          # macOS (arm64) ランナーでは pnpm install が自動インストールする
+          if [ -f "node_modules/@ffmpeg-installer/darwin-arm64/ffmpeg" ]; then
+            echo "✅ @ffmpeg-installer/darwin-arm64/ffmpeg ready"
+          else
+            echo "❌ darwin-arm64 ffmpeg not found（macOS ランナーが arm64 でない可能性）"
+            exit 1
+          fi
+
+      - name: Verify ffmpeg binary (Windows)
         if: matrix.os == 'windows-latest'
         shell: bash
         run: |
-          # pnpm install は現在のプラットフォーム向けバイナリしか入れないため
-          # Windows ffmpeg バイナリを明示的にインストールする
-          npm install @ffmpeg-installer/win32-x64 --no-save
+          # @ffmpeg-installer/win32-x64 は optionalDependencies のため
+          # Windows ランナーでは pnpm install が自動インストールする
+          # ※ npm install を混在させると pnpm の node_modules 構造でクラッシュするため使わない
           if [ -f "node_modules/@ffmpeg-installer/win32-x64/ffmpeg.exe" ]; then
             echo "✅ @ffmpeg-installer/win32-x64/ffmpeg.exe ready"
           else
@@ -124,34 +133,16 @@ jobs:
       - name: Install electron-rebuild
         run: pnpm install -g @electron/rebuild@3.6.0
 
-      - name: Set up environment for native modules (Unix)
-        if: matrix.os == 'macos-latest'
-        run: |
-          export PYTHON=$(which python)
-          export NODE_GYP_FORCE_PYTHON=$(which python)
-
-      - name: Set up environment for native modules (Windows)
-        if: matrix.os == 'windows-latest'
-        run: |
-          $env:PYTHON = (Get-Command python).Source
-          $env:NODE_GYP_FORCE_PYTHON = (Get-Command python).Source
-
-      - name: Rebuild native modules with electron-rebuild (Unix)
+      - name: Rebuild native modules with electron-rebuild (macOS)
         if: matrix.os == 'macos-latest'
         run: electron-rebuild
 
       - name: Rebuild native modules with electron-rebuild (Windows)
         if: matrix.os == 'windows-latest'
-        run: |
-          $env:npm_config_target_arch = "x64"
-          $env:npm_config_target_platform = "win32"
-          electron-rebuild
-
-      - name: Generate Prisma Client
-        run: pnpm run prisma:generate
-
-      - name: Build TypeScript
-        run: pnpm run build:ts
+        env:
+          npm_config_target_arch: x64
+          npm_config_target_platform: win32
+        run: electron-rebuild
 
       - name: Test build (macOS)
         if: matrix.os == 'macos-latest'

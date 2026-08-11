@@ -43,7 +43,7 @@
 
 ### macOS
 
-- `Movie Library-x.x.x.dmg` - インストーラー (Intel + Apple Silicon Universal)
+- `Movie Library-x.x.x.dmg` - インストーラー (Apple Silicon)
 - `Movie Library-x.x.x-mac.zip` - アプリケーションの zip ファイル
 
 ### Windows
