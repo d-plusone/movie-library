@@ -829,7 +829,7 @@ body {
     background: var(--bg-secondary);
     border-right: 1px solid var(--border-color);
     transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1),
-                border-color 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+        border-color 0.35s cubic-bezier(0.4, 0, 0.2, 1);
     will-change: width;
 }
 
@@ -1975,6 +1975,17 @@ body {
 .star:hover {
     opacity: 0.8;
     transform: scale(1.05);
+}
+
+/* キーボード操作時のフォーカス表示（role="button" 化に伴う対応） */
+.star:focus-visible {
+    outline: 2px solid var(--accent-color);
+    outline-offset: 2px;
+    opacity: 1;
+}
+
+[data-theme="dark"] .star:focus-visible {
+    outline-color: var(--accent-color);
 }
 
 .tags-input-container {
@@ -3426,14 +3437,14 @@ body[data-theme="dark"] .search-input::-moz-placeholder {
     align-items: center;
     justify-content: center;
     border-radius: 50%;
-    outline: none !important;
-    /* 青い丸を削除 */
+    outline: none;
+    /* マウス操作時のデフォルトのアウトラインは :focus:not(:focus-visible) で抑制 */
 }
 
-/* フォーカス時の青い丸も削除 */
-.rating-btn[data-rating]:focus {
-    outline: none !important;
-    box-shadow: none !important;
+/* マウス操作時のみフォーカスの青い丸を削除（キーボード操作時は :focus-visible で表示） */
+.rating-btn[data-rating]:focus:not(:focus-visible) {
+    outline: none;
+    box-shadow: none;
 }
 
 /* 星ボタンのホバー効果 */
@@ -3659,18 +3670,18 @@ textarea::-moz-placeholder {
     transform: scale(0.95);
 }
 
-/* フォーカス時のアクセシビリティ向上 */
-.btn-icon:focus,
-.notification-close:focus,
-.rating-btn:focus {
+/* フォーカス時のアクセシビリティ向上（キーボード操作時のみ表示） */
+.btn-icon:focus-visible,
+.notification-close:focus-visible,
+.rating-btn:focus-visible {
     outline: 2px solid var(--accent-color);
     outline-offset: 2px;
 }
 
 /* ダークモード時のフォーカス色調整 */
-[data-theme="dark"] .btn-icon:focus,
-[data-theme="dark"] .notification-close:focus,
-[data-theme="dark"] .rating-btn:focus {
+[data-theme="dark"] .btn-icon:focus-visible,
+[data-theme="dark"] .notification-close:focus-visible,
+[data-theme="dark"] .rating-btn:focus-visible {
     outline-color: var(--accent-color);
 }
 
@@ -5207,4 +5218,32 @@ list-view .video-thumbnail .thumbnail-indicator {
 [data-theme="dark"] .btn-danger:disabled {
     background-color: #495057 !important;
     border-color: #495057 !important;
+}
+
+/* =========================================
+   アクセシビリティ対応
+   ========================================= */
+
+/* キーボード操作時は常にフォーカスリングを表示（アクセシビリティ最優先のため !important） */
+:focus-visible {
+    outline: 2px solid var(--accent-color) !important;
+    outline-offset: 2px;
+}
+
+/* マウス・タッチ操作時のフォーカスリングは非表示（視覚的なノイズ削減） */
+:focus:not(:focus-visible) {
+    outline: none;
+}
+
+/* アニメーション低減設定（prefers-reduced-motion）への対応 */
+@media (prefers-reduced-motion: reduce) {
+
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
 }

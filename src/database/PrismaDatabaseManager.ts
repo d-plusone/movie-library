@@ -1,4 +1,7 @@
-import { PrismaClient as GeneratedPrismaClient } from "../../generated/prisma";
+import {
+  PrismaClient as GeneratedPrismaClient,
+  Prisma,
+} from "../../generated/prisma";
 import path from "path";
 import { app } from "electron";
 import { spawn } from "child_process";
@@ -10,6 +13,10 @@ import type {
   VideoCreateData,
   VideoUpdateData,
 } from "../types/types";
+import { createLogger } from "../utils/logger.js";
+
+// production ビルドではデバッグログを抑制
+const logger = createLogger(app.isPackaged);
 
 // データベース操作用の型定義（Prismaの型とアプリの型を橋渡し）
 export interface VideoRecord extends AppVideo {
@@ -22,8 +29,77 @@ export interface DirectoryRecord extends AppDirectory {}
 
 export interface TagRecord extends AppTag {}
 
+// Prisma の video 取得結果（videoTags 込み）の型
+type VideoWithTags = Prisma.VideoGetPayload<{
+  include: {
+    videoTags: {
+      include: { tag: true };
+    };
+  };
+}>;
+
+// Prisma のレコードをアプリ用の VideoRecord に変換する
+// （Prisma の nullable フィールドを optional に変換し、日付文字列を Date に変換する）
+function mapVideoRecord(video: VideoWithTags): VideoRecord {
+  return {
+    ...video,
+    description: video.description ?? undefined,
+    thumbnailPath: video.thumbnailPath ?? undefined,
+    modifiedAt: video.modifiedAt ? new Date(video.modifiedAt) : undefined,
+    createdAt: video.createdAt ? new Date(video.createdAt) : undefined,
+    updatedAt: video.updatedAt ? new Date(video.updatedAt) : undefined,
+    tags: video.videoTags.map((vt) => vt.tag.name),
+    chapterThumbnails: video.chapterThumbnails
+      ? (JSON.parse(video.chapterThumbnails) as ChapterThumbnail[])
+      : [],
+  };
+}
+
+// Prisma の orderBy に使用可能なフィールドのみ許可
+// （レンダラープロセスからの任意キー注入を防ぐための許可リスト）
+const SORTABLE_FIELDS = [
+  "filename",
+  "title",
+  "addedAt",
+  "updatedAt",
+  "rating",
+  "duration",
+  "size",
+  "createdAt",
+  "modifiedAt",
+] as const;
+type SortableField = (typeof SORTABLE_FIELDS)[number];
+
+// ソートフィールドごとの orderBy を生成（許可リストで検証済みのキーのみ使用）
+function resolveOrderBy(
+  sortBy: SortableField,
+  order: Prisma.SortOrder,
+): Prisma.VideoOrderByWithRelationInput {
+  switch (sortBy) {
+    case "title":
+      return { title: order };
+    case "addedAt":
+      return { addedAt: order };
+    case "updatedAt":
+      return { updatedAt: order };
+    case "rating":
+      return { rating: order };
+    case "duration":
+      return { duration: order };
+    case "size":
+      return { size: order };
+    case "createdAt":
+      return { createdAt: order };
+    case "modifiedAt":
+      return { modifiedAt: order };
+    default:
+      return { filename: order };
+  }
+}
+
 class PrismaDatabaseManager {
   private _prisma: GeneratedPrismaClient;
+  private isClosed = false;
 
   // Public getter for prisma client (for advanced operations like duplicate detection)
   public get prisma(): GeneratedPrismaClient {
@@ -58,8 +134,11 @@ class PrismaDatabaseManager {
       // データベーステーブルの存在をチェック
       await this._prisma.video.findFirst();
     } catch (error) {
-      // データベースまたはテーブルが存在しない場合、自動でマイグレーションを実行
-      if (error.message.includes("does not exist")) {
+      // テーブルが存在しない場合（Prisma エラーコード P2021）、自動でマイグレーションを実行
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === "P2021"
+      ) {
         await this.runDatabaseMigration();
       } else {
         throw error;
@@ -69,24 +148,24 @@ class PrismaDatabaseManager {
 
   private async runDatabaseMigration(): Promise<void> {
     // Prismaの正しいアプローチ：prisma migrate deploy を使用
-    console.log("Running Prisma migration...");
+    logger.log("Running Prisma migration...");
 
     try {
       await this.runPrismaMigrateDeploy();
-    } catch (error: any) {
+    } catch (error) {
       console.error("Prisma migrate deploy failed:", error);
 
       // P3005エラー（データベースが空でない）の場合、db pushを試行
+      const message = error instanceof Error ? error.message : String(error);
       if (
-        error.message &&
-        (error.message.includes("P3005") ||
-          error.message.includes("database schema is not empty"))
+        message.includes("P3005") ||
+        message.includes("database schema is not empty")
       ) {
-        console.log("Database not empty, attempting db push to sync schema...");
+        logger.log("Database not empty, attempting db push to sync schema...");
         await this.runPrismaDbPush();
       } else if (process.platform === "win32") {
         // Windows環境での代替アプローチ：prisma db push を試行
-        console.log("Attempting alternative migration approach for Windows...");
+        logger.log("Attempting alternative migration approach for Windows...");
         await this.runPrismaDbPush();
       } else {
         throw error;
@@ -96,7 +175,7 @@ class PrismaDatabaseManager {
 
   private async runPrismaDbPush(): Promise<void> {
     return new Promise((resolve, reject) => {
-      console.log("Running prisma db push as fallback...");
+      logger.log("Running prisma db push as fallback...");
 
       // 開発中: プロジェクト直下、リリース時: ASAR unpackedからバイナリ参照
       const baseDir = app.isPackaged
@@ -117,10 +196,10 @@ class PrismaDatabaseManager {
       // 開発中は通常のnodeコマンドを使用
       const nodeExecutable = app.isPackaged ? process.execPath : "node";
 
-      console.log("Node executable:", nodeExecutable);
-      console.log("Prisma script:", prismaScript);
-      console.log("Schema path:", schemaPath);
-      console.log("Working directory:", baseDir);
+      logger.debug("Node executable:", nodeExecutable);
+      logger.debug("Prisma script:", prismaScript);
+      logger.debug("Schema path:", schemaPath);
+      logger.debug("Working directory:", baseDir);
 
       const prismaProcess = spawn(
         nodeExecutable,
@@ -149,9 +228,9 @@ class PrismaDatabaseManager {
 
       prismaProcess.on("close", (code: number) => {
         if (code === 0) {
-          console.log("Prisma db push completed successfully");
+          logger.log("Prisma db push completed successfully");
           if (stdout.trim()) {
-            console.log("Push output:", stdout);
+            logger.debug("Push output:", stdout);
           }
           resolve();
         } else {
@@ -197,10 +276,10 @@ class PrismaDatabaseManager {
       // 開発中は通常のnodeコマンドを使用
       const nodeExecutable = app.isPackaged ? process.execPath : "node";
 
-      console.log("Node executable:", nodeExecutable);
-      console.log("Prisma script:", prismaScript);
-      console.log("Schema path:", schemaPath);
-      console.log("Working directory:", baseDir);
+      logger.debug("Node executable:", nodeExecutable);
+      logger.debug("Prisma script:", prismaScript);
+      logger.debug("Schema path:", schemaPath);
+      logger.debug("Working directory:", baseDir);
 
       const prismaProcess = spawn(
         nodeExecutable,
@@ -229,9 +308,9 @@ class PrismaDatabaseManager {
 
       prismaProcess.on("close", (code: number) => {
         if (code === 0) {
-          console.log("Prisma migration completed successfully");
+          logger.log("Prisma migration completed successfully");
           if (stdout.trim()) {
-            console.log("Migration output:", stdout);
+            logger.debug("Migration output:", stdout);
           }
           resolve();
         } else {
@@ -258,8 +337,9 @@ class PrismaDatabaseManager {
 
   async addVideo(videoData: VideoCreateData): Promise<number> {
     // 日付の型変換（DateオブジェクトはISO文字列に変換）
-    const createdAtString = videoData.createdAt;
-    const modifiedAtString = videoData.modifiedAt;
+    // Prisma スキーマでは必須のため、未指定時は現在時刻を使用
+    const createdAtString = videoData.createdAt ?? new Date().toISOString();
+    const modifiedAtString = videoData.modifiedAt ?? new Date().toISOString();
 
     const video = await this._prisma.video.upsert({
       where: { path: videoData.path },
@@ -306,7 +386,16 @@ class PrismaDatabaseManager {
     limit: number | null = null,
     offset: number = 0,
   ): Promise<VideoRecord[]> {
-    const orderBy = { [sortBy]: sortOrder.toLowerCase() };
+    // 許可リストによる検証（無効なフィールドは filename にフォールバック）
+    const safeSortBy: SortableField = SORTABLE_FIELDS.includes(
+      sortBy as SortableField,
+    )
+      ? (sortBy as SortableField)
+      : "filename";
+    const safeOrder: Prisma.SortOrder =
+      sortOrder.toLowerCase() === "desc" ? "desc" : "asc";
+
+    const orderBy = resolveOrderBy(safeSortBy, safeOrder);
 
     const videos = await this._prisma.video.findMany({
       include: {
@@ -321,16 +410,7 @@ class PrismaDatabaseManager {
       skip: offset,
     });
 
-    return videos.map((video) => ({
-      ...video,
-      modifiedAt: video.modifiedAt ? new Date(video.modifiedAt) : undefined,
-      createdAt: video.createdAt ? new Date(video.createdAt) : undefined,
-      updatedAt: video.updatedAt ? new Date(video.updatedAt) : undefined,
-      tags: video.videoTags.map((vt) => vt.tag.name),
-      chapterThumbnails: video.chapterThumbnails
-        ? (JSON.parse(video.chapterThumbnails) as ChapterThumbnail[])
-        : [],
-    }));
+    return videos.map(mapVideoRecord);
   }
 
   async getVideo(id: number): Promise<VideoRecord | null> {
@@ -347,16 +427,7 @@ class PrismaDatabaseManager {
 
     if (!video) return null;
 
-    return {
-      ...video,
-      modifiedAt: video.modifiedAt ? new Date(video.modifiedAt) : undefined,
-      createdAt: video.createdAt ? new Date(video.createdAt) : undefined,
-      updatedAt: video.updatedAt ? new Date(video.updatedAt) : undefined,
-      tags: video.videoTags.map((vt) => vt.tag.name),
-      chapterThumbnails: video.chapterThumbnails
-        ? (JSON.parse(video.chapterThumbnails) as ChapterThumbnail[])
-        : [],
-    };
+    return mapVideoRecord(video);
   }
 
   async getVideoByPath(path: string): Promise<VideoRecord | null> {
@@ -373,16 +444,7 @@ class PrismaDatabaseManager {
 
     if (!video) return null;
 
-    return {
-      ...video,
-      modifiedAt: video.modifiedAt ? new Date(video.modifiedAt) : undefined,
-      createdAt: video.createdAt ? new Date(video.createdAt) : undefined,
-      updatedAt: video.updatedAt ? new Date(video.updatedAt) : undefined,
-      tags: video.videoTags.map((vt) => vt.tag.name),
-      chapterThumbnails: video.chapterThumbnails
-        ? (JSON.parse(video.chapterThumbnails) as ChapterThumbnail[])
-        : [],
-    };
+    return mapVideoRecord(video);
   }
 
   async updateVideo(id: number, data: VideoUpdateData): Promise<boolean> {
@@ -462,16 +524,7 @@ class PrismaDatabaseManager {
       orderBy: { title: "asc" },
     });
 
-    return videos.map((video) => ({
-      ...video,
-      modifiedAt: video.modifiedAt ? new Date(video.modifiedAt) : undefined,
-      createdAt: video.createdAt ? new Date(video.createdAt) : undefined,
-      updatedAt: video.updatedAt ? new Date(video.updatedAt) : undefined,
-      tags: video.videoTags.map((vt) => vt.tag.name),
-      chapterThumbnails: video.chapterThumbnails
-        ? (JSON.parse(video.chapterThumbnails) as ChapterThumbnail[])
-        : [],
-    }));
+    return videos.map(mapVideoRecord);
   }
 
   async getVideoCount(): Promise<number> {
@@ -491,7 +544,7 @@ class PrismaDatabaseManager {
     offset: number = 0,
   ): Promise<VideoRecord[]> {
     try {
-      console.log("getVideosWithoutThumbnails: Starting Prisma query");
+      logger.debug("getVideosWithoutThumbnails: Starting Prisma query");
 
       const videos = await this._prisma.video.findMany({
         where: {
@@ -508,11 +561,11 @@ class PrismaDatabaseManager {
         skip: offset,
       });
 
-      console.log(
+      logger.debug(
         `getVideosWithoutThumbnails: Found ${videos.length} videos without thumbnails`,
       );
       if (videos.length > 0) {
-        console.log(
+        logger.debug(
           "Sample videos without thumbnails:",
           videos.slice(0, 3).map((v) => ({
             id: v.id,
@@ -522,16 +575,7 @@ class PrismaDatabaseManager {
         );
       }
 
-      return videos.map((video) => ({
-        ...video,
-        modifiedAt: video.modifiedAt ? new Date(video.modifiedAt) : undefined,
-        createdAt: video.createdAt ? new Date(video.createdAt) : undefined,
-        updatedAt: video.updatedAt ? new Date(video.updatedAt) : undefined,
-        tags: video.videoTags.map((vt) => vt.tag.name),
-        chapterThumbnails: video.chapterThumbnails
-          ? (JSON.parse(video.chapterThumbnails) as ChapterThumbnail[])
-          : [],
-      }));
+      return videos.map(mapVideoRecord);
     } catch (error) {
       console.error("Error in getVideosWithoutThumbnails:", error);
       throw error;
@@ -686,7 +730,7 @@ class PrismaDatabaseManager {
         },
       });
 
-      console.log("hasVideoUpdates check:", {
+      logger.debug("hasVideoUpdates check:", {
         lastCheckTime: checkTime.toISOString(),
         hasUpdates: count > 0,
         updateCount: count,
@@ -700,6 +744,11 @@ class PrismaDatabaseManager {
   }
 
   async close(): Promise<void> {
+    // 多重呼び出しされた場合は何もしない（$disconnect の冪等化）
+    if (this.isClosed) {
+      return;
+    }
+    this.isClosed = true;
     await this._prisma.$disconnect();
   }
 }

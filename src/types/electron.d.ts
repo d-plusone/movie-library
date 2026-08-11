@@ -9,26 +9,27 @@ import type {
   DeleteProgress,
 } from "./types";
 
-// Electron API専用の型拡張（IDが文字列の場合など）
-export interface ElectronVideo extends Omit<Video, "id"> {
-  id: string; // Electron APIではIDは文字列
-}
+// Electron API専用の型拡張（IDは number で統一）
+export interface ElectronVideo extends Video {}
 
 export interface ElectronDirectory extends Omit<Directory, "id"> {
-  id?: string;
+  id?: number;
 }
 
 export interface ElectronTag extends Omit<Tag, "id"> {
-  id?: string;
+  id?: number;
 }
 
 // Electron Main Process API
 declare global {
   interface Window {
     electronAPI: {
+      // アプリ情報（production ビルドかどうか）
+      isProduction: boolean;
+
       // Video operations
       getVideos(): Promise<ElectronVideo[]>;
-      updateVideo(id: string, data: Partial<ElectronVideo>): Promise<void>;
+      updateVideo(id: number, data: Partial<ElectronVideo>): Promise<void>;
       openVideo(path: string): Promise<void>;
       loadVideos(forceReload?: boolean): Promise<ElectronVideo[]>;
       playVideo(path: string): Promise<void>;
@@ -44,8 +45,8 @@ declare global {
 
       // Tag operations
       getTags(): Promise<ElectronTag[]>;
-      addTagToVideo(videoId: string, tagName: string): Promise<void>;
-      removeTagFromVideo(videoId: string, tagName: string): Promise<void>;
+      addTagToVideo(videoId: number, tagName: string): Promise<void>;
+      removeTagFromVideo(videoId: number, tagName: string): Promise<void>;
       deleteTag(tagName: string): Promise<void>;
       updateTag(oldName: string, newName: string): Promise<void>;
 
@@ -57,7 +58,7 @@ declare global {
       }>;
       updateThumbnailSettings(settings: ThumbnailSettings): Promise<void>;
       regenerateAllThumbnails(): Promise<void>;
-      regenerateMainThumbnail(videoId: string): Promise<ElectronVideo>;
+      regenerateMainThumbnail(videoId: number): Promise<ElectronVideo>;
       cleanupThumbnails(): Promise<void>;
       getThumbnailsDir(): Promise<string>;
       generatePreviewThumbnail(
@@ -65,7 +66,7 @@ declare global {
         timestamp: number,
       ): Promise<string>;
       regenerateMainThumbnailWithTimestamp(
-        videoId: string,
+        videoId: number,
         timestamp: number,
       ): Promise<ElectronVideo>;
 

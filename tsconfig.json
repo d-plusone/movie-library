@@ -8,7 +8,7 @@
         ],
         "outDir": "./dist-ts",
         "rootDir": "./",
-        "strict": false,
+        "strict": true,
         "esModuleInterop": true,
         "allowSyntheticDefaultImports": true,
         "skipLibCheck": true,

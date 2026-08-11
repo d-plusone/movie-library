@@ -26,7 +26,8 @@
         "copy:renderer-files": "shx mkdir -p dist-ts/src/renderer && shx cp src/renderer/index.html dist-ts/src/renderer/ && shx cp src/renderer/styles.css dist-ts/src/renderer/ && shx cp dist-ts/renderer/src/renderer/*.js dist-ts/src/renderer/ && shx mkdir -p dist-ts/src/types && shx cp dist-ts/renderer/src/types/*.js dist-ts/src/types/",
         "build:ts:watch": "pnpm run clean:ts && pnpm run build:ts && pnpm run watch",
         "watch": "tsc --watch",
-        "type-check": "tsc --noEmit",
+        "type-check": "tsc --noEmit && pnpm run type-check:renderer",
+        "type-check:renderer": "tsc --project tsconfig.renderer.json --noEmit",
         "lint": "eslint src/**/*.ts main.ts preload.ts --fix",
         "lint:check": "eslint src/**/*.ts main.ts preload.ts",
         "version:patch": "npm version patch && git push --follow-tags",
@@ -45,7 +46,7 @@
         "management",
         "media"
     ],
-    "author": "Your Name",
+    "author": "iku",
     "license": "MIT",
     "repository": {
         "type": "git",
@@ -57,9 +58,8 @@
         "@types/node": "^24.0.14",
         "@typescript-eslint/eslint-plugin": "^8.38.0",
         "@typescript-eslint/parser": "^8.38.0",
-        "electron": "^27.0.0",
-        "electron-builder": "^24.6.4",
-        "electron-webpack": "^2.8.2",
+        "electron": "^43.3.0",
+        "electron-builder": "^26.15.3",
         "eslint": "^9.31.0",
         "eslint-plugin-unused-imports": "^4.1.4",
         "rimraf": "^5.0.10",
@@ -94,7 +94,7 @@
         "fsevents": "^2.3.3"
     },
     "build": {
-        "appId": "com.yourcompany.movielibrary",
+        "appId": "com.movielibrary.app",
         "productName": "Movie Library",
         "publish": {
             "provider": "github",

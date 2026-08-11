@@ -1,4 +1,4 @@
-import { FormatUtils, DOMUtils } from "./Utils.js";
+import { FormatUtils, DOMUtils, logger } from "./Utils.js";
 import {
   Video,
   Tag,
@@ -29,13 +29,15 @@ export class UIRenderer {
   // ビューを設定
   setView(view: ViewType): ViewType {
     this.currentView = view;
-    document
-      .querySelectorAll(".view-btn")
-      .forEach((btn) => btn.classList.remove("active"));
+    document.querySelectorAll(".view-btn").forEach((btn) => {
+      btn.classList.remove("active");
+      btn.setAttribute("aria-pressed", "false");
+    });
 
     const viewBtn = document.getElementById(view + "ViewBtn");
     if (viewBtn) {
       viewBtn.classList.add("active");
+      viewBtn.setAttribute("aria-pressed", "true");
     }
 
     const videoList = document.getElementById("videoList");
@@ -78,7 +80,7 @@ export class UIRenderer {
 
   // 選択されたビデオをハイライト
   highlightSelectedVideo(): void {
-    console.log(
+    logger.debug(
       "Highlighting selected video at index:",
       this.selectedVideoIndex,
     );
@@ -110,7 +112,7 @@ export class UIRenderer {
 
     this.loadMoreObserver?.disconnect();
     this.loadMoreObserver = null;
-    videoList.innerHTML = "";
+    videoList.replaceChildren();
 
     if (filteredVideos.length === 0) {
       const noVideosMsg = document.createElement("div");
@@ -210,7 +212,7 @@ export class UIRenderer {
     }
 
     // タグコンテナをクリア
-    tagsContainer.innerHTML = "";
+    tagsContainer.replaceChildren();
 
     // タグがある場合は表示
     if (tags && tags.length > 0) {
@@ -259,12 +261,13 @@ export class UIRenderer {
     div.dataset.index = index.toString();
     div.dataset.videoId = video.id.toString();
 
-    const thumbVersion = video.updatedAt instanceof Date ? video.updatedAt.getTime() : 0;
+    const thumbVersion =
+      video.updatedAt instanceof Date ? video.updatedAt.getTime() : 0;
     const thumbnailSrc = video.thumbnailPath
       ? `${FormatUtils.pathToFileUrl(video.thumbnailPath)}?t=${thumbVersion}`
       : "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIwIiBoZWlnaHQ9IjE4MCIgdmlld0JveD0iMCAwIDMyMCAxODAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMjAiIGhlaWdodD0iMTgwIiBmaWxsPSIjRjVGNUY3Ii8+CjxwYXRoIGQ9Ik0xMjggNzJMMTkyIDEwOEwxMjggMTQ0VjcyWiIgZmlsbD0iIzk5OTk5OSIvPgo8L3N2Zz4K";
 
-    console.log(
+    logger.debug(
       `UIRenderer: Creating video element for ${video.filename}, thumbnailPath: ${video.thumbnailPath}, thumbnailSrc: ${thumbnailSrc}`,
     );
 
@@ -280,7 +283,12 @@ export class UIRenderer {
     // Create and populate video info elements
     const titleDiv = document.createElement("div");
     titleDiv.className = "video-title";
-    titleDiv.innerHTML = `${video.title}<span class="video-extension">${extension}</span>`;
+    titleDiv.textContent = video.title;
+
+    const extensionSpan = document.createElement("span");
+    extensionSpan.className = "video-extension";
+    extensionSpan.textContent = extension;
+    titleDiv.appendChild(extensionSpan);
 
     // Create tags container first (for grid view positioning)
     const tagsContainer = document.createElement("div");
@@ -292,15 +300,21 @@ export class UIRenderer {
     // Create meta info separately for flexible layout
     const metaInfoDiv = document.createElement("div");
     metaInfoDiv.className = "meta-info";
-    metaInfoDiv.innerHTML = `
-        <div>サイズ: ${fileSize}</div>
-        <div>解像度: ${video.width ?? 0}x${video.height ?? 0}</div>
-        <div>追加日: ${FormatUtils.formatDate(
-          video.addedAt
-            ? video.addedAt.toISOString()
-            : new Date().toISOString(),
-        )}</div>
-    `;
+
+    const sizeInfoDiv = document.createElement("div");
+    sizeInfoDiv.textContent = `サイズ: ${fileSize}`;
+
+    const resolutionInfoDiv = document.createElement("div");
+    resolutionInfoDiv.textContent = `解像度: ${video.width ?? 0}x${video.height ?? 0}`;
+
+    const dateInfoDiv = document.createElement("div");
+    dateInfoDiv.textContent = `追加日: ${FormatUtils.formatDate(
+      video.addedAt ? video.addedAt.toISOString() : new Date().toISOString(),
+    )}`;
+
+    metaInfoDiv.appendChild(sizeInfoDiv);
+    metaInfoDiv.appendChild(resolutionInfoDiv);
+    metaInfoDiv.appendChild(dateInfoDiv);
 
     const ratingDiv = document.createElement("div");
     ratingDiv.className = "video-rating";
@@ -408,9 +422,9 @@ export class UIRenderer {
           .slice(0, 5);
 
         validChapters.forEach((chapter: ChapterThumbnail, index: number) => {
-          console.log(`Chapter ${index}:`, chapter); // チャプターデータをログ出力
+          logger.debug(`Chapter ${index}:`, chapter); // チャプターデータをログ出力
           const chapterPath = chapter.path; // チャプターは path プロパティを使用
-          console.log(`Chapter ${index} path:`, chapterPath);
+          logger.debug(`Chapter ${index} path:`, chapterPath);
           if (chapterPath) {
             thumbnails.push({
               src: `${FormatUtils.pathToFileUrl(chapterPath)}?t=${thumbVersion}`,
@@ -593,7 +607,7 @@ export class UIRenderer {
       return;
     }
 
-    tagsList.innerHTML = "";
+    tagsList.replaceChildren();
 
     // フィルター適用
     const filteredTags = this.tagFilterKeyword
@@ -621,17 +635,35 @@ export class UIRenderer {
       }
 
       tagElement.dataset.tagName = tag.name;
-      tagElement.innerHTML = `
-        <span class="tag-name">${FormatUtils.escapeHtml(tag.name)}</span>
-        <div class="tag-actions">
-          <button class="tag-edit-btn" data-tag="${FormatUtils.escapeHtml(
-            tag.name,
-          )}" title="編集">✏️</button>
-          <button class="tag-delete-btn" data-tag="${FormatUtils.escapeHtml(
-            tag.name,
-          )}" title="削除">🗑️</button>
-        </div>
-      `;
+
+      // タグ名
+      const nameSpan = document.createElement("span");
+      nameSpan.className = "tag-name";
+      nameSpan.textContent = tag.name;
+
+      // 編集・削除ボタン
+      const actionsDiv = document.createElement("div");
+      actionsDiv.className = "tag-actions";
+
+      const editBtn = document.createElement("button");
+      editBtn.className = "tag-edit-btn";
+      editBtn.dataset.tag = tag.name;
+      editBtn.title = "編集";
+      editBtn.setAttribute("aria-label", `タグ「${tag.name}」を編集`);
+      editBtn.textContent = "✏️";
+
+      const deleteBtn = document.createElement("button");
+      deleteBtn.className = "tag-delete-btn";
+      deleteBtn.dataset.tag = tag.name;
+      deleteBtn.title = "削除";
+      deleteBtn.setAttribute("aria-label", `タグ「${tag.name}」を削除`);
+      deleteBtn.textContent = "🗑️";
+
+      actionsDiv.appendChild(editBtn);
+      actionsDiv.appendChild(deleteBtn);
+
+      tagElement.appendChild(nameSpan);
+      tagElement.appendChild(actionsDiv);
 
       tagsList.appendChild(tagElement);
     });
@@ -642,8 +674,8 @@ export class UIRenderer {
     directories: Directory[],
     selectedDirectories: string[],
   ): void {
-    console.log("renderDirectories - directories:", directories.length);
-    console.log(
+    logger.debug("renderDirectories - directories:", directories.length);
+    logger.debug(
       "renderDirectories - selectedDirectories:",
       selectedDirectories,
     );
@@ -655,7 +687,7 @@ export class UIRenderer {
       return;
     }
 
-    directoriesList.innerHTML = "";
+    directoriesList.replaceChildren();
 
     directories.forEach((directory) => {
       const directoryElement = document.createElement("div");
@@ -672,16 +704,30 @@ export class UIRenderer {
       const directoryName =
         directory.path.split(/[/\\]/).pop() || directory.path;
 
-      directoryElement.innerHTML = `
-        <span class="directory-path" title="${FormatUtils.escapeHtml(
-          directory.path,
-        )}">${FormatUtils.escapeHtml(directoryName)}</span>
-        <div class="directory-actions">
-          <button class="directory-remove-btn" data-path="${FormatUtils.escapeHtml(
-            directory.path,
-          )}" title="削除">×</button>
-        </div>
-      `;
+      // パス表示
+      const pathSpan = document.createElement("span");
+      pathSpan.className = "directory-path";
+      pathSpan.title = directory.path;
+      pathSpan.textContent = directoryName;
+
+      // 削除ボタン
+      const actionsDiv = document.createElement("div");
+      actionsDiv.className = "directory-actions";
+
+      const removeBtn = document.createElement("button");
+      removeBtn.className = "directory-remove-btn";
+      removeBtn.dataset.path = directory.path;
+      removeBtn.title = "削除";
+      removeBtn.setAttribute(
+        "aria-label",
+        `フォルダ「${directoryName}」を削除`,
+      );
+      removeBtn.textContent = "×";
+
+      actionsDiv.appendChild(removeBtn);
+
+      directoryElement.appendChild(pathSpan);
+      directoryElement.appendChild(actionsDiv);
 
       directoriesList.appendChild(directoryElement);
     });
@@ -698,19 +744,30 @@ export class UIRenderer {
       return;
     }
 
-    settingsDirectoriesList.innerHTML = "";
+    settingsDirectoriesList.replaceChildren();
 
     directories.forEach((directory) => {
       const directoryElement = document.createElement("div");
       directoryElement.className = "settings-directory-item";
-      directoryElement.innerHTML = `
-        <span class="directory-path" title="${FormatUtils.escapeHtml(
-          directory.path,
-        )}">${FormatUtils.escapeHtml(directory.path)}</span>
-        <button class="remove-directory-btn" data-path="${FormatUtils.escapeHtml(
-          directory.path,
-        )}">削除</button>
-      `;
+
+      // パス表示
+      const pathSpan = document.createElement("span");
+      pathSpan.className = "directory-path";
+      pathSpan.title = directory.path;
+      pathSpan.textContent = directory.path;
+
+      // 削除ボタン
+      const removeBtn = document.createElement("button");
+      removeBtn.className = "remove-directory-btn";
+      removeBtn.dataset.path = directory.path;
+      removeBtn.setAttribute(
+        "aria-label",
+        `フォルダ「${directory.path}」を削除`,
+      );
+      removeBtn.textContent = "削除";
+
+      directoryElement.appendChild(pathSpan);
+      directoryElement.appendChild(removeBtn);
 
       settingsDirectoriesList.appendChild(directoryElement);
     });
@@ -718,7 +775,7 @@ export class UIRenderer {
 
   // 星評価の表示を更新
   updateStarDisplay(rating: number, isHover: boolean = false): void {
-    console.log(
+    logger.debug(
       "updateStarDisplay called with rating:",
       rating,
       "isHover:",
@@ -752,6 +809,7 @@ export class UIRenderer {
         if (btnRating <= rating && rating > 0) {
           button.classList.add("active");
           button.textContent = "⭐";
+          button.setAttribute("aria-pressed", "true");
         } else {
           // rating = 0の場合はactiveクラスを削除
           if (rating === 0) {
@@ -760,18 +818,31 @@ export class UIRenderer {
           // activeクラスがあれば⭐を維持、なければ☆
           if (button.classList.contains("active")) {
             button.textContent = "⭐";
+            button.setAttribute("aria-pressed", "true");
           } else {
             button.textContent = "☆";
+            button.setAttribute("aria-pressed", "false");
           }
         }
       }
     });
+
+    // 「全て」ボタンの選択状態を同期
+    const allButton = document.querySelector(
+      '.rating-btn.all-btn[data-rating="0"]',
+    ) as HTMLElement | null;
+    if (allButton) {
+      const isAllSelected = rating === 0;
+      allButton.classList.toggle("active", isAllSelected);
+      allButton.setAttribute("aria-pressed", isAllSelected.toString());
+    }
   }
 
   // ビデオ詳細の描画
   // チャプターサムネイルを効率的に更新
   private updateChapterThumbnails(video: Video): void {
-    const thumbVersion = video.updatedAt instanceof Date ? video.updatedAt.getTime() : 0;
+    const thumbVersion =
+      video.updatedAt instanceof Date ? video.updatedAt.getTime() : 0;
     const chapterContainer = document.getElementById(
       "detailsChapterThumbnails",
     );
@@ -863,17 +934,21 @@ export class UIRenderer {
     const tagsContainer = document.getElementById("detailsTagsList");
     if (!tagsContainer) return;
 
-    tagsContainer.innerHTML = "";
+    tagsContainer.replaceChildren();
 
     tags.forEach((tag) => {
       const tagElement = document.createElement("span");
       tagElement.className = "tag";
-      tagElement.innerHTML = `
-        ${FormatUtils.escapeHtml(tag)}
-        <button class="remove-tag" data-tag="${FormatUtils.escapeHtml(
-          tag,
-        )}" title="タグを削除">×</button>
-      `;
+      tagElement.textContent = tag;
+
+      const removeBtn = document.createElement("button");
+      removeBtn.className = "remove-tag";
+      removeBtn.dataset.tag = tag;
+      removeBtn.title = "タグを削除";
+      removeBtn.setAttribute("aria-label", `タグ「${tag}」を削除`);
+      removeBtn.textContent = "×";
+
+      tagElement.appendChild(removeBtn);
       tagsContainer.appendChild(tagElement);
     });
   }
@@ -883,7 +958,7 @@ export class UIRenderer {
     const datalist = document.getElementById("tagSuggestions");
     if (!datalist) return;
 
-    datalist.innerHTML = "";
+    datalist.replaceChildren();
 
     tags.forEach((tag) => {
       const option = document.createElement("option");
@@ -913,7 +988,7 @@ export class UIRenderer {
         sizeSelect.value = size;
       }
 
-      console.log("Thumbnail settings loaded:", { quality, size });
+      logger.log("Thumbnail settings loaded:", { quality, size });
     } catch (error) {
       console.error("Error loading thumbnail settings:", error);
     }
@@ -943,7 +1018,8 @@ export class UIRenderer {
       "detailsMainThumbnail",
     ) as HTMLImageElement;
     if (mainThumbnailImg && video.thumbnailPath) {
-      const thumbVersion = video.updatedAt instanceof Date ? video.updatedAt.getTime() : 0;
+      const thumbVersion =
+        video.updatedAt instanceof Date ? video.updatedAt.getTime() : 0;
       const newSrc = `${FormatUtils.pathToFileUrl(video.thumbnailPath)}?t=${thumbVersion}`;
       if (mainThumbnailImg.src !== newSrc) {
         mainThumbnailImg.src = newSrc;
@@ -1062,13 +1138,15 @@ export class UIRenderer {
 
     ratingStars.forEach((star, index) => {
       const starElement = star as HTMLElement;
-      if (index < rating) {
+      const isActive = index < rating;
+      if (isActive) {
         starElement.textContent = "⭐";
         starElement.classList.add("active");
       } else {
         starElement.textContent = "☆";
         starElement.classList.remove("active");
       }
+      starElement.setAttribute("aria-pressed", isActive.toString());
     });
 
     // 削除ボタンの表示/非表示を制御
@@ -1117,28 +1195,28 @@ export class UIRenderer {
 
   // 一括タグダイアログを表示
   showBulkTagApplyDialog(filteredVideos: Video[], allTags: Tag[]): void {
-    console.log("showBulkTagApplyDialog called");
+    logger.log("showBulkTagApplyDialog called");
     const bulkTagApplyDialog = DOMUtils.getElementById("bulkTagApplyDialog");
     const bulkTagApplyTable = DOMUtils.getElementById(
       "bulkTagApplyTable",
     ) as HTMLTableElement;
 
-    console.log("bulkTagApplyDialog element:", bulkTagApplyDialog);
-    console.log("bulkTagApplyTable element:", bulkTagApplyTable);
+    logger.log("bulkTagApplyDialog element:", bulkTagApplyDialog);
+    logger.log("bulkTagApplyTable element:", bulkTagApplyTable);
 
     if (!bulkTagApplyDialog || !bulkTagApplyTable) {
       console.error("Bulk tag apply dialog elements not found");
       return;
     }
 
-    console.log("Current videos count:", filteredVideos.length);
+    logger.log("Current videos count:", filteredVideos.length);
 
     if (filteredVideos.length === 0) {
       alert("表示する動画がありません。");
       return;
     }
 
-    console.log("All tags:", allTags);
+    logger.log("All tags:", allTags);
 
     // Clear existing table content
     const thead = bulkTagApplyTable.querySelector(
@@ -1149,8 +1227,8 @@ export class UIRenderer {
     ) as HTMLTableSectionElement;
 
     // Clear and rebuild header
-    if (thead) thead.innerHTML = "";
-    if (tbody) tbody.innerHTML = "";
+    if (thead) thead.replaceChildren();
+    if (tbody) tbody.replaceChildren();
 
     // ヘッダー行を作成
     const headerRow = document.createElement("tr");
@@ -1187,6 +1265,10 @@ export class UIRenderer {
       checkbox.className = "select-all-checkbox";
       checkbox.dataset.tagName = tag.name;
       checkbox.title = `${tag.name}の全選択/全解除`;
+      checkbox.setAttribute(
+        "aria-label",
+        `タグ「${tag.name}」を全選択または全解除`,
+      );
 
       // 全選択チェックボックスのイベントリスナー
       checkbox.addEventListener("change", (e: Event) => {
@@ -1248,7 +1330,7 @@ export class UIRenderer {
         thumbnail.style.justifyContent = "center";
         thumbnail.style.fontSize = "10px";
         thumbnail.style.color = "var(--text-secondary)";
-        thumbnail.innerHTML = "No Image";
+        thumbnail.textContent = "No Image";
         thumbnail.alt = "No thumbnail";
       }
 
@@ -1261,7 +1343,7 @@ export class UIRenderer {
         thumbnail.style.justifyContent = "center";
         thumbnail.style.fontSize = "10px";
         thumbnail.style.color = "var(--text-secondary)";
-        thumbnail.innerHTML = "No Image";
+        thumbnail.textContent = "No Image";
         thumbnail.alt = "No thumbnail";
       };
 
@@ -1287,6 +1369,10 @@ export class UIRenderer {
         checkbox.className = "tag-checkbox";
         checkbox.dataset.videoId = video.id.toString();
         checkbox.dataset.tagName = tag.name;
+        checkbox.setAttribute(
+          "aria-label",
+          `${video.title || video.filename} にタグ「${tag.name}」を付与`,
+        );
 
         // 動画が既にこのタグを持っているかチェック
         if (video.tags && video.tags.includes(tag.name)) {
@@ -1322,20 +1408,29 @@ export class UIRenderer {
     });
 
     // タグフィルター機能の設定
-    const tagFilterInput = DOMUtils.getElementById("bulkTagFilterInput") as HTMLInputElement;
+    const tagFilterInput = DOMUtils.getElementById(
+      "bulkTagFilterInput",
+    ) as HTMLInputElement;
     if (tagFilterInput) {
       tagFilterInput.value = "";
       const newFilterInput = tagFilterInput.cloneNode(true) as HTMLInputElement;
       tagFilterInput.parentNode?.replaceChild(newFilterInput, tagFilterInput);
       newFilterInput.addEventListener("input", () => {
         const filterText = newFilterInput.value.toLowerCase().trim();
-        const tagHeaders = bulkTagApplyTable.querySelectorAll("thead th[data-tag-name]") as NodeListOf<HTMLElement>;
+        const tagHeaders = bulkTagApplyTable.querySelectorAll(
+          "thead th[data-tag-name]",
+        ) as NodeListOf<HTMLElement>;
         tagHeaders.forEach((thEl: HTMLElement) => {
           const tagName = thEl.dataset.tagName || "";
-          const matches = filterText === "" || tagName.toLowerCase().includes(filterText);
+          const matches =
+            filterText === "" || tagName.toLowerCase().includes(filterText);
           const display = matches ? "" : "none";
           thEl.style.display = display;
-          (bulkTagApplyTable.querySelectorAll(`tbody td[data-tag-name="${tagName}"]`) as NodeListOf<HTMLElement>).forEach((tdEl: HTMLElement) => {
+          (
+            bulkTagApplyTable.querySelectorAll(
+              `tbody td[data-tag-name="${tagName}"]`,
+            ) as NodeListOf<HTMLElement>
+          ).forEach((tdEl: HTMLElement) => {
             tdEl.style.display = display;
           });
         });
@@ -1411,7 +1506,7 @@ export class UIRenderer {
     // メインサムネイルを含む全サムネイルリストを作成
     const allThumbnails = [
       {
-        path: video.thumbnailPath,
+        path: video.thumbnailPath ?? "",
         timestamp: 0,
         title: "メインサムネイル",
         isMain: true,
@@ -1430,41 +1525,102 @@ export class UIRenderer {
       Math.min(startIndex, allThumbnails.length - 1),
     );
 
-    // ダイアログ要素を作成
+    // ダイアログ要素を作成（DOM API で安全に構築）
     const initialThumb = allThumbnails[currentIndex];
     const overlay = document.createElement("div");
     overlay.className = "chapter-dialog-overlay";
-    overlay.innerHTML = `
-      <div id="chapterDialog" class="chapter-dialog" is-open="true">
-        <div class="chapter-dialog-header">
-          <h3>${FormatUtils.escapeHtml(video.title)} - ${
-            initialThumb.title
-          }</h3>
-          <button class="close-chapter-dialog" title="閉じる">×</button>
-        </div>
-        <div class="chapter-dialog-content">
-          <div class="chapter-viewer">
-            <div class="chapter-navigation">
-              <button class="nav-btn prev-btn" title="前のサムネイル (←)">‹</button>
-              <div class="current-chapter">
-                <div class="chapter-image-container">
-                  <img id="currentChapterImg" src="${FormatUtils.pathToFileUrl(initialThumb.path)}?t=${video.updatedAt instanceof Date ? video.updatedAt.getTime() : 0}" alt="${initialThumb.title}">
-                  <div class="chapter-overlay-info">
-                    <div class="chapter-counter" id="chapterCounter">${currentIndex + 1} / ${
-                      allThumbnails.length
-                    }</div>
-                    <div class="chapter-timestamp" id="currentChapterTimestamp">${FormatUtils.formatTimestamp(
-                      initialThumb.timestamp,
-                    )}</div>
-                  </div>
-                </div>
-              </div>
-              <button class="nav-btn next-btn" title="次のサムネイル (→)">›</button>
-            </div>
-          </div>
-        </div>
-      </div>
-    `;
+
+    const chapterDialog = document.createElement("div");
+    chapterDialog.id = "chapterDialog";
+    chapterDialog.className = "chapter-dialog";
+    chapterDialog.setAttribute("is-open", "true");
+    chapterDialog.setAttribute("role", "dialog");
+    chapterDialog.setAttribute("aria-modal", "true");
+    chapterDialog.setAttribute("aria-label", "チャプターサムネイル");
+
+    // ヘッダー
+    const header = document.createElement("div");
+    header.className = "chapter-dialog-header";
+
+    const headerTitle = document.createElement("h3");
+    headerTitle.textContent = `${video.title} - ${initialThumb.title}`;
+
+    const closeButton = document.createElement("button");
+    closeButton.className = "close-chapter-dialog";
+    closeButton.title = "閉じる";
+    closeButton.setAttribute("aria-label", "チャプターダイアログを閉じる");
+    closeButton.textContent = "×";
+
+    header.appendChild(headerTitle);
+    header.appendChild(closeButton);
+
+    // コンテンツ
+    const content = document.createElement("div");
+    content.className = "chapter-dialog-content";
+
+    const viewer = document.createElement("div");
+    viewer.className = "chapter-viewer";
+
+    const navigation = document.createElement("div");
+    navigation.className = "chapter-navigation";
+
+    const prevButton = document.createElement("button");
+    prevButton.className = "nav-btn prev-btn";
+    prevButton.title = "前のサムネイル (←)";
+    prevButton.setAttribute("aria-label", "前のサムネイル");
+    prevButton.textContent = "‹";
+
+    const currentChapter = document.createElement("div");
+    currentChapter.className = "current-chapter";
+
+    const imageContainer = document.createElement("div");
+    imageContainer.className = "chapter-image-container";
+
+    const img = document.createElement("img");
+    img.id = "currentChapterImg";
+    img.src = `${FormatUtils.pathToFileUrl(initialThumb.path)}?t=${
+      video.updatedAt instanceof Date ? video.updatedAt.getTime() : 0
+    }`;
+    img.alt = initialThumb.title;
+
+    const overlayInfo = document.createElement("div");
+    overlayInfo.className = "chapter-overlay-info";
+
+    const counter = document.createElement("div");
+    counter.className = "chapter-counter";
+    counter.id = "chapterCounter";
+    counter.textContent = `${currentIndex + 1} / ${allThumbnails.length}`;
+
+    const timestamp = document.createElement("div");
+    timestamp.className = "chapter-timestamp";
+    timestamp.id = "currentChapterTimestamp";
+    timestamp.textContent = FormatUtils.formatTimestamp(initialThumb.timestamp);
+
+    overlayInfo.appendChild(counter);
+    overlayInfo.appendChild(timestamp);
+
+    imageContainer.appendChild(img);
+    imageContainer.appendChild(overlayInfo);
+
+    currentChapter.appendChild(imageContainer);
+
+    const nextButton = document.createElement("button");
+    nextButton.className = "nav-btn next-btn";
+    nextButton.title = "次のサムネイル (→)";
+    nextButton.setAttribute("aria-label", "次のサムネイル");
+    nextButton.textContent = "›";
+
+    navigation.appendChild(prevButton);
+    navigation.appendChild(currentChapter);
+    navigation.appendChild(nextButton);
+
+    viewer.appendChild(navigation);
+    content.appendChild(viewer);
+
+    chapterDialog.appendChild(header);
+    chapterDialog.appendChild(content);
+
+    overlay.appendChild(chapterDialog);
 
     // 現在のサムネイルを更新する関数
     const updateCurrentThumbnail = (index: number) => {
@@ -1572,6 +1728,14 @@ export class UIRenderer {
 
     // ダイアログを表示
     document.body.appendChild(overlay);
+
+    // 初期フォーカスを閉じるボタンへ（キーボード操作の開始点として）
+    const initialCloseBtn = overlay.querySelector(
+      ".close-chapter-dialog",
+    ) as HTMLButtonElement | null;
+    if (initialCloseBtn) {
+      initialCloseBtn.focus({ preventScroll: true });
+    }
   }
 
   // 統計情報を更新

@@ -4,6 +4,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' file: data:;">
     <title>Movie Library</title>
     <link rel="stylesheet" href="./styles.css">
 </head>
@@ -14,7 +16,8 @@
         <header class="app-header">
             <div class="header-main">
                 <div class="header-left">
-                    <button id="sidebarToggleBtn" class="btn btn-icon sidebar-toggle-btn" title="サイドメニューを隠す">
+                    <button id="sidebarToggleBtn" class="btn btn-icon sidebar-toggle-btn" title="サイドメニューを隠す"
+                        aria-label="サイドバーを切り替え">
                         <span class="icon">◀</span>
                     </button>
                 </div>
@@ -44,14 +47,15 @@
                 </div>
                 <div class="header-right">
                     <div class="search-container">
-                        <input type="text" id="searchInput" class="search-input" placeholder="動画を検索...">
+                        <input type="text" id="searchInput" class="search-input" placeholder="動画を検索..."
+                            aria-label="動画を検索">
                         <span class="search-icon">🔍</span>
-                        <button class="search-clear-btn" id="searchClearBtn" title="クリア">✕</button>
+                        <button class="search-clear-btn" id="searchClearBtn" title="クリア" aria-label="検索をクリア">✕</button>
                     </div>
-                    <button id="themeToggleBtn" class="btn btn-icon" title="テーマ切り替え">
+                    <button id="themeToggleBtn" class="btn btn-icon" title="テーマ切り替え" aria-label="テーマを切り替え">
                         <span class="icon">🌙</span>
                     </button>
-                    <button id="settingsBtn" class="btn btn-icon">
+                    <button id="settingsBtn" class="btn btn-icon" aria-label="設定を開く">
                         <span class="icon">⚙️</span>
                     </button>
                 </div>
@@ -65,89 +69,97 @@
             <!-- Sidebar -->
             <aside id="sidebar" class="sidebar">
                 <div class="sidebar-inner">
-                <div class="sidebar-section">
-                    <h3>フィルター</h3>
-                    <div class="filter-group">
-                        <label>評価</label>
-                        <div class="rating-filter">
-                            <button class="rating-btn" data-rating="1">☆</button>
-                            <button class="rating-btn" data-rating="2">☆</button>
-                            <button class="rating-btn" data-rating="3">☆</button>
-                            <button class="rating-btn" data-rating="4">☆</button>
-                            <button class="rating-btn" data-rating="5">☆</button>
+                    <div class="sidebar-section">
+                        <h3>フィルター</h3>
+                        <div class="filter-group">
+                            <label>評価</label>
+                            <div class="rating-filter">
+                                <button class="rating-btn" data-rating="1" aria-label="評価1以上でフィルタ"
+                                    aria-pressed="false">☆</button>
+                                <button class="rating-btn" data-rating="2" aria-label="評価2以上でフィルタ"
+                                    aria-pressed="false">☆</button>
+                                <button class="rating-btn" data-rating="3" aria-label="評価3以上でフィルタ"
+                                    aria-pressed="false">☆</button>
+                                <button class="rating-btn" data-rating="4" aria-label="評価4以上でフィルタ"
+                                    aria-pressed="false">☆</button>
+                                <button class="rating-btn" data-rating="5" aria-label="評価5でフィルタ"
+                                    aria-pressed="false">☆</button>
+                            </div>
+                            <button class="rating-btn all-btn" data-rating="0" aria-label="評価フィルターをクリア"
+                                aria-pressed="true">すべて</button>
                         </div>
-                        <button class="rating-btn all-btn" data-rating="0">すべて</button>
+                        <div class="filter-group">
+                            <label>ソート</label>
+                            <select id="sortSelect" class="sort-select" aria-label="ソート順">
+                                <option value="filename">ファイル名</option>
+                                <option value="title">タイトル</option>
+                                <option value="duration">再生時間</option>
+                                <option value="size">ファイルサイズ</option>
+                                <option value="createdAt">作成日</option>
+                                <option value="rating">評価</option>
+                                <option value="addedAt">追加日</option>
+                            </select>
+                            <select id="orderSelect" class="sort-select" aria-label="並び順">
+                                <option value="ASC">昇順</option>
+                                <option value="DESC">降順</option>
+                            </select>
+                        </div>
                     </div>
-                    <div class="filter-group">
-                        <label>ソート</label>
-                        <select id="sortSelect" class="sort-select">
-                            <option value="filename">ファイル名</option>
-                            <option value="title">タイトル</option>
-                            <option value="duration">再生時間</option>
-                            <option value="size">ファイルサイズ</option>
-                            <option value="createdAt">作成日</option>
-                            <option value="rating">評価</option>
-                            <option value="addedAt">追加日</option>
-                        </select>
-                        <select id="orderSelect" class="sort-select">
-                            <option value="ASC">昇順</option>
-                            <option value="DESC">降順</option>
-                        </select>
-                    </div>
-                </div>
 
-                <div class="sidebar-section">
-                    <h3>タグ</h3>
-                    <div class="tag-filter-container">
-                        <input type="text" id="tagFilterInput" class="tag-filter-input" placeholder="タグを検索...">
-                        <button class="tag-filter-clear-btn" id="tagFilterClearBtn" title="クリア">✕</button>
+                    <div class="sidebar-section">
+                        <h3>タグ</h3>
+                        <div class="tag-filter-container">
+                            <input type="text" id="tagFilterInput" class="tag-filter-input" placeholder="タグを検索..."
+                                aria-label="タグを検索">
+                            <button class="tag-filter-clear-btn" id="tagFilterClearBtn" title="クリア"
+                                aria-label="タグ検索をクリア">✕</button>
+                        </div>
+                        <div class="tag-controls">
+                            <button id="clearAllTagsBtn" class="btn btn-small">全て解除</button>
+                        </div>
+                        <div id="tagsList" class="tags-list">
+                            <!-- Tags will be populated here -->
+                        </div>
                     </div>
-                    <div class="tag-controls">
-                        <button id="clearAllTagsBtn" class="btn btn-small">全て解除</button>
-                    </div>
-                    <div id="tagsList" class="tags-list">
-                        <!-- Tags will be populated here -->
-                    </div>
-                </div>
 
-                <div class="sidebar-section">
-                    <h3>フォルダ</h3>
-                    <div class="folder-controls">
-                        <button id="selectAllFoldersBtn" class="btn btn-small">全て選択</button>
-                        <button id="deselectAllFoldersBtn" class="btn btn-small">全て解除</button>
+                    <div class="sidebar-section">
+                        <h3>フォルダ</h3>
+                        <div class="folder-controls">
+                            <button id="selectAllFoldersBtn" class="btn btn-small">全て選択</button>
+                            <button id="deselectAllFoldersBtn" class="btn btn-small">全て解除</button>
+                        </div>
+                        <div id="directoriesList" class="directories-list">
+                            <!-- Directories will be populated here -->
+                        </div>
                     </div>
-                    <div id="directoriesList" class="directories-list">
-                        <!-- Directories will be populated here -->
-                    </div>
-                </div>
 
-                <div class="sidebar-section">
-                    <h3>キーボードナビゲーション</h3>
-                    <div class="keyboard-help">
-                        <div class="help-group">
-                            <div class="help-title">グリッドビュー</div>
+                    <div class="sidebar-section">
+                        <h3>キーボードナビゲーション</h3>
+                        <div class="keyboard-help">
+                            <div class="help-group">
+                                <div class="help-title">グリッドビュー</div>
+                                <div class="help-item">
+                                    <span class="help-key">↑↓←→</span>
+                                    <span class="help-desc">2次元選択</span>
+                                </div>
+                            </div>
+                            <div class="help-group">
+                                <div class="help-title">リストビュー</div>
+                                <div class="help-item">
+                                    <span class="help-key">↑↓←→</span>
+                                    <span class="help-desc">上下選択</span>
+                                </div>
+                            </div>
                             <div class="help-item">
-                                <span class="help-key">↑↓←→</span>
-                                <span class="help-desc">2次元選択</span>
+                                <span class="help-key">Enter</span>
+                                <span class="help-desc">再生</span>
+                            </div>
+                            <div class="help-item">
+                                <span class="help-key">Esc</span>
+                                <span class="help-desc">詳細を閉じる</span>
                             </div>
                         </div>
-                        <div class="help-group">
-                            <div class="help-title">リストビュー</div>
-                            <div class="help-item">
-                                <span class="help-key">↑↓←→</span>
-                                <span class="help-desc">上下選択</span>
-                            </div>
-                        </div>
-                        <div class="help-item">
-                            <span class="help-key">Enter</span>
-                            <span class="help-desc">再生</span>
-                        </div>
-                        <div class="help-item">
-                            <span class="help-key">Esc</span>
-                            <span class="help-desc">詳細を閉じる</span>
-                        </div>
                     </div>
-                </div>
                 </div><!-- /.sidebar-inner -->
             </aside>
 
@@ -155,17 +167,21 @@
             <section class="video-list-container">
                 <div class="video-list-header">
                     <div class="view-controls">
-                        <button id="gridViewBtn" class="view-btn active" data-view="grid">
+                        <button id="gridViewBtn" class="view-btn active" data-view="grid" aria-label="グリッドビュー"
+                            aria-pressed="true">
                             <span class="icon">⊞</span>
                         </button>
-                        <button id="listViewBtn" class="view-btn" data-view="list">
+                        <button id="listViewBtn" class="view-btn" data-view="list" aria-label="リストビュー"
+                            aria-pressed="false">
                             <span class="icon">☰</span>
                         </button>
                     </div>
                     <div class="quick-bulk-tag-container">
                         <span class="quick-bulk-tag-icon">🏷️</span>
-                        <input type="text" id="quickBulkTagInput" class="quick-bulk-tag-input" placeholder="表示中の全動画にタグを付与...">
-                        <button id="quickBulkTagApplyBtn" class="quick-bulk-tag-apply-btn" title="表示中の全動画にタグを一括付与">追加</button>
+                        <input type="text" id="quickBulkTagInput" class="quick-bulk-tag-input"
+                            placeholder="表示中の全動画にタグを付与..." aria-label="表示中の全動画に付与するタグ">
+                        <button id="quickBulkTagApplyBtn" class="quick-bulk-tag-apply-btn"
+                            title="表示中の全動画にタグを一括付与">追加</button>
                     </div>
                     <div class="video-count">
                         <span id="videoCount">0 動画</span>
@@ -177,10 +193,11 @@
             </section>
 
             <!-- Video Details Panel -->
-            <aside id="detailsPanel" class="details-panel" style="display: none;">
+            <aside id="detailsPanel" class="details-panel" style="display: none;" role="complementary"
+                aria-label="動画詳細">
                 <div class="details-header">
                     <h3 id="detailsTitle">動画詳細</h3>
-                    <button id="closeDetailsBtn" class="btn btn-icon">
+                    <button id="closeDetailsBtn" class="btn btn-icon" aria-label="詳細を閉じる">
                         <span class="icon">✕</span>
                     </button>
                 </div>
@@ -189,10 +206,12 @@
                         <div class="main-thumbnail">
                             <img id="detailsMainThumbnail" src="" alt="メインサムネイル">
                             <div class="thumbnail-actions">
-                                <button id="refreshMainThumbnailBtn" class="refresh-thumbnail-btn" title="メインサムネイルを更新">
+                                <button id="refreshMainThumbnailBtn" class="refresh-thumbnail-btn" title="メインサムネイルを更新"
+                                    aria-label="メインサムネイルを更新">
                                     <span class="icon">🔄</span>
                                 </button>
-                                <button id="customThumbnailBtn" class="custom-thumbnail-btn" title="指定箇所から生成">
+                                <button id="customThumbnailBtn" class="custom-thumbnail-btn" title="指定箇所から生成"
+                                    aria-label="指定位置からサムネイルを生成">
                                     <span class="icon">🎯</span>
                                 </button>
                             </div>
@@ -213,12 +232,17 @@
                         <div class="info-group">
                             <label>評価</label>
                             <div class="rating-input">
-                                <button class="clear-rating-btn" title="評価を削除">×</button>
-                                <span class="star" data-rating="1">⭐</span>
-                                <span class="star" data-rating="2">⭐</span>
-                                <span class="star" data-rating="3">⭐</span>
-                                <span class="star" data-rating="4">⭐</span>
-                                <span class="star" data-rating="5">⭐</span>
+                                <button class="clear-rating-btn" title="評価を削除" aria-label="評価を削除">×</button>
+                                <span class="star" data-rating="1" role="button" tabindex="0" aria-label="評価を1にする"
+                                    aria-pressed="false">⭐</span>
+                                <span class="star" data-rating="2" role="button" tabindex="0" aria-label="評価を2にする"
+                                    aria-pressed="false">⭐</span>
+                                <span class="star" data-rating="3" role="button" tabindex="0" aria-label="評価を3にする"
+                                    aria-pressed="false">⭐</span>
+                                <span class="star" data-rating="4" role="button" tabindex="0" aria-label="評価を4にする"
+                                    aria-pressed="false">⭐</span>
+                                <span class="star" data-rating="5" role="button" tabindex="0" aria-label="評価を5にする"
+                                    aria-pressed="false">⭐</span>
                             </div>
                         </div>
 
@@ -231,7 +255,8 @@
                             <label>タグ</label>
                             <div class="tags-input-container">
                                 <input type="text" id="tagInput" class="tag-input"
-                                    placeholder="タグを追加してEnterキーを押してください (スペース区切りで複数入力可)..." list="tagSuggestions">
+                                    placeholder="タグを追加してEnterキーを押してください (スペース区切りで複数入力可)..." list="tagSuggestions"
+                                    aria-label="タグを追加">
                                 <datalist id="tagSuggestions">
                                     <!-- Tag suggestions will be populated here -->
                                 </datalist>
@@ -281,11 +306,12 @@
         </main>
 
         <!-- Settings Modal -->
-        <div id="settingsModal" class="modal" style="display: none;">
+        <div id="settingsModal" class="modal" style="display: none;" role="dialog" aria-modal="true"
+            aria-labelledby="settingsModalTitle">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h2>設定</h2>
-                    <button id="closeSettingsBtn" class="btn btn-icon">
+                    <h2 id="settingsModalTitle">設定</h2>
+                    <button id="closeSettingsBtn" class="btn btn-icon" aria-label="設定を閉じる">
                         <span class="icon">✕</span>
                     </button>
                 </div>
@@ -400,11 +426,12 @@
         </div>
 
         <!-- Error Dialog -->
-        <div id="errorDialog" class="modal" style="display: none;">
+        <div id="errorDialog" class="modal" style="display: none;" role="alertdialog" aria-modal="true"
+            aria-labelledby="errorDialogTitle">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h2>エラー</h2>
-                    <button id="closeErrorBtn" class="btn btn-icon">
+                    <h2 id="errorDialogTitle">エラー</h2>
+                    <button id="closeErrorBtn" class="btn btn-icon" aria-label="エラーダイアログを閉じる">
                         <span class="icon">✕</span>
                     </button>
                 </div>
@@ -420,11 +447,12 @@
         </div>
 
         <!-- Tag Edit Dialog -->
-        <div id="tagEditDialog" class="modal" style="display: none;">
+        <div id="tagEditDialog" class="modal" style="display: none;" role="dialog" aria-modal="true"
+            aria-labelledby="tagEditDialogTitle">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h2>タグを編集</h2>
-                    <button id="closeTagEditBtn" class="btn btn-icon">
+                    <h2 id="tagEditDialogTitle">タグを編集</h2>
+                    <button id="closeTagEditBtn" class="btn btn-icon" aria-label="タグ編集ダイアログを閉じる">
                         <span class="icon">✕</span>
                     </button>
                 </div>
@@ -442,16 +470,18 @@
         </div>
         <!-- Bulk Tag Apply Dialog -->
         <!-- Bulk Tag Apply Dialog -->
-        <div id="bulkTagApplyDialog" class="modal" style="display: none;">
+        <div id="bulkTagApplyDialog" class="modal" style="display: none;" role="dialog" aria-modal="true"
+            aria-labelledby="bulkTagApplyDialogTitle">
             <div class="modal-content bulk-tag-apply-modal">
                 <div class="modal-header">
-                    <h2>タグ一括反映</h2>
-                    <button id="closeBulkTagApplyDialog" class="btn btn-icon">×</button>
+                    <h2 id="bulkTagApplyDialogTitle">タグ一括反映</h2>
+                    <button id="closeBulkTagApplyDialog" class="btn btn-icon" aria-label="タグ一括反映ダイアログを閉じる">×</button>
                 </div>
                 <div class="modal-body">
                     <div class="bulk-tag-apply-container">
                         <div class="bulk-tag-filter-container">
-                            <input type="text" id="bulkTagFilterInput" class="bulk-tag-filter-input" placeholder="タグを絞り込む...">
+                            <input type="text" id="bulkTagFilterInput" class="bulk-tag-filter-input"
+                                placeholder="タグを絞り込む..." aria-label="タグを絞り込む">
                         </div>
                         <div class="bulk-tag-apply-table-container">
                             <table id="bulkTagApplyTable" class="bulk-tag-apply-table">
@@ -476,11 +506,12 @@
         </div>
 
         <!-- Duplicate Finder Modal -->
-        <div id="duplicateModal" class="modal" style="display: none;">
+        <div id="duplicateModal" class="modal" style="display: none;" role="dialog" aria-modal="true"
+            aria-labelledby="duplicateModalTitle">
             <div class="modal-content duplicate-modal">
                 <div class="modal-header">
-                    <h2>重複動画の検索結果</h2>
-                    <button id="closeDuplicateModal" class="btn btn-icon">×</button>
+                    <h2 id="duplicateModalTitle">重複動画の検索結果</h2>
+                    <button id="closeDuplicateModal" class="btn btn-icon" aria-label="重複検索結果を閉じる">×</button>
                 </div>
                 <div class="modal-body">
                     <div id="duplicateSearchingState" class="duplicate-searching">
@@ -509,17 +540,18 @@
         </div>
 
         <!-- Thumbnail Modal -->
-        <div id="thumbnailModal" class="thumbnail-modal" style="display: none;">
+        <div id="thumbnailModal" class="thumbnail-modal" style="display: none;" role="dialog" aria-modal="true"
+            aria-labelledby="thumbnailModalTitle">
             <div class="thumbnail-modal-content">
                 <div class="thumbnail-modal-header">
                     <h3 id="thumbnailModalTitle">サムネイル表示</h3>
-                    <button id="closeThumbnailBtn" class="btn btn-icon">
+                    <button id="closeThumbnailBtn" class="btn btn-icon" aria-label="サムネイル表示を閉じる">
                         <span class="icon">✕</span>
                     </button>
                 </div>
                 <div class="thumbnail-modal-body">
                     <div class="thumbnail-modal-nav">
-                        <button id="prevThumbnailBtn" class="nav-btn">
+                        <button id="prevThumbnailBtn" class="nav-btn" aria-label="前のサムネイル">
                             <span class="icon">◀</span>
                         </button>
                         <div class="thumbnail-display">
@@ -529,7 +561,7 @@
                                 <span id="thumbnailIndex"></span>
                             </div>
                         </div>
-                        <button id="nextThumbnailBtn" class="nav-btn">
+                        <button id="nextThumbnailBtn" class="nav-btn" aria-label="次のサムネイル">
                             <span class="icon">▶</span>
                         </button>
                     </div>
@@ -548,11 +580,12 @@
         </div>
 
         <!-- Custom Thumbnail Preview Dialog -->
-        <div id="customThumbnailDialog" class="modal" style="display: none;">
+        <div id="customThumbnailDialog" class="modal" style="display: none;" role="dialog" aria-modal="true"
+            aria-labelledby="customThumbnailDialogTitle">
             <div class="modal-content custom-thumbnail-modal">
                 <div class="modal-header">
-                    <h2>カスタムサムネイルを生成</h2>
-                    <button id="closeCustomThumbnailDialog" class="btn btn-icon">
+                    <h2 id="customThumbnailDialogTitle">カスタムサムネイルを生成</h2>
+                    <button id="closeCustomThumbnailDialog" class="btn btn-icon" aria-label="カスタムサムネイルダイアログを閉じる">
                         <span class="icon">✕</span>
                     </button>
                 </div>

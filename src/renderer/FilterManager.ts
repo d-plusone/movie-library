@@ -3,17 +3,25 @@
  * 評価、タグ、ディレクトリフィルターとその永続化を担当
  */
 
-import {
-  Video,
-  Directory,
-  SortState,
-  FilterStateData,
-} from "../types/types.js";
+import { Directory, FilterStateData } from "../types/types.js";
 
 export interface FilterState {
   rating: number;
   tags: string[];
   directories: string[];
+}
+
+// localStorage からディレクトリリストを安全に読み込む
+// 不正な JSON や型が壊れたデータでも例外を投げずに空配列を返す
+function loadDirectoriesFromStorage(): Directory[] {
+  const saved = localStorage.getItem("availableDirectories");
+  if (saved === null) return [];
+  try {
+    const parsed = JSON.parse(saved);
+    return Array.isArray(parsed) ? (parsed as Directory[]) : [];
+  } catch {
+    return [];
+  }
 }
 
 export class FilterManager {
@@ -46,7 +54,7 @@ export class FilterManager {
   saveSettings(): void {
     localStorage.setItem(
       "saveFilterState",
-      this.saveFilterStateEnabled.toString()
+      this.saveFilterStateEnabled.toString(),
     );
   }
 
@@ -63,7 +71,7 @@ export class FilterManager {
 
     // 検索クエリも保存
     const searchInput = document.getElementById(
-      "searchInput"
+      "searchInput",
     ) as HTMLInputElement;
     if (searchInput) {
       localStorage.setItem("searchQuery", searchInput.value);
@@ -145,66 +153,8 @@ export class FilterManager {
   }
 
   // フィルターを適用
-  applyFilters(
-    videos: Video[],
-    searchQuery: string = "",
-    currentSort: SortState = { field: "title", order: "ASC" }
-  ): Video[] {
-    let filteredVideos = [...videos];
-
-    // 評価フィルター
-    if (this.currentFilter.rating > 0) {
-      filteredVideos = filteredVideos.filter(
-        (video) => (video.rating || 0) >= this.currentFilter.rating
-      );
-    }
-
-    // タグフィルター
-    if (this.currentFilter.tags.length > 0) {
-      filteredVideos = filteredVideos.filter((video) =>
-        this.currentFilter.tags.every(
-          (tag) => video.tags && video.tags.includes(tag)
-        )
-      );
-    }
-
-    // ディレクトリフィルター
-    if (this.selectedDirectories.length > 0) {
-      filteredVideos = filteredVideos.filter((video) =>
-        this.selectedDirectories.some((dir) => video.path.startsWith(dir))
-      );
-    }
-
-    // 検索クエリ
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      filteredVideos = filteredVideos.filter(
-        (video) =>
-          video.title.toLowerCase().includes(query) ||
-          video.filename.toLowerCase().includes(query) ||
-          (video.description && video.description.toLowerCase().includes(query))
-      );
-    }
-
-    // ソート
-    filteredVideos.sort((a, b) => {
-      let aValue: string = a[currentSort.field];
-      let bValue: string = b[currentSort.field];
-
-      aValue = aValue.toLowerCase();
-      bValue = bValue.toLowerCase();
-
-      if (aValue < bValue) {
-        return currentSort.order === "ASC" ? -1 : 1;
-      }
-      if (aValue > bValue) {
-        return currentSort.order === "ASC" ? 1 : -1;
-      }
-      return 0;
-    });
-
-    return filteredVideos;
-  }
+  // （フィルタリング・ソートの実処理は app.ts の applyFiltersAndSort に集約されているため、
+  //   ここには実装しない。残留コードは削除済み）
 
   // フィルター状態を保存するかどうかを設定
   setSaveFilterStateEnabled(enabled: boolean): void {
@@ -237,7 +187,7 @@ export class FilterManager {
 
     // 存在しないディレクトリを削除
     this.selectedDirectories = this.selectedDirectories.filter((selected) =>
-      directories.some((dir) => dir.path === selected)
+      directories.some((dir) => dir.path === selected),
     );
 
     // フィルタ状態保存がオフの場合は常に全選択
@@ -283,14 +233,12 @@ export class FilterManager {
   } {
     // 検索クエリを取得
     const searchInput = document.getElementById(
-      "searchInput"
+      "searchInput",
     ) as HTMLInputElement;
     const searchQuery = searchInput ? searchInput.value.trim() : "";
 
     // 利用可能なディレクトリが存在する場合は常にディレクトリフィルタを適用
-    const availableDirectories = JSON.parse(
-      localStorage.getItem("availableDirectories") || "[]"
-    );
+    const availableDirectories = loadDirectoriesFromStorage();
     const hasDirectoryFilter = availableDirectories.length > 0;
 
     return {
@@ -300,15 +248,6 @@ export class FilterManager {
       ratingFilter: this.currentFilter.rating,
       hasDirectoryFilter: hasDirectoryFilter,
     };
-  }
-
-  // 後方互換性のためのエイリアス
-  applyFiltersAndSort(
-    videos: Video[],
-    searchQuery: string = "",
-    currentSort: SortState = { field: "created_at", order: "DESC" }
-  ): Video[] {
-    return this.applyFilters(videos, searchQuery, currentSort);
   }
 
   // タグフィルターを切り替え（app.jsとの互換性のため）
@@ -338,9 +277,7 @@ export class FilterManager {
   // すべてのディレクトリを選択
   selectAllDirectories(): void {
     // 現在利用可能なディレクトリを取得
-    const directories = JSON.parse(
-      localStorage.getItem("availableDirectories") || "[]"
-    );
+    const directories = loadDirectoriesFromStorage();
     this.selectedDirectories = directories.map((dir: Directory) => dir.path);
     this.saveFilterState();
     this.notifyFilterChange();

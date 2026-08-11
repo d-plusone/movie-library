@@ -1,5 +1,6 @@
 import { promises as fs } from "fs";
 import path from "path";
+import { app } from "electron";
 import PrismaDatabaseManager, {
   type VideoRecord,
 } from "../database/PrismaDatabaseManager";
@@ -10,6 +11,10 @@ import {
   ScanError,
 } from "../types/types.js";
 import { getFfprobePath } from "../utils/ffmpeg-utils.js";
+import { createLogger } from "../utils/logger.js";
+
+// production ビルドではデバッグログを抑制
+const logger = createLogger(app.isPackaged);
 
 class VideoScanner {
   private db: PrismaDatabaseManager;
@@ -35,12 +40,14 @@ class VideoScanner {
       ".mts",
       ".m2ts",
     ];
+    // initialize() で遅延設定される
+    this.ffprobePath = null;
   }
 
   async initialize(): Promise<void> {
     // Get ffprobe path from shared utility
     this.ffprobePath = await getFfprobePath();
-    console.log("VideoScanner: Using ffprobe path:", this.ffprobePath);
+    logger.debug("VideoScanner: Using ffprobe path:", this.ffprobePath);
   }
 
   isVideoFile(filePath: string): boolean {
@@ -74,7 +81,7 @@ class VideoScanner {
 
   async scanDirectory(
     directoryPath: string,
-    progressCallback?: ProgressCallback | null
+    progressCallback?: ProgressCallback | null,
   ): Promise<ProcessedVideo[]> {
     const videos: ProcessedVideo[] = [];
     const allFiles = await this.getAllFiles(directoryPath);
@@ -107,7 +114,7 @@ class VideoScanner {
   // 改良されたディレクトリスキャン（包括的チェック）
   async comprehensiveScan(
     directories: string[],
-    progressCallback?: ProgressCallback | null
+    progressCallback?: ProgressCallback | null,
   ): Promise<{
     newVideos: ProcessedVideo[];
     updatedVideos: ProcessedVideo[];
@@ -137,11 +144,17 @@ class VideoScanner {
         allCurrentFiles.push(...files.filter((file) => this.isVideoFile(file)));
         scannedDirs.add(dir);
       } catch (error) {
-        console.warn(`Skipping inaccessible directory during scan: ${dir}`, error);
+        console.warn(
+          `Skipping inaccessible directory during scan: ${dir}`,
+          error,
+        );
         result.errors.push({
           filePath: dir,
           error: `Directory inaccessible: ${error instanceof Error ? error.message : String(error)}`,
-          errorCode: error instanceof Error && "code" in error ? String((error as any).code) : undefined,
+          errorCode:
+            error instanceof Error && "code" in error
+              ? String(error.code)
+              : undefined,
           timestamp: new Date(),
         });
       }
@@ -153,18 +166,20 @@ class VideoScanner {
     for (const existingVideo of existingVideos) {
       if (!currentPaths.has(existingVideo.path)) {
         const belongsToScannedDir = [...scannedDirs].some(
-          (dir) => existingVideo.path.startsWith(dir + "/") || existingVideo.path.startsWith(dir + "\\")
+          (dir) =>
+            existingVideo.path.startsWith(dir + "/") ||
+            existingVideo.path.startsWith(dir + "\\"),
         );
         if (belongsToScannedDir) {
           result.deletedVideos.push(existingVideo.path);
-          console.log(`Detected deleted video: ${existingVideo.path}`);
+          logger.debug(`Detected deleted video: ${existingVideo.path}`);
         }
       }
     }
 
     // 4. 問題のある動画を検出（メタデータが不完全）
     const problematicVideos = existingVideos.filter(
-      (video) => currentPaths.has(video.path) && this.isVideoProblematic(video)
+      (video) => currentPaths.has(video.path) && this.isVideoProblematic(video),
     );
 
     // 5. 新規・更新・問題動画の処理
@@ -191,16 +206,16 @@ class VideoScanner {
           const video = await this.processFile(filePath);
           if (video) {
             result.newVideos.push(video);
-            console.log(`New video detected: ${filePath}`);
+            logger.debug(`New video detected: ${filePath}`);
           }
         } else if (
-          existingVideo.modifiedAt.getTime() !== stats.mtime.getTime()
+          existingVideo.modifiedAt?.getTime() !== stats.mtime.getTime()
         ) {
           // 更新された動画
           const video = await this.processFile(filePath);
           if (video) {
             result.updatedVideos.push(video);
-            console.log(`Updated video detected: ${filePath}`);
+            logger.debug(`Updated video detected: ${filePath}`);
           }
         }
       } catch (error) {
@@ -229,17 +244,19 @@ class VideoScanner {
           });
         }
 
-        console.log(`Reprocessing problematic video: ${problematicVideo.path}`);
+        logger.debug(
+          `Reprocessing problematic video: ${problematicVideo.path}`,
+        );
         const video = await this.processFile(problematicVideo.path, true); // 強制再処理
         if (video) {
           result.reprocessedVideos.push(video);
-          console.log(`Reprocessed video: ${problematicVideo.path}`);
+          logger.debug(`Reprocessed video: ${problematicVideo.path}`);
         }
       } catch (error) {
         console.error(
           "Error reprocessing problematic video:",
           problematicVideo.path,
-          error
+          error,
         );
         result.errors.push({
           filePath: problematicVideo.path,
@@ -319,13 +336,13 @@ class VideoScanner {
 
   async processFile(
     filePath: string,
-    forceReprocess: boolean = false
+    forceReprocess: boolean = false,
   ): Promise<ProcessedVideo | null> {
     try {
       // 再度ファイル名をチェック（念のため）
       const fileName = path.basename(filePath);
       if (fileName.startsWith("._") || fileName.startsWith(".")) {
-        console.log(`Skipping hidden/system file: ${fileName}`);
+        logger.debug(`Skipping hidden/system file: ${fileName}`);
         return null;
       }
 
@@ -337,7 +354,7 @@ class VideoScanner {
       if (
         !forceReprocess &&
         existingVideo &&
-        existingVideo.modifiedAt.getTime() === stats.mtime.getTime()
+        existingVideo.modifiedAt?.getTime() === stats.mtime.getTime()
       ) {
         return {
           ...existingVideo,
@@ -361,7 +378,7 @@ class VideoScanner {
 
       // ビデオストリームを明示的に探す
       const videoStream = metadata.streams.find(
-        (stream) => stream.codec_type === "video"
+        (stream) => stream.codec_type === "video",
       );
 
       // ビデオストリームが見つからない場合は最初のストリームを使用（フォールバック）
@@ -371,7 +388,7 @@ class VideoScanner {
 
       if (!streamToUse) {
         console.warn(
-          `No usable stream found in file: ${filePath}, using file info only`
+          `No usable stream found in file: ${filePath}, using file info only`,
         );
         // ストリームが見つからない場合でも基本的なファイル情報で動画として追加
         videoData = {
@@ -385,11 +402,12 @@ class VideoScanner {
           fps: 0,
           codec: "unknown",
           bitrate: this.parseBitrate(metadata.format.bit_rate),
+          addedAt: new Date(),
           createdAt: stats.birthtime.toISOString(),
           modifiedAt: stats.mtime.toISOString(),
         };
       } else {
-        console.log(`Using stream for ${filePath}:`, {
+        logger.debug(`Using stream for ${filePath}:`, {
           codec_type: streamToUse.codec_type,
           width: streamToUse.width,
           height: streamToUse.height,
@@ -408,6 +426,7 @@ class VideoScanner {
           fps: this.parseFps(streamToUse.r_frame_rate),
           codec: streamToUse.codec_name,
           bitrate: this.parseBitrate(metadata.format.bit_rate),
+          addedAt: new Date(),
           createdAt: stats.birthtime.toISOString(),
           modifiedAt: stats.mtime.toISOString(),
         };
@@ -416,9 +435,17 @@ class VideoScanner {
       const videoId = await this.db.addVideo(videoData);
       const isNewVideo = !existingVideo; // 既存動画がない場合は新規動画
 
+      // VideoCreateData の文字列日付を Date に変換して ProcessedVideo として返す
       return {
         id: videoId,
         ...videoData,
+        addedAt: videoData.addedAt ?? new Date(),
+        modifiedAt: videoData.modifiedAt
+          ? new Date(videoData.modifiedAt)
+          : new Date(),
+        createdAt: videoData.createdAt
+          ? new Date(videoData.createdAt)
+          : undefined,
         isNewVideo,
         needsThumbnails: isNewVideo, // 新規動画の場合はサムネイル生成が必要
       };
@@ -485,8 +512,8 @@ class VideoScanner {
           reject(new Error(`FFprobe exited with code ${code}: ${stderr}`));
         } else {
           try {
-            const metadata = JSON.parse(stdout);
-            console.log("FFprobe metadata for:", path.basename(filePath), {
+            const metadata = JSON.parse(stdout) as VideoMetadata;
+            logger.debug("FFprobe metadata for:", path.basename(filePath), {
               streamsCount: metadata.streams?.length || 0,
               streams: metadata.streams?.map((s) => ({
                 index: s.index,
@@ -503,7 +530,7 @@ class VideoScanner {
             console.error(
               "Failed to parse FFprobe output:",
               parseError,
-              stdout
+              stdout,
             );
             reject(parseError);
           }
@@ -533,11 +560,11 @@ class VideoScanner {
           return 0;
         }
         const fps = numerator / denominator;
-        console.log(`Parsed frame rate: ${frameRate} = ${fps.toFixed(2)} fps`);
+        logger.debug(`Parsed frame rate: ${frameRate} = ${fps.toFixed(2)} fps`);
         return Math.round(fps * 100) / 100; // 小数点2桁で丸める
       } else {
         const fps = parseFloat(frameRate);
-        console.log(`Parsed frame rate: ${frameRate} = ${fps.toFixed(2)} fps`);
+        logger.debug(`Parsed frame rate: ${frameRate} = ${fps.toFixed(2)} fps`);
         return isNaN(fps) ? 0 : Math.round(fps * 100) / 100;
       }
     } catch (error) {
@@ -593,7 +620,7 @@ class VideoScanner {
   // 全ての動画を強制的に再スキャンするメソッド
   async forceRescanAllVideos(
     directories: string[],
-    progressCallback?: ProgressCallback | null
+    progressCallback?: ProgressCallback | null,
   ): Promise<{
     processedVideos: ProcessedVideo[];
     updatedVideos: ProcessedVideo[];
@@ -613,9 +640,9 @@ class VideoScanner {
       errors: [] as ScanError[],
     };
 
-    console.log(
+    logger.log(
       "Starting force rescan of all videos in directories:",
-      directories
+      directories,
     );
 
     // 1. 現在のデータベース内の全動画を取得
@@ -632,11 +659,17 @@ class VideoScanner {
         allCurrentFiles.push(...files.filter((file) => this.isVideoFile(file)));
         scannedDirs.add(dir);
       } catch (error) {
-        console.warn(`Skipping inaccessible directory during rescan: ${dir}`, error);
+        console.warn(
+          `Skipping inaccessible directory during rescan: ${dir}`,
+          error,
+        );
         result.errors.push({
           filePath: dir,
           error: `Directory inaccessible: ${error instanceof Error ? error.message : String(error)}`,
-          errorCode: error instanceof Error && "code" in error ? String((error as any).code) : undefined,
+          errorCode:
+            error instanceof Error && "code" in error
+              ? String(error.code)
+              : undefined,
           timestamp: new Date(),
         });
       }
@@ -648,11 +681,13 @@ class VideoScanner {
     for (const existingVideo of existingVideos) {
       if (!currentPaths.has(existingVideo.path)) {
         const belongsToScannedDir = [...scannedDirs].some(
-          (dir) => existingVideo.path.startsWith(dir + "/") || existingVideo.path.startsWith(dir + "\\")
+          (dir) =>
+            existingVideo.path.startsWith(dir + "/") ||
+            existingVideo.path.startsWith(dir + "\\"),
         );
         if (belongsToScannedDir) {
           result.deletedVideos.push(existingVideo.path);
-          console.log(`Detected deleted video: ${existingVideo.path}`);
+          logger.debug(`Detected deleted video: ${existingVideo.path}`);
         }
       }
     }
@@ -676,8 +711,8 @@ class VideoScanner {
           });
         }
 
-        console.log(
-          `Force rescanning video ${processedCount}/${totalFiles}: ${filePath}`
+        logger.debug(
+          `Force rescanning video ${processedCount}/${totalFiles}: ${filePath}`,
         );
 
         // 既存の動画データがあるかチェック
@@ -702,13 +737,13 @@ class VideoScanner {
             if (hasChanges) {
               result.updatedVideos.push(video);
               result.totalUpdated++;
-              console.log(`Video metadata updated: ${filePath}`);
+              logger.debug(`Video metadata updated: ${filePath}`);
             }
           } else {
             // 新しい動画として扱う
             result.updatedVideos.push(video);
             result.totalUpdated++;
-            console.log(`New video processed: ${filePath}`);
+            logger.debug(`New video processed: ${filePath}`);
           }
         }
       } catch (error) {
@@ -726,7 +761,7 @@ class VideoScanner {
       }
     }
 
-    console.log("Force rescan completed:", {
+    logger.log("Force rescan completed:", {
       totalProcessed: result.totalProcessed,
       totalUpdated: result.totalUpdated,
       totalErrors: result.totalErrors,

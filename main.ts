@@ -14,12 +14,44 @@ import PrismaDatabaseManager from "./src/database/PrismaDatabaseManager.js";
 import VideoScanner from "./src/scanner/VideoScanner.js";
 import ThumbnailGenerator from "./src/thumbnail/ThumbnailGenerator.js";
 import DuplicateDetector from "./src/scanner/DuplicateDetector.js";
-import { ProcessedVideo, ThumbnailResult } from "./src/types/types.js";
+import {
+  ProcessedVideo,
+  ThumbnailResult,
+  VideoUpdateData,
+} from "./src/types/types.js";
 import { initializeFFmpeg } from "./src/utils/ffmpeg-utils.js";
+import { createLogger } from "./src/utils/logger.js";
+
+// production ビルドではデバッグログを抑制
+const logger = createLogger(app.isPackaged);
+
+// 標準出力/標準エラーが閉じられた状態で console.log 等を呼ぶと
+// "write EPIPE" でプロセスがクラッシュするのを防ぐ
+// （例: ログを `| head` や別プロセスにパイプして読み手がいなくなった場合）
+for (const stream of [process.stdout, process.stderr]) {
+  stream.on("error", (error: NodeJS.ErrnoException) => {
+    if (error.code === "EPIPE") {
+      // 読み手がいないだけなので致命的ではない
+      return;
+    }
+    // EPIPE 以外は元のエラーハンドリングに委ねる
+    throw error;
+  });
+}
 
 // Set app name BEFORE app is ready to ensure consistent userData path across versions
 // This must be done before any app.getPath() calls
 app.setName("movie-library");
+
+// About パネル (macOS / Windows のネイティブダイアログ) のカスタマイズ
+// アプリ自体のバージョンは表示せず、代わりに Electron のバージョンを表示する
+app.setAboutPanelOptions({
+  applicationName: "Movie Library",
+  applicationVersion: `Electron ${process.versions.electron}`,
+  copyright: "© 2025 Movie Library",
+  website: "https://github.com/d-plusone/movie-library/",
+  credits: "動画ファイルの管理と再生を支援するアプリケーションです。",
+});
 
 async function runConcurrent<T>(
   items: T[],
@@ -62,7 +94,7 @@ class MovieLibraryApp {
 
     // Windows のバックスラッシュをフォワードスラッシュに変換 (Prisma SQLite URL の要件)
     process.env.DATABASE_URL = `file:${dbPath.replace(/\\/g, "/")}`;
-    console.log(`Database path: ${dbPath}`);
+    logger.debug(`Database path: ${dbPath}`);
 
     this.db = new PrismaDatabaseManager();
     this.videoScanner = new VideoScanner(this.db);
@@ -71,7 +103,7 @@ class MovieLibraryApp {
   }
 
   async initialize(): Promise<void> {
-    console.log("🚀 Initializing Movie Library App...");
+    logger.log("🚀 Initializing Movie Library App...");
 
     // Initialize FFmpeg binaries
     try {
@@ -95,7 +127,7 @@ class MovieLibraryApp {
     // Setup IPC handlers
     this.setupIpcHandlers();
 
-    console.log("✅ Movie Library App initialized");
+    logger.log("✅ Movie Library App initialized");
   }
 
   createWindow(): void {
@@ -117,6 +149,10 @@ class MovieLibraryApp {
         nodeIntegration: false,
         contextIsolation: true,
         preload: path.join(__dirname, "preload.js"),
+        // preload に production フラグを渡す（sandbox 下でも process.argv で読める）
+        additionalArguments: [
+          `--movie-library-production=${app.isPackaged ? "1" : "0"}`,
+        ],
       },
       titleBarStyle: "hiddenInset",
       vibrancy: "under-window",
@@ -160,32 +196,9 @@ class MovieLibraryApp {
     // ウィンドウが閉じられたときの処理
     this.mainWindow.on("closed", () => {
       this.mainWindow = null;
-      // アプリを完全に終了
+      // アプリを完全に終了（クリーンアップは before-quit で一括実施）
       app.quit();
     });
-
-    // ウィンドウを閉じる前の処理
-    this.mainWindow.on("close", (_event) => {
-      console.log("Window is being closed");
-      // すべてのwatcherを停止
-      this.watchers.forEach((watcher) => watcher.close());
-      // データベース接続を閉じる
-      if (this.db) {
-        this.db.close();
-      }
-    });
-
-    // Windows用の追加終了処理
-    if (process.platform === "win32") {
-      this.mainWindow.on("close", (_event) => {
-        // Windowsでのクリーンな終了を保証
-        setTimeout(() => {
-          if (process.platform === "win32") {
-            process.exit(0);
-          }
-        }, 1000);
-      });
-    }
   }
 
   createMenu(): void {
@@ -376,10 +389,7 @@ class MovieLibraryApp {
       const directories = await this.db.getDirectories();
       const directoryPaths = directories.map((d) => d.path);
 
-      console.log(
-        "Starting comprehensive scan of directories:",
-        directoryPaths,
-      );
+      logger.log("Starting comprehensive scan of directories:", directoryPaths);
 
       // 包括的スキャンを実行
       const result = await this.videoScanner.comprehensiveScan(
@@ -399,7 +409,7 @@ class MovieLibraryApp {
       for (const deletedPath of result.deletedVideos) {
         try {
           await this.db.removeVideo(deletedPath);
-          console.log(`Removed deleted video from database: ${deletedPath}`);
+          logger.debug(`Removed deleted video from database: ${deletedPath}`);
         } catch (error) {
           console.error(
             `Failed to remove deleted video: ${deletedPath}`,
@@ -409,7 +419,7 @@ class MovieLibraryApp {
       }
 
       // 結果をログ出力
-      console.log("Comprehensive scan completed:", {
+      logger.log("Comprehensive scan completed:", {
         newVideos: result.newVideos.length,
         updatedVideos: result.updatedVideos.length,
         reprocessedVideos: result.reprocessedVideos.length,
@@ -423,7 +433,6 @@ class MovieLibraryApp {
           .map((err) => `ファイル: ${err.filePath}\nエラー: ${err.error}`)
           .join("\n\n");
 
-        const { dialog } = require("electron");
         dialog.showErrorBox(
           `スキャンエラー (${result.errors.length}件)`,
           `以下のファイルでエラーが発生しました:\n\n${errorDetails}`,
@@ -450,7 +459,7 @@ class MovieLibraryApp {
       const directories = await this.db.getDirectories();
       const directoryPaths = directories.map((d) => d.path);
 
-      console.log(
+      logger.log(
         "Starting force rescan of all videos in directories:",
         directoryPaths,
       );
@@ -473,7 +482,7 @@ class MovieLibraryApp {
       for (const deletedPath of result.deletedVideos) {
         try {
           await this.db.removeVideo(deletedPath);
-          console.log(`Removed deleted video from database: ${deletedPath}`);
+          logger.debug(`Removed deleted video from database: ${deletedPath}`);
         } catch (error) {
           console.error(
             `Failed to remove deleted video: ${deletedPath}`,
@@ -483,7 +492,7 @@ class MovieLibraryApp {
       }
 
       // 結果をログ出力
-      console.log("Force rescan all videos completed:", {
+      logger.log("Force rescan all videos completed:", {
         totalProcessed: result.totalProcessed,
         totalUpdated: result.totalUpdated,
         totalErrors: result.totalErrors,
@@ -496,7 +505,6 @@ class MovieLibraryApp {
           .map((err) => `ファイル: ${err.filePath}\nエラー: ${err.error}`)
           .join("\n\n");
 
-        const { dialog } = require("electron");
         dialog.showErrorBox(
           `再スキャンエラー (${result.errors.length}件)`,
           `以下のファイルでエラーが発生しました:\n\n${errorDetails}`,
@@ -509,17 +517,24 @@ class MovieLibraryApp {
       });
 
       // 自動的にサムネイル生成を実行
-      console.log("Starting automatic thumbnail generation after rescan...");
+      logger.log("Starting automatic thumbnail generation after rescan...");
       try {
         const BATCH_SIZE = 50;
         const totalVideos = await this.db.getVideoCount();
         const results: ThumbnailResult[] = [];
         let processedVideos = 0;
 
-        console.log(`Auto-generating thumbnails for ${totalVideos} videos after rescan`);
+        logger.debug(
+          `Auto-generating thumbnails for ${totalVideos} videos after rescan`,
+        );
 
         for (let offset = 0; offset < totalVideos; offset += BATCH_SIZE) {
-          const videos = await this.db.getVideos("filename", "ASC", BATCH_SIZE, offset);
+          const videos = await this.db.getVideos(
+            "filename",
+            "ASC",
+            BATCH_SIZE,
+            offset,
+          );
           await runConcurrent(videos, 3, async (video) => {
             try {
               this.mainWindow?.webContents.send("thumbnail-progress", {
@@ -530,7 +545,8 @@ class MovieLibraryApp {
               });
 
               if (video.duration !== undefined) {
-                const thumbnailResult = await this.thumbnailGenerator.generateThumbnails(video);
+                const thumbnailResult =
+                  await this.thumbnailGenerator.generateThumbnails(video);
                 results.push(thumbnailResult);
               }
 
@@ -543,7 +559,11 @@ class MovieLibraryApp {
                 file: video.filename,
               });
             } catch (error) {
-              console.error("Error auto-generating thumbnails for:", video.path, error);
+              console.error(
+                "Error auto-generating thumbnails for:",
+                video.path,
+                error,
+              );
               processedVideos++;
               this.mainWindow?.webContents.send("thumbnail-progress", {
                 current: processedVideos,
@@ -559,7 +579,9 @@ class MovieLibraryApp {
           message: "自動サムネイル生成完了",
         });
 
-        console.log(`Auto thumbnail generation completed: ${processedVideos}/${totalVideos} processed`);
+        logger.log(
+          `Auto thumbnail generation completed: ${processedVideos}/${totalVideos} processed`,
+        );
       } catch (error) {
         console.error("Error during automatic thumbnail generation:", error);
         this.mainWindow?.webContents.send("thumbnail-progress", {
@@ -584,10 +606,13 @@ class MovieLibraryApp {
       const results: ThumbnailResult[] = [];
       let processedVideos = 0;
 
-      console.log(`Starting generation of ${totalVideos} thumbnails`);
+      logger.log(`Starting generation of ${totalVideos} thumbnails`);
 
       for (let offset = 0; offset < totalVideos; offset += BATCH_SIZE) {
-        const videos = await this.db.getVideosWithoutThumbnails(BATCH_SIZE, offset);
+        const videos = await this.db.getVideosWithoutThumbnails(
+          BATCH_SIZE,
+          offset,
+        );
         await runConcurrent(videos, 3, async (video) => {
           try {
             this.mainWindow?.webContents.send("thumbnail-progress", {
@@ -598,7 +623,8 @@ class MovieLibraryApp {
             });
 
             if (video.duration !== undefined) {
-              const result = await this.thumbnailGenerator.generateThumbnails(video);
+              const result =
+                await this.thumbnailGenerator.generateThumbnails(video);
               results.push(result);
             }
 
@@ -611,7 +637,11 @@ class MovieLibraryApp {
               file: video.filename,
             });
           } catch (error) {
-            console.error("Error generating thumbnails for:", video.path, error);
+            console.error(
+              "Error generating thumbnails for:",
+              video.path,
+              error,
+            );
             processedVideos++;
             this.mainWindow?.webContents.send("thumbnail-progress", {
               current: processedVideos,
@@ -627,7 +657,9 @@ class MovieLibraryApp {
         message: "サムネイル生成完了",
       });
 
-      console.log(`Thumbnail generation completed: ${processedVideos}/${totalVideos} processed`);
+      logger.log(
+        `Thumbnail generation completed: ${processedVideos}/${totalVideos} processed`,
+      );
       return results;
     });
 
@@ -638,10 +670,15 @@ class MovieLibraryApp {
       const results: ThumbnailResult[] = [];
       let processedVideos = 0;
 
-      console.log(`Starting regeneration of ${totalVideos} thumbnails`);
+      logger.log(`Starting regeneration of ${totalVideos} thumbnails`);
 
       for (let offset = 0; offset < totalVideos; offset += BATCH_SIZE) {
-        const videos = await this.db.getVideos("filename", "ASC", BATCH_SIZE, offset);
+        const videos = await this.db.getVideos(
+          "filename",
+          "ASC",
+          BATCH_SIZE,
+          offset,
+        );
         await runConcurrent(videos, 3, async (video) => {
           try {
             this.mainWindow?.webContents.send("thumbnail-progress", {
@@ -652,7 +689,8 @@ class MovieLibraryApp {
             });
 
             if (video.duration !== undefined) {
-              const result = await this.thumbnailGenerator.generateThumbnails(video);
+              const result =
+                await this.thumbnailGenerator.generateThumbnails(video);
               results.push(result);
             }
 
@@ -665,7 +703,11 @@ class MovieLibraryApp {
               file: video.filename,
             });
           } catch (error) {
-            console.error("Error regenerating thumbnails for:", video.path, error);
+            console.error(
+              "Error regenerating thumbnails for:",
+              video.path,
+              error,
+            );
             processedVideos++;
             this.mainWindow?.webContents.send("thumbnail-progress", {
               current: processedVideos,
@@ -681,7 +723,9 @@ class MovieLibraryApp {
         message: "全サムネイル再生成完了",
       });
 
-      console.log(`Thumbnail regeneration completed: ${processedVideos}/${totalVideos} processed`);
+      logger.log(
+        `Thumbnail regeneration completed: ${processedVideos}/${totalVideos} processed`,
+      );
       return results;
     });
 
@@ -692,10 +736,15 @@ class MovieLibraryApp {
       let generatedVideos = 0;
       let scannedVideos = 0;
 
-      console.log(`Scanning ${totalCount} videos for incomplete thumbnails`);
+      logger.log(`Scanning ${totalCount} videos for incomplete thumbnails`);
 
       for (let offset = 0; offset < totalCount; offset += BATCH_SIZE) {
-        const videos = await this.db.getVideos("filename", "ASC", BATCH_SIZE, offset);
+        const videos = await this.db.getVideos(
+          "filename",
+          "ASC",
+          BATCH_SIZE,
+          offset,
+        );
 
         await runConcurrent(videos, 3, async (video) => {
           scannedVideos++;
@@ -761,7 +810,11 @@ class MovieLibraryApp {
               });
             }
           } catch (error) {
-            console.error("Error checking thumbnail completeness for:", video.path, error);
+            console.error(
+              "Error checking thumbnail completeness for:",
+              video.path,
+              error,
+            );
           }
         });
       }
@@ -770,7 +823,7 @@ class MovieLibraryApp {
         message: "サムネイル補完完了",
       });
 
-      console.log(
+      logger.log(
         `Incomplete thumbnail generation completed: ${generatedVideos} generated out of ${scannedVideos} scanned`,
       );
       return { total: generatedVideos, generated: generatedVideos };
@@ -786,7 +839,7 @@ class MovieLibraryApp {
     ipcMain.handle("cleanup-thumbnails", async () => {
       try {
         const result = await this.thumbnailGenerator.cleanupThumbnails();
-        console.log("Thumbnail cleanup completed:", result);
+        logger.log("Thumbnail cleanup completed:", result);
         return result;
       } catch (error) {
         console.error("Error during thumbnail cleanup:", error);
@@ -800,23 +853,26 @@ class MovieLibraryApp {
     });
 
     // Update video
-    ipcMain.handle("update-video", async (_event, videoId: string, data) => {
-      return await this.db.updateVideo(parseInt(videoId), data);
-    });
+    ipcMain.handle(
+      "update-video",
+      async (_event, videoId: number, data: VideoUpdateData) => {
+        return await this.db.updateVideo(videoId, data);
+      },
+    );
 
     // Add tag to video
     ipcMain.handle(
       "add-tag-to-video",
-      async (_event, videoId: string, tagName: string) => {
-        return await this.db.addTagToVideo(parseInt(videoId), tagName);
+      async (_event, videoId: number, tagName: string) => {
+        return await this.db.addTagToVideo(videoId, tagName);
       },
     );
 
     // Remove tag from video
     ipcMain.handle(
       "remove-tag-from-video",
-      async (_event, videoId: string, tagName: string) => {
-        return await this.db.removeTagFromVideo(parseInt(videoId), tagName);
+      async (_event, videoId: number, tagName: string) => {
+        return await this.db.removeTagFromVideo(videoId, tagName);
       },
     );
 
@@ -860,9 +916,9 @@ class MovieLibraryApp {
     // Regenerate main thumbnail (without custom timestamp)
     ipcMain.handle(
       "regenerate-main-thumbnail",
-      async (_event, videoId: string) => {
+      async (_event, videoId: number) => {
         try {
-          const video = await this.db.getVideo(parseInt(videoId));
+          const video = await this.db.getVideo(videoId);
           if (!video) {
             throw new Error("Video not found");
           }
@@ -892,7 +948,7 @@ class MovieLibraryApp {
           });
 
           // Return the updated video object
-          const updatedVideo = await this.db.getVideo(parseInt(videoId));
+          const updatedVideo = await this.db.getVideo(videoId);
           return updatedVideo;
         } catch (error) {
           console.error("Error regenerating main thumbnail:", error);
@@ -906,7 +962,7 @@ class MovieLibraryApp {
       "regenerate-main-thumbnail-with-timestamp",
       async (_event, videoId: string, timestamp: number) => {
         try {
-          const video = await this.db.getVideo(parseInt(videoId));
+          const video = await this.db.getVideo(parseInt(videoId, 10));
           if (!video) {
             throw new Error("Video not found");
           }
@@ -932,7 +988,7 @@ class MovieLibraryApp {
           });
 
           // Return the updated video object
-          const updatedVideo = await this.db.getVideo(parseInt(videoId));
+          const updatedVideo = await this.db.getVideo(parseInt(videoId, 10));
           return updatedVideo;
         } catch (error) {
           console.error(
@@ -986,7 +1042,6 @@ class MovieLibraryApp {
     );
 
     // Open video
-    // Open video
     ipcMain.handle("open-video", async (_event, videoPath: string) => {
       await shell.openPath(videoPath);
     });
@@ -1004,7 +1059,7 @@ class MovieLibraryApp {
     try {
       if (video.id !== undefined) {
         await this.thumbnailGenerator.generateThumbnails(video);
-        console.log("Thumbnails generated for:", video.path);
+        logger.debug("Thumbnails generated for:", video.path);
       }
     } catch (error) {
       console.error("Error generating thumbnails for:", video.path, error);
@@ -1016,7 +1071,7 @@ class MovieLibraryApp {
       return;
     }
 
-    console.log("Starting to watch directory:", directoryPath);
+    logger.debug("Starting to watch directory:", directoryPath);
 
     const watcher = chokidar.watch(directoryPath, {
       ignored: /(^|[\/\\])\../, // ignore dotfiles
@@ -1027,7 +1082,7 @@ class MovieLibraryApp {
     watcher.on("add", async (filePath: string) => {
       if (this.videoScanner.isVideoFile(filePath)) {
         try {
-          console.log("Processing new video file:", filePath);
+          logger.debug("Processing new video file:", filePath);
 
           // プログレス通知を送信
           if (this.mainWindow) {
@@ -1046,7 +1101,7 @@ class MovieLibraryApp {
 
           // 新しく追加された動画で、サムネイル生成が必要な場合のみ実行
           if (video && video.needsThumbnails) {
-            console.log(
+            logger.debug(
               "Auto-generating thumbnails for new video:",
               video.path,
             );
@@ -1071,13 +1126,13 @@ class MovieLibraryApp {
               });
             }
           } else if (video && !video.needsThumbnails) {
-            console.log(
+            logger.debug(
               "Video already has thumbnails, skipping generation:",
               video.path,
             );
           }
 
-          console.log("New video processed successfully:", filePath);
+          logger.debug("New video processed successfully:", filePath);
         } catch (error) {
           console.error("Error processing new video file:", filePath, error);
         }
@@ -1087,7 +1142,7 @@ class MovieLibraryApp {
     watcher.on("unlink", async (filePath: string) => {
       if (this.videoScanner.isVideoFile(filePath)) {
         try {
-          console.log("Processing video file removal:", filePath);
+          logger.debug("Processing video file removal:", filePath);
 
           // 外付けドライブの一時的な切断など誤検知を防ぐため、少し待ってから再確認する
           await new Promise<void>((resolve) => setTimeout(resolve, 3000));
@@ -1095,7 +1150,10 @@ class MovieLibraryApp {
           try {
             await fs.access(filePath);
             // ファイルが復活していた（一時的なイベントだった）
-            console.log("File re-appeared after unlink (transient event), keeping:", filePath);
+            logger.debug(
+              "File re-appeared after unlink (transient event), keeping:",
+              filePath,
+            );
             return;
           } catch {
             // ファイルが本当に存在しない
@@ -1116,7 +1174,7 @@ class MovieLibraryApp {
             this.mainWindow.webContents.send("video-removed", filePath);
           }
 
-          console.log("Video file removal processed successfully:", filePath);
+          logger.debug("Video file removal processed successfully:", filePath);
         } catch (error) {
           console.error(
             "Error processing video file removal:",
@@ -1132,7 +1190,7 @@ class MovieLibraryApp {
       // 監視しているディレクトリ自体が削除された場合
       if (dirPath === directoryPath) {
         try {
-          console.log("Directory unlinkDir event:", dirPath);
+          logger.debug("Directory unlinkDir event:", dirPath);
 
           // 外付けドライブの一時的な切断など誤検知を防ぐため、少し待ってから再確認する
           await new Promise<void>((resolve) => setTimeout(resolve, 3000));
@@ -1141,7 +1199,10 @@ class MovieLibraryApp {
           try {
             await fsPromises.access(dirPath);
             // ディレクトリが復活していた（一時的なイベントだった）
-            console.log("Directory re-appeared after unlinkDir (transient event), keeping:", dirPath);
+            logger.debug(
+              "Directory re-appeared after unlinkDir (transient event), keeping:",
+              dirPath,
+            );
             return;
           } catch {
             // ディレクトリが本当に存在しない
@@ -1157,7 +1218,7 @@ class MovieLibraryApp {
             this.mainWindow.webContents.send("directory-removed", dirPath);
           }
 
-          console.log("Directory removal processed successfully:", dirPath);
+          logger.debug("Directory removal processed successfully:", dirPath);
         } catch (error) {
           console.error("Error processing directory removal:", dirPath, error);
         }
@@ -1189,7 +1250,7 @@ class MovieLibraryApp {
         this.startWatching(directory.path);
       } catch (_error) {
         // 存在しない場合はリストに追加
-        console.log("Directory no longer exists:", directory.path);
+        logger.debug("Directory no longer exists:", directory.path);
         removedDirectories.push(directory.path);
       }
     }
@@ -1199,7 +1260,10 @@ class MovieLibraryApp {
       for (const dirPath of removedDirectories) {
         try {
           await this.db.removeDirectory(dirPath);
-          console.log("Removed non-existent directory from database:", dirPath);
+          logger.debug(
+            "Removed non-existent directory from database:",
+            dirPath,
+          );
 
           if (this.mainWindow) {
             this.mainWindow.webContents.send("directory-removed", dirPath);
@@ -1216,8 +1280,9 @@ class MovieLibraryApp {
   }
 
   // アプリケーションのクリーンアップメソッド
-  public cleanup(): void {
-    console.log("Cleaning up application resources...");
+  // （watcher 停止と DB 切断を完了させてから終了するため async）
+  public async cleanup(): Promise<void> {
+    logger.log("Cleaning up application resources...");
 
     // すべてのwatcherを停止
     this.watchers.forEach((watcher) => {
@@ -1229,10 +1294,10 @@ class MovieLibraryApp {
     });
     this.watchers.clear();
 
-    // データベース接続を閉じる
+    // データベース接続を閉じる（$disconnect で WAL をフラッシュ）
     try {
       if (this.db) {
-        this.db.close();
+        await this.db.close();
       }
     } catch (error) {
       console.error("Error closing database:", error);
@@ -1254,8 +1319,9 @@ app.whenReady().then(async () => {
         .catch(() => false)
     ) {
       try {
-        app.dock.setIcon(iconPath);
-        console.log("Dock icon set successfully");
+        // app.dock は macOS でのみ存在する
+        app.dock?.setIcon(iconPath);
+        logger.log("Dock icon set successfully");
       } catch (error) {
         console.warn("Failed to set dock icon:", error);
       }
@@ -1265,27 +1331,27 @@ app.whenReady().then(async () => {
   }
 
   try {
-    console.log("Initializing Movie Library App...");
-    console.log("App packaged:", app.isPackaged);
-    console.log("Platform:", process.platform);
-    console.log("Architecture:", process.arch);
+    logger.log("Initializing Movie Library App...");
+    logger.log("App packaged:", app.isPackaged);
+    logger.log("Platform:", process.platform);
+    logger.log("Architecture:", process.arch);
 
     await movieApp.initialize();
-    console.log("App initialized successfully");
+    logger.log("App initialized successfully");
 
     movieApp.createWindow();
-    console.log("Window created successfully");
+    logger.log("Window created successfully");
 
     await movieApp.startWatchingAllDirectories();
-    console.log("Directory watching started successfully");
+    logger.log("Directory watching started successfully");
   } catch (error) {
     console.error("Failed to initialize app:", error);
 
     // エラーダイアログを表示
-    const { dialog } = require("electron");
+    const errorMessage = error instanceof Error ? error.message : String(error);
     dialog.showErrorBox(
       "Initialization Error",
-      `Failed to start Movie Library: ${error.message || error}`,
+      `Failed to start Movie Library: ${errorMessage}`,
     );
 
     app.quit();
@@ -1300,72 +1366,46 @@ app.whenReady().then(async () => {
 
 app.on("window-all-closed", () => {
   // すべてのプラットフォームでアプリを完全に終了
-  console.log("All windows closed, quitting application");
-
-  // リソースのクリーンアップ
-  if (movieApp.watchers) {
-    movieApp.watchers.forEach((watcher) => {
-      try {
-        watcher.close();
-      } catch (error) {
-        console.error("Error closing watcher:", error);
-      }
-    });
-  }
-
-  // プロセスを確実に終了
+  // （watcher 停止・DB 切断などのクリーンアップは before-quit で一括実施）
   app.quit();
-
-  // Windows用の強制終了処理
-  if (process.platform === "win32") {
-    setTimeout(() => {
-      process.exit(0);
-    }, 2000);
-  }
 });
 
-app.on("before-quit", (_event) => {
-  console.log("Application is about to quit");
-
-  // Close all watchers
-  if (movieApp.watchers) {
-    movieApp.watchers.forEach((watcher) => {
-      try {
-        watcher.close();
-      } catch (error) {
-        console.error("Error closing watcher during quit:", error);
-      }
+// before-quit で DB の WAL フラッシュを完了させてから終了する
+// （process.exit による強制終了は SQLite の WAL を破損させるリスクがあるため使わない）
+let quitCleanupDone = false;
+app.on("before-quit", (event) => {
+  if (quitCleanupDone) {
+    return;
+  }
+  event.preventDefault();
+  movieApp
+    .cleanup()
+    .catch((error) => {
+      console.error("Error during cleanup:", error);
+    })
+    .finally(() => {
+      quitCleanupDone = true;
+      app.quit();
     });
-  }
-
-  // データベース接続のクリーンアップ
-  try {
-    movieApp.cleanup();
-  } catch (error) {
-    console.error("Error during cleanup:", error);
-  }
 });
 
-// Windows用の追加終了処理
-if (process.platform === "win32") {
-  app.on("will-quit", (_event) => {
-    console.log("Windows: Application will quit");
-  });
+app.on("will-quit", () => {
+  logger.log("Application will quit");
+});
 
-  // プロセス終了時の処理
-  process.on("SIGINT", () => {
-    console.log("Received SIGINT, shutting down gracefully");
-    app.quit();
-  });
+// プロセス終了時の処理（開発時の Ctrl+C 等でもクリーンアップを経由して終了）
+process.on("SIGINT", () => {
+  logger.log("Received SIGINT, shutting down gracefully");
+  app.quit();
+});
 
-  process.on("SIGTERM", () => {
-    console.log("Received SIGTERM, shutting down gracefully");
-    app.quit();
-  });
+process.on("SIGTERM", () => {
+  logger.log("Received SIGTERM, shutting down gracefully");
+  app.quit();
+});
 
-  // Windows特有の終了シグナル
-  process.on("SIGHUP", () => {
-    console.log("Received SIGHUP, shutting down gracefully");
-    app.quit();
-  });
-}
+// ターミナルが閉じられたときの処理（macOS / Linux）
+process.on("SIGHUP", () => {
+  logger.log("Received SIGHUP, shutting down gracefully");
+  app.quit();
+});

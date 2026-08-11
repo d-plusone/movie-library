@@ -65,6 +65,7 @@ export interface VideoCreateData {
   fps?: number;
   codec?: string;
   bitrate?: number;
+  addedAt?: Date;
   createdAt?: string;
   modifiedAt?: string;
   thumbnailPath?: string;

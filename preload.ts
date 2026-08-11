@@ -14,6 +14,9 @@ import type {
 } from "./src/types/types";
 
 interface ElectronAPI {
+  // アプリ情報（production ビルドかどうか）
+  isProduction: boolean;
+
   // Video operations
   getVideos: () => Promise<Video[]>;
   getVideo: (id: number) => Promise<Video>;
@@ -96,7 +99,27 @@ interface ElectronAPI {
   removeAllListeners: (channel: string) => void;
 }
 
+type DuplicateSearchProgress = {
+  current: number;
+  total: number;
+  message: string;
+};
+
+// on/off で同一のラッパー関数参照を共有するためのマップ
+// （無名関数を毎回生成すると removeListener が効かずリスナーがリークする）
+const duplicateSearchListenerMap = new Map<
+  (data: DuplicateSearchProgress) => void,
+  (event: Electron.IpcRendererEvent, data: DuplicateSearchProgress) => void
+>();
+
+// main プロセスから追加引数で渡される production フラグ
+// （sandbox 化された preload でも process.argv は利用可能）
+const isProduction = process.argv.includes("--movie-library-production=1");
+
 const electronAPI: ElectronAPI = {
+  // アプリ情報
+  isProduction,
+
   // Video operations
   getVideos: () => ipcRenderer.invoke("get-videos"),
   getVideo: (id: number) => ipcRenderer.invoke("get-video", id),
@@ -156,26 +179,23 @@ const electronAPI: ElectronAPI = {
   deleteVideos: (videoIds: number[], moveToTrash: boolean = true) =>
     ipcRenderer.invoke("delete-videos", videoIds, moveToTrash),
   onDuplicateSearchProgress: (
-    callback: (data: {
-      current: number;
-      total: number;
-      message: string;
-    }) => void,
+    callback: (data: DuplicateSearchProgress) => void,
   ) => {
-    ipcRenderer.on("duplicate-search-progress", (_event, data) =>
-      callback(data),
-    );
+    const listener = (
+      _event: Electron.IpcRendererEvent,
+      data: DuplicateSearchProgress,
+    ) => callback(data);
+    duplicateSearchListenerMap.set(callback, listener);
+    ipcRenderer.on("duplicate-search-progress", listener);
   },
   offDuplicateSearchProgress: (
-    callback: (data: {
-      current: number;
-      total: number;
-      message: string;
-    }) => void,
+    callback: (data: DuplicateSearchProgress) => void,
   ) => {
-    ipcRenderer.removeListener("duplicate-search-progress", (_event, data) =>
-      callback(data),
-    );
+    const listener = duplicateSearchListenerMap.get(callback);
+    if (listener) {
+      ipcRenderer.removeListener("duplicate-search-progress", listener);
+      duplicateSearchListenerMap.delete(callback);
+    }
   },
 
   // Event listeners

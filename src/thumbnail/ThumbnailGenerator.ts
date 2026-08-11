@@ -14,8 +14,12 @@ import {
   ThumbnailOptions,
 } from "../types/types.js";
 import { getFfmpegPath } from "../utils/ffmpeg-utils.js";
+import { createLogger } from "../utils/logger.js";
 
 const execFileAsync = promisify(execFile);
+
+// production ビルドではデバッグログを抑制
+const logger = createLogger(app.isPackaged);
 
 class ThumbnailGenerator {
   private ffmpegPath: string | null = null;
@@ -42,7 +46,7 @@ class ThumbnailGenerator {
       if (!this.ffmpegPath) {
         console.error("⚠️  FFmpeg binary not found!");
       } else {
-        console.log(
+        logger.log(
           "✅ ThumbnailGenerator initialized with FFmpeg:",
           this.ffmpegPath,
         );
@@ -135,7 +139,7 @@ class ThumbnailGenerator {
   ): Promise<string> {
     // Ensure FFmpeg is initialized before use
     if (!this.ffmpegPath) {
-      console.log("⏳ FFmpeg not initialized yet, initializing now...");
+      logger.debug("⏳ FFmpeg not initialized yet, initializing now...");
       await this.initialize();
 
       if (!this.ffmpegPath) {
@@ -148,14 +152,14 @@ class ThumbnailGenerator {
     }
 
     const defaultOptions = {
-      width: this.settings.width,
-      height: this.settings.height,
-      quality: this.settings.quality,
+      width: this.settings.width ?? 1280,
+      height: this.settings.height ?? 720,
+      quality: this.settings.quality ?? 1,
       ...options,
     };
 
     try {
-      console.log("🎬 Generating thumbnail:", {
+      logger.debug("🎬 Generating thumbnail:", {
         videoPath,
         outputPath,
         timestamp,
@@ -182,7 +186,7 @@ class ThumbnailGenerator {
         outputPath,
       ];
 
-      console.log("📝 FFmpeg command:", this.ffmpegPath, args.join(" "));
+      logger.debug("📝 FFmpeg command:", this.ffmpegPath, args.join(" "));
 
       // Use execFile instead of spawn for better error handling
       const { stderr } = await execFileAsync(this.ffmpegPath, args, {
@@ -190,27 +194,40 @@ class ThumbnailGenerator {
       });
 
       if (stderr) {
-        console.log("📋 FFmpeg output:", stderr);
+        logger.debug("📋 FFmpeg output:", stderr);
       }
 
-      console.log("✅ Thumbnail generated successfully:", outputPath);
+      logger.debug("✅ Thumbnail generated successfully:", outputPath);
       return outputPath;
-    } catch (error: any) {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const code =
+        error instanceof Error && "code" in error
+          ? String(error.code)
+          : undefined;
+      const stderr =
+        error instanceof Error && "stderr" in error
+          ? String(error.stderr)
+          : undefined;
+      const stdout =
+        error instanceof Error && "stdout" in error
+          ? String(error.stdout)
+          : undefined;
       console.error("❌ FFmpeg error:", {
-        message: error.message,
-        code: error.code,
-        stderr: error.stderr,
-        stdout: error.stdout,
+        message,
+        code,
+        stderr,
+        stdout,
       });
-      throw new Error(`Failed to generate thumbnail: ${error.message}`);
+      throw new Error(`Failed to generate thumbnail: ${message}`);
     }
   }
 
   updateSettings(newSettings: Partial<ThumbnailSettings>): void {
-    console.log("ThumbnailGenerator - Current settings:", this.settings);
-    console.log("ThumbnailGenerator - New settings:", newSettings);
+    logger.debug("ThumbnailGenerator - Current settings:", this.settings);
+    logger.debug("ThumbnailGenerator - New settings:", newSettings);
     this.settings = { ...this.settings, ...newSettings };
-    console.log("ThumbnailGenerator - Updated settings:", this.settings);
+    logger.debug("ThumbnailGenerator - Updated settings:", this.settings);
   }
 
   async generateHighQualityThumbnail(
@@ -282,7 +299,7 @@ class ThumbnailGenerator {
         if (!usedThumbnails.has(file)) {
           try {
             await fs.unlink(path.join(this.thumbnailsDir, file));
-            console.log("Deleted orphaned thumbnail:", file);
+            logger.debug("Deleted orphaned thumbnail:", file);
           } catch (error) {
             console.error("Error deleting orphaned thumbnail:", file, error);
           }
@@ -317,8 +334,8 @@ class ThumbnailGenerator {
 
   async regenerateMainThumbnail(video: VideoRecord): Promise<RegenerateResult> {
     try {
-      console.log("🎬 regenerateMainThumbnail: START for video:", video.path);
-      console.log("🎬 Video ID:", video.id, "Duration:", video.duration);
+      logger.debug("🎬 regenerateMainThumbnail: START for video:", video.path);
+      logger.debug("🎬 Video ID:", video.id, "Duration:", video.duration);
 
       const videoId = video.id || video.path.replace(/[^a-zA-Z0-9]/g, "_");
       const mainThumbnailPath = path.join(
@@ -326,7 +343,7 @@ class ThumbnailGenerator {
         `${videoId}_main.jpg`,
       );
 
-      console.log("🎬 Thumbnail path will be:", mainThumbnailPath);
+      logger.debug("🎬 Thumbnail path will be:", mainThumbnailPath);
 
       // Generate a random timestamp between 10% and 90% of video duration
       // Avoid the very beginning and end of the video
@@ -336,8 +353,8 @@ class ThumbnailGenerator {
         minPercent + Math.random() * (maxPercent - minPercent);
       const randomTimestamp = video.duration * randomPercent;
 
-      console.log(`🎬 Regenerating main thumbnail for video: ${video.path}`);
-      console.log(
+      logger.debug(`🎬 Regenerating main thumbnail for video: ${video.path}`);
+      logger.debug(
         `🎬 Random timestamp: ${this.formatTimestamp(randomTimestamp)} (${(
           randomPercent * 100
         ).toFixed(1)}%)`,
@@ -346,9 +363,9 @@ class ThumbnailGenerator {
       // Delete the old thumbnail if it exists
       if (await this.thumbnailExists(mainThumbnailPath)) {
         try {
-          console.log("🎬 Deleting old thumbnail...");
+          logger.debug("🎬 Deleting old thumbnail...");
           await fs.unlink(mainThumbnailPath);
-          console.log("🎬 Deleted old main thumbnail");
+          logger.debug("🎬 Deleted old main thumbnail");
         } catch (error) {
           console.warn(
             "⚠️  Could not delete old thumbnail:",
@@ -358,22 +375,22 @@ class ThumbnailGenerator {
       }
 
       // Generate new main thumbnail at random position
-      console.log("🎬 Calling generateSingleThumbnail...");
+      logger.debug("🎬 Calling generateSingleThumbnail...");
       await this.generateSingleThumbnail(
         video.path,
         mainThumbnailPath,
         randomTimestamp,
       );
-      console.log("🎬 generateSingleThumbnail completed");
+      logger.debug("🎬 generateSingleThumbnail completed");
 
       // Update database with new thumbnail path
-      console.log("🎬 Updating database...");
+      logger.debug("🎬 Updating database...");
       await this.db.updateVideo(video.id, {
         thumbnailPath: mainThumbnailPath,
       });
-      console.log("🎬 Database updated");
+      logger.debug("🎬 Database updated");
 
-      console.log("✅ Successfully regenerated main thumbnail");
+      logger.debug("✅ Successfully regenerated main thumbnail");
 
       return {
         thumbnailPath: mainThumbnailPath,
@@ -409,7 +426,7 @@ class ThumbnailGenerator {
     removedFiles: number;
     totalSize: number;
   }> {
-    console.log("Starting thumbnail cleanup...");
+    logger.log("Starting thumbnail cleanup...");
 
     try {
       // データベースから全動画を取得
@@ -471,7 +488,7 @@ class ThumbnailGenerator {
                 totalSize += stats.size;
                 await fs.unlink(filePath);
                 removedFiles++;
-                console.log("Removed orphaned thumbnail:", filePath);
+                logger.debug("Removed orphaned thumbnail:", filePath);
               } catch (error) {
                 console.error("Failed to remove file:", filePath, error);
               }
@@ -480,7 +497,7 @@ class ThumbnailGenerator {
         }
       }
 
-      console.log(
+      logger.log(
         `Cleanup completed: removed ${removedFiles} files, freed ${this.formatBytes(
           totalSize,
         )}`,

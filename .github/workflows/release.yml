@@ -96,16 +96,16 @@ jobs:
       - name: Clear node_modules cache (Unix)
         if: matrix.os == 'macos-latest'
         run: |
-          rm -rf node_modules pnpm-lock.yaml
+          # ロックファイルは削除しない（再現性のあるインストールのため）
+          rm -rf node_modules
 
       - name: Clear node_modules cache (Windows)
         if: matrix.os == 'windows-latest'
         run: |
           if (Test-Path "node_modules") { Remove-Item -Recurse -Force "node_modules" }
-          if (Test-Path "pnpm-lock.yaml") { Remove-Item -Force "pnpm-lock.yaml" }
 
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
       - name: Install @ffmpeg-installer/win32-x64 (Windows)
         if: matrix.os == 'windows-latest'

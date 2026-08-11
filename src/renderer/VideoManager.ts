@@ -10,6 +10,23 @@ import type {
   ThumbnailSettings,
 } from "../types/types";
 import type {} from "../types/electron";
+import { logger } from "./Utils.js";
+
+// catch (error) の unknown から安全にエラー情報を取り出す
+function getErrorDetails(error: unknown): {
+  message: string;
+  stack?: string;
+  name?: string;
+} {
+  if (error instanceof Error) {
+    return {
+      message: error.message,
+      stack: error.stack,
+      name: error.name,
+    };
+  }
+  return { message: String(error) };
+}
 
 export class VideoManager {
   private videos: Video[] = [];
@@ -35,7 +52,7 @@ export class VideoManager {
           this.lastLoadTime,
         );
         if (!hasUpdates) {
-          console.log(
+          logger.debug(
             "VideoManager: No video updates detected, using cached data",
           );
           this.hasChanges = false;
@@ -43,13 +60,13 @@ export class VideoManager {
         }
       }
 
-      console.log("VideoManager: Loading videos from database");
+      logger.debug("VideoManager: Loading videos from database");
       const electronVideos = await window.electronAPI.getVideos();
 
       // electronAPIの型をVideoManager.tsの型にマッピング
       this.videos = electronVideos.map((video) => ({
         ...video,
-        id: typeof video.id === "string" ? parseInt(video.id) : video.id,
+        id: video.id,
         size: video.size,
         width: video.width || 0,
         height: video.height || 0,
@@ -75,7 +92,7 @@ export class VideoManager {
 
       this.tags = (await window.electronAPI.getTags()).map((tag) => ({
         ...tag,
-        id: tag.id ? parseInt(tag.id) : undefined,
+        id: tag.id,
         count: tag.count || 0,
       }));
       return [...this.tags];
@@ -151,28 +168,24 @@ export class VideoManager {
 
   // ディレクトリをスキャン
   async scanDirectories(): Promise<ScanResult | void> {
-    console.log("VideoManager.scanDirectories called");
-    console.log("electronAPI available:", !!window.electronAPI);
-    console.log(
+    logger.debug("VideoManager.scanDirectories called");
+    logger.debug("electronAPI available:", !!window.electronAPI);
+    logger.debug(
       "electronAPI.scanDirectories available:",
       !!window.electronAPI?.scanDirectories,
     );
 
     try {
-      console.log("Calling window.electronAPI.scanDirectories()");
+      logger.debug("Calling window.electronAPI.scanDirectories()");
       const result = await window.electronAPI.scanDirectories();
-      console.log(
+      logger.debug(
         "window.electronAPI.scanDirectories() completed successfully:",
         result,
       );
       return result;
     } catch (error) {
       console.error("VideoManager - Error scanning directories:", error);
-      console.error("Error details:", {
-        message: error.message,
-        stack: error.stack,
-        name: error.name,
-      });
+      console.error("Error details:", getErrorDetails(error));
       throw error;
     }
   }
@@ -195,80 +208,68 @@ export class VideoManager {
 
   // サムネイルを生成
   async generateThumbnails(): Promise<void> {
-    console.log("VideoManager.generateThumbnails called");
-    console.log("electronAPI available:", !!window.electronAPI);
-    console.log(
+    logger.debug("VideoManager.generateThumbnails called");
+    logger.debug("electronAPI available:", !!window.electronAPI);
+    logger.debug(
       "electronAPI.generateThumbnails available:",
       !!window.electronAPI?.generateThumbnails,
     );
 
     try {
-      console.log("Calling window.electronAPI.generateThumbnails()");
+      logger.debug("Calling window.electronAPI.generateThumbnails()");
       await window.electronAPI.generateThumbnails();
-      console.log(
+      logger.debug(
         "window.electronAPI.generateThumbnails() completed successfully",
       );
     } catch (error) {
       console.error("VideoManager - Error generating thumbnails:", error);
-      console.error("Error details:", {
-        message: error.message,
-        stack: error.stack,
-        name: error.name,
-      });
+      console.error("Error details:", getErrorDetails(error));
       throw error;
     }
   }
 
   // 全サムネイルを再生成
   async regenerateAllThumbnails(): Promise<void> {
-    console.log("VideoManager.regenerateAllThumbnails called");
-    console.log("electronAPI available:", !!window.electronAPI);
-    console.log(
+    logger.debug("VideoManager.regenerateAllThumbnails called");
+    logger.debug("electronAPI available:", !!window.electronAPI);
+    logger.debug(
       "electronAPI.regenerateAllThumbnails available:",
       !!window.electronAPI?.regenerateAllThumbnails,
     );
 
     try {
-      console.log("Calling window.electronAPI.regenerateAllThumbnails()");
+      logger.debug("Calling window.electronAPI.regenerateAllThumbnails()");
       await window.electronAPI.regenerateAllThumbnails();
-      console.log(
+      logger.debug(
         "window.electronAPI.regenerateAllThumbnails() completed successfully",
       );
     } catch (error) {
       console.error("VideoManager - Error regenerating thumbnails:", error);
-      console.error("Error details:", {
-        message: error.message,
-        stack: error.stack,
-        name: error.name,
-      });
+      console.error("Error details:", getErrorDetails(error));
       throw error;
     }
   }
 
   // 全ての動画を強制的に再スキャン
   async rescanAllVideos(): Promise<ScanResult | void> {
-    console.log("VideoManager.rescanAllVideos called");
+    logger.debug("VideoManager.rescanAllVideos called");
 
-    console.log(
+    logger.debug(
       "electronAPI.rescanAllVideos available:",
       !!window.electronAPI?.rescanAllVideos,
     );
 
     try {
-      console.log("Calling window.electronAPI.rescanAllVideos()");
+      logger.debug("Calling window.electronAPI.rescanAllVideos()");
       const result = await window.electronAPI.rescanAllVideos();
-      console.log(
+      logger.debug(
         "window.electronAPI.rescanAllVideos() completed successfully:",
         result,
       );
       return result;
     } catch (error) {
       console.error("VideoManager - Error rescanning all videos:", error);
-      console.error("Error details:", {
-        message: error.message,
-        stack: error.stack,
-        name: error.name,
-      });
+      console.error("Error details:", getErrorDetails(error));
       throw error;
     }
   }
@@ -293,7 +294,7 @@ export class VideoManager {
         }
       }
 
-      console.log("Updating thumbnail settings:", electronSettings);
+      logger.debug("Updating thumbnail settings:", electronSettings);
       await window.electronAPI.updateThumbnailSettings(electronSettings);
     } catch (error) {
       console.error("VideoManager - Error updating thumbnail settings:", error);
@@ -360,7 +361,7 @@ export class VideoManager {
   // 動画にタグを追加
   async addTagToVideo(videoId: number, tagName: string): Promise<void> {
     try {
-      await window.electronAPI.addTagToVideo(videoId.toString(), tagName);
+      await window.electronAPI.addTagToVideo(videoId, tagName);
 
       // ローカルキャッシュを更新
       const video = this.videos.find((v) => v.id === videoId);
@@ -392,7 +393,7 @@ export class VideoManager {
   // 動画からタグを削除
   async removeTagFromVideo(videoId: number, tagName: string): Promise<void> {
     try {
-      await window.electronAPI.removeTagFromVideo(videoId.toString(), tagName);
+      await window.electronAPI.removeTagFromVideo(videoId, tagName);
 
       // ローカルキャッシュを更新
       const video = this.videos.find((v) => v.id === videoId);
@@ -423,13 +424,7 @@ export class VideoManager {
     updatedData: Partial<Video>,
   ): Promise<void> {
     try {
-      // electronAPIに合わせて型を変換
-      const electronData = {
-        ...updatedData,
-        id: updatedData.id?.toString(),
-        size: updatedData.size,
-      };
-      await window.electronAPI.updateVideo(videoId.toString(), electronData);
+      await window.electronAPI.updateVideo(videoId, updatedData);
 
       // ローカルキャッシュを更新
       const videoIndex = this.videos.findIndex((v) => v.id === videoId);
@@ -459,14 +454,14 @@ export class VideoManager {
 
   // 動画が追加された時の処理
   async handleVideoAdded(filePath: string): Promise<void> {
-    console.log("VideoManager - Video added:", filePath);
+    logger.debug("VideoManager - Video added:", filePath);
     // 動画リストを再読み込み
     await this.loadVideos(true);
   }
 
   // 動画が削除された時の処理
   async handleVideoRemoved(filePath: string): Promise<void> {
-    console.log("VideoManager - Video removed:", filePath);
+    logger.debug("VideoManager - Video removed:", filePath);
     // ローカルキャッシュから削除
     this.videos = this.videos.filter((video) => video.path !== filePath);
     this.hasChanges = true;
@@ -547,9 +542,7 @@ export class VideoManager {
   // メイン動画サムネイルを再生成
   async regenerateMainThumbnail(videoId: number): Promise<Video> {
     try {
-      const result = await window.electronAPI.regenerateMainThumbnail(
-        videoId.toString(),
-      );
+      const result = await window.electronAPI.regenerateMainThumbnail(videoId);
 
       // ローカルキャッシュを更新
       const video = this.videos.find((v) => v.id === videoId);
@@ -562,7 +555,7 @@ export class VideoManager {
       // electronAPIの型をVideoManager型に変換
       const convertedVideo: Video = {
         ...result,
-        id: parseInt(result.id),
+        id: result.id,
         size: result.size,
       };
 
@@ -575,26 +568,22 @@ export class VideoManager {
 
   // 不要なサムネイル画像を削除
   async cleanupThumbnails(): Promise<void> {
-    console.log("VideoManager.cleanupThumbnails called");
-    console.log("electronAPI available:", !!window.electronAPI);
-    console.log(
+    logger.debug("VideoManager.cleanupThumbnails called");
+    logger.debug("electronAPI available:", !!window.electronAPI);
+    logger.debug(
       "electronAPI.cleanupThumbnails available:",
       !!window.electronAPI?.cleanupThumbnails,
     );
 
     try {
-      console.log("Calling window.electronAPI.cleanupThumbnails()");
+      logger.debug("Calling window.electronAPI.cleanupThumbnails()");
       await window.electronAPI.cleanupThumbnails();
-      console.log(
+      logger.debug(
         "window.electronAPI.cleanupThumbnails() completed successfully",
       );
     } catch (error) {
       console.error("VideoManager - Error cleaning up thumbnails:", error);
-      console.error("Error details:", {
-        message: error.message,
-        stack: error.stack,
-        name: error.name,
-      });
+      console.error("Error details:", getErrorDetails(error));
       throw error;
     }
   }

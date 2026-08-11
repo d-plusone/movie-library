@@ -3,6 +3,47 @@
  * フォーマット、通知、進捗表示などの共通機能
  */
 
+/**
+ * renderer 用のロガー
+ * src/utils/logger.ts は main プロセス用（CommonJS）としてビルドされるため、
+ * ESM としてビルドされるレンダラーから実行時 import すると
+ * Chromium のモジュールローダーで解決できない。
+ * そのためレンダラー側にも同じ実装を持つ（main 側と内容を同期すること）。
+ */
+
+export interface AppLogger {
+  debug(...args: Parameters<typeof console.debug>): void;
+  log(...args: Parameters<typeof console.log>): void;
+  info(...args: Parameters<typeof console.info>): void;
+  warn(...args: Parameters<typeof console.warn>): void;
+  error(...args: Parameters<typeof console.error>): void;
+}
+
+// renderer 用のロガー生成（production ビルドではデバッグログを抑制）
+function createRendererLogger(isProduction: boolean): AppLogger {
+  if (isProduction) {
+    return {
+      debug: () => {},
+      log: () => {},
+      info: () => {},
+      warn: (...args) => console.warn(...args),
+      error: (...args) => console.error(...args),
+    };
+  }
+  return {
+    debug: (...args) => console.debug(...args),
+    log: (...args) => console.log(...args),
+    info: (...args) => console.info(...args),
+    warn: (...args) => console.warn(...args),
+    error: (...args) => console.error(...args),
+  };
+}
+
+// renderer 用のロガー（production ビルドではデバッグログを抑制）
+export const logger = createRendererLogger(
+  window.electronAPI?.isProduction ?? false,
+);
+
 // 通知管理クラス
 export class NotificationManager {
   private maxToasts: number;
@@ -49,8 +90,9 @@ export class NotificationManager {
     // Create close button
     const closeButton = document.createElement("button");
     closeButton.className = "notification-close";
-    closeButton.innerHTML = "×";
+    closeButton.textContent = "×";
     closeButton.title = "閉じる";
+    closeButton.setAttribute("aria-label", "通知を閉じる");
     closeButton.addEventListener("click", () => {
       notification.remove();
     });
@@ -228,8 +270,12 @@ export class UnifiedProgressManager {
     progressItem.complete();
 
     // 1秒後に進捗を削除
+    // その間に同じIDで新しいプログレスが登録された場合は削除しない
     setTimeout(() => {
-      this.removeProgress(id);
+      // 現在登録されているオブジェクトが完了時と同じ場合のみ削除する
+      if (this.activeProgresses.get(id) === progressItem) {
+        this.removeProgress(id);
+      }
     }, 1000);
   }
 
@@ -780,11 +826,11 @@ export class ThemeManager {
   }
 
   initializeTheme(): void {
-    console.log("Initializing theme...");
+    logger.debug("Initializing theme...");
 
     // Load saved theme
     const savedTheme = localStorage.getItem("theme");
-    console.log("Saved theme:", savedTheme);
+    logger.debug("Saved theme:", savedTheme);
 
     if (savedTheme) {
       this.currentTheme = savedTheme;
@@ -800,7 +846,7 @@ export class ThemeManager {
     ) as HTMLSelectElement;
     if (themeSelect) {
       themeSelect.value = this.currentTheme;
-      console.log("Theme select set to:", this.currentTheme);
+      logger.debug("Theme select set to:", this.currentTheme);
     }
 
     // Add system theme change listener
@@ -811,12 +857,12 @@ export class ThemeManager {
           this.applySystemTheme();
         }
       });
-      console.log("System theme listener added");
+      logger.debug("System theme listener added");
     }
   }
 
   applyTheme(theme: string): void {
-    console.log("Applying theme:", theme);
+    logger.debug("Applying theme:", theme);
     this.currentTheme = theme;
 
     const body = document.body;
@@ -825,12 +871,12 @@ export class ThemeManager {
       this.applySystemTheme();
     } else {
       body.setAttribute("data-theme", theme);
-      console.log(`Theme ${theme} applied`);
+      logger.debug(`Theme ${theme} applied`);
     }
 
     // Save theme
     localStorage.setItem("theme", theme);
-    console.log("Theme saved to localStorage");
+    logger.debug("Theme saved to localStorage");
 
     // プレースホルダー色の更新
     this.updatePlaceholderColors();
@@ -869,10 +915,10 @@ export class ThemeManager {
 
     if (prefersDark) {
       body.setAttribute("data-theme", "dark");
-      console.log("System dark theme applied");
+      logger.debug("System dark theme applied");
     } else {
       body.setAttribute("data-theme", "light");
-      console.log("System light theme applied");
+      logger.debug("System light theme applied");
     }
 
     // プレースホルダー色の更新
@@ -1125,7 +1171,6 @@ export const DOMUtils = {
       className?: string;
       id?: string;
       textContent?: string;
-      innerHTML?: string;
       attributes?: Record<string, string>;
     } = {},
   ): HTMLElementTagNameMap[K] {
@@ -1134,7 +1179,6 @@ export const DOMUtils = {
     if (options.className) element.className = options.className;
     if (options.id) element.id = options.id;
     if (options.textContent) element.textContent = options.textContent;
-    if (options.innerHTML) element.innerHTML = options.innerHTML;
 
     if (options.attributes) {
       Object.entries(options.attributes).forEach(([key, value]) => {
@@ -1346,7 +1390,7 @@ export const Utils = {
     limit: number,
   ): (...args: Parameters<T>) => void {
     let inThrottle: boolean;
-    return function (...args: Parameters<T>) {
+    return function (this: unknown, ...args: Parameters<T>) {
       if (!inThrottle) {
         func.apply(this, args);
         inThrottle = true;
@@ -1360,3 +1404,93 @@ export const Utils = {
     return new Promise((resolve) => setTimeout(resolve, ms));
   },
 };
+
+// =========================================
+// モーダルのフォーカストラップ（アクセシビリティ）
+// =========================================
+
+// フォーカストラップ対象のモーダルセレクタ
+// （.chapter-dialog-overlay / .dialog-overlay は動的に body へ追加/削除される）
+const MODAL_SELECTOR =
+  ".modal, #thumbnailModal, .chapter-dialog-overlay, .dialog-overlay";
+
+// モーダル内のフォーカス可能な要素を取得
+function getFocusableElements(container: HTMLElement): HTMLElement[] {
+  const selector = [
+    "a[href]",
+    "button:not([disabled])",
+    "input:not([disabled])",
+    "select:not([disabled])",
+    "textarea:not([disabled])",
+    '[tabindex]:not([tabindex="-1"])',
+  ].join(", ");
+  return Array.from(container.querySelectorAll<HTMLElement>(selector)).filter(
+    (el) => el.getAttribute("aria-hidden") !== "true",
+  );
+}
+
+// 現在表示中のモーダルを取得（複数ある場合は最後に開いたものを優先）
+function getOpenModal(): HTMLElement | null {
+  const modals = Array.from(
+    document.querySelectorAll<HTMLElement>(MODAL_SELECTOR),
+  );
+  for (let i = modals.length - 1; i >= 0; i--) {
+    // 動的生成ダイアログは remove されると isConnected が false になる
+    if (!modals[i].isConnected) continue;
+    if (modals[i].style.display === "none") continue;
+    return modals[i];
+  }
+  return null;
+}
+
+// モーダル表示中のフォーカストラップと初期フォーカスの設定を有効化
+export function setupModalFocusTrap(): void {
+  // 1) Tab キーによるフォーカスの循環トラップ
+  document.addEventListener("keydown", (event: KeyboardEvent) => {
+    if (event.key !== "Tab") return;
+    const modal = getOpenModal();
+    if (!modal) return;
+
+    const focusable = getFocusableElements(modal);
+    if (focusable.length === 0) return;
+
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement as HTMLElement | null;
+
+    if (event.shiftKey) {
+      // Shift+Tab: 先頭要素より前に行こうとしたら最後の要素へ
+      if (active === first || !modal.contains(active)) {
+        event.preventDefault();
+        last.focus({ preventScroll: true });
+      }
+    } else {
+      // Tab: 最後の要素より先に行こうとしたら先頭要素へ
+      if (active === last || !modal.contains(active)) {
+        event.preventDefault();
+        first.focus({ preventScroll: true });
+      }
+    }
+  });
+
+  // 2) モーダルが開かれたら最初のフォーカス可能要素へフォーカスを移動
+  const observer = new MutationObserver(() => {
+    const modal = getOpenModal();
+    if (!modal) return;
+
+    const active = document.activeElement as HTMLElement | null;
+    if (active && modal.contains(active)) return;
+
+    const focusable = getFocusableElements(modal);
+    if (focusable.length > 0) {
+      focusable[0].focus({ preventScroll: true });
+    }
+  });
+
+  document.querySelectorAll<HTMLElement>(MODAL_SELECTOR).forEach((modal) => {
+    observer.observe(modal, {
+      attributes: true,
+      attributeFilter: ["style"],
+    });
+  });
+}

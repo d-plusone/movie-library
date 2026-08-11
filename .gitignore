@@ -28,6 +28,12 @@ build/Debug/
 # Electron builder
 .electron-builder-env
 
+# TypeScript build info
+*.tsbuildinfo
+
+# パッケージマネージャは pnpm に統一（package-lock.json は使用しない）
+package-lock.json
+
 # OS generated files
 .DS_Store
 .DS_Store?

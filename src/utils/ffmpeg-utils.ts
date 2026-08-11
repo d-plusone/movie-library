@@ -2,9 +2,13 @@ import path from "path";
 import { app } from "electron";
 import { promisify } from "util";
 import { chmod, access, constants } from "fs";
+import { createLogger } from "./logger.js";
 
 const chmodAsync = promisify(chmod);
 const accessAsync = promisify(access);
+
+// production ビルドではデバッグログを抑制
+const logger = createLogger(app.isPackaged);
 
 // Function to detect if running in development mode
 function isDevelopment(): boolean {
@@ -34,7 +38,7 @@ async function ensureExecutable(binaryPath: string): Promise<void> {
     // Add execute permissions (0o755 = rwxr-xr-x)
     try {
       await chmodAsync(binaryPath, 0o755);
-      console.log(`✅ Set executable permissions on: ${binaryPath}`);
+      logger.debug(`✅ Set executable permissions on: ${binaryPath}`);
     } catch (chmodError) {
       // chmod failed (e.g. read-only app bundle), warn but don't throw
       // The spawn will fail with a clear error if the binary truly can't execute
@@ -49,11 +53,11 @@ async function ensureExecutable(binaryPath: string): Promise<void> {
 // Function to get ffmpeg path
 export async function getFfmpegPath(): Promise<string | null> {
   try {
-    console.log("🔍 Getting FFmpeg path...");
-    console.log("  - Is development:", isDevelopment());
-    console.log("  - Is packaged:", !isDevelopment());
-    console.log("  - __dirname:", __dirname);
-    console.log("  - process.resourcesPath:", process.resourcesPath);
+    logger.debug("🔍 Getting FFmpeg path...");
+    logger.debug("  - Is development:", isDevelopment());
+    logger.debug("  - Is packaged:", !isDevelopment());
+    logger.debug("  - __dirname:", __dirname);
+    logger.debug("  - process.resourcesPath:", process.resourcesPath);
 
     let ffmpegPath: string;
 
@@ -62,21 +66,25 @@ export async function getFfmpegPath(): Promise<string | null> {
       try {
         const ffmpegInstaller = require("@ffmpeg-installer/ffmpeg");
         ffmpegPath = ffmpegInstaller.path;
-        console.log("  - Dev mode: using @ffmpeg-installer/ffmpeg ✅");
-        console.log("  - Raw path:", ffmpegPath);
-      } catch (requireError: any) {
+        logger.debug("  - Dev mode: using @ffmpeg-installer/ffmpeg ✅");
+        logger.debug("  - Raw path:", ffmpegPath);
+      } catch (requireError) {
         console.error(
           "  - Dev mode: @ffmpeg-installer/ffmpeg require failed ❌",
         );
-        console.error("  - Error:", requireError.message);
+        const message =
+          requireError instanceof Error
+            ? requireError.message
+            : String(requireError);
+        console.error("  - Error:", message);
         throw requireError;
       }
     } else {
       // Production mode: use extraResources
       const arch = process.arch;
       const platform = process.platform;
-      console.log("  - Prod mode: using extraResources");
-      console.log("  - Platform:", platform, "Arch:", arch);
+      logger.debug("  - Prod mode: using extraResources");
+      logger.debug("  - Platform:", platform, "Arch:", arch);
 
       // Determine the correct architecture subdirectory
       let archDir: string;
@@ -95,8 +103,8 @@ export async function getFfmpegPath(): Promise<string | null> {
         ffmpegPath += ".exe";
       }
 
-      console.log("  - Constructed path:", ffmpegPath);
-      console.log("  - Resources path:", resourcesPath);
+      logger.debug("  - Constructed path:", ffmpegPath);
+      logger.debug("  - Resources path:", resourcesPath);
     }
 
     if (!ffmpegPath) {
@@ -106,12 +114,12 @@ export async function getFfmpegPath(): Promise<string | null> {
 
     // Normalize path
     ffmpegPath = path.normalize(ffmpegPath);
-    console.log("  - Normalized path:", ffmpegPath);
+    logger.debug("  - Normalized path:", ffmpegPath);
 
     // Ensure binary exists
     try {
       await accessAsync(ffmpegPath, constants.F_OK);
-      console.log("  - Binary exists: ✅");
+      logger.debug("  - Binary exists: ✅");
     } catch (err) {
       console.error("  - Binary exists: ❌");
       console.error("  - Access error:", err);
@@ -121,12 +129,14 @@ export async function getFfmpegPath(): Promise<string | null> {
     // Ensure binary is executable
     await ensureExecutable(ffmpegPath);
 
-    console.log(`✅ FFmpeg binary ready at: ${ffmpegPath}`);
+    logger.log(`✅ FFmpeg binary ready at: ${ffmpegPath}`);
     return ffmpegPath;
-  } catch (error: any) {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const stack = error instanceof Error ? error.stack : undefined;
     console.error("❌ Error loading FFmpeg:");
-    console.error("  - Error message:", error.message);
-    console.error("  - Error stack:", error.stack);
+    console.error("  - Error message:", message);
+    console.error("  - Error stack:", stack);
     return null;
   }
 }
@@ -142,10 +152,10 @@ export async function getFfprobePath(): Promise<string | null> {
         const homebrewFfprobe = "/opt/homebrew/bin/ffprobe";
         try {
           await accessAsync(homebrewFfprobe, constants.F_OK);
-          console.log("  - Dev mode: using Homebrew arm64 ffprobe ✅");
+          logger.debug("  - Dev mode: using Homebrew arm64 ffprobe ✅");
           ffprobePath = homebrewFfprobe;
         } catch {
-          console.log(
+          logger.debug(
             "  - Dev mode: Homebrew ffprobe not found, falling back to ffprobe-static",
           );
           const ffprobeStatic = require("ffprobe-static");
@@ -165,8 +175,8 @@ export async function getFfprobePath(): Promise<string | null> {
           "darwin-arm64",
           "ffprobe",
         );
-        console.log("  - Prod mode: using bundled arm64 ffprobe ✅");
-        console.log("  - Constructed path:", ffprobePath);
+        logger.debug("  - Prod mode: using bundled arm64 ffprobe ✅");
+        logger.debug("  - Constructed path:", ffprobePath);
       } else {
         const ffprobeStatic = require("ffprobe-static");
         ffprobePath = ffprobeStatic.path;
@@ -194,7 +204,7 @@ export async function getFfprobePath(): Promise<string | null> {
     // Ensure binary is executable
     await ensureExecutable(ffprobePath);
 
-    console.log(`✅ FFprobe binary ready at: ${ffprobePath}`);
+    logger.log(`✅ FFprobe binary ready at: ${ffprobePath}`);
     return ffprobePath;
   } catch (error) {
     console.error("❌ Error loading FFprobe:", error);
@@ -208,7 +218,7 @@ export async function initializeFFmpeg(): Promise<{
   ffprobePath: string | null;
 }> {
   try {
-    console.log("🎬 Initializing FFmpeg...");
+    logger.log("🎬 Initializing FFmpeg...");
 
     const ffmpegPath = await getFfmpegPath();
     const ffprobePath = await getFfprobePath();
@@ -222,7 +232,7 @@ export async function initializeFFmpeg(): Promise<{
     }
 
     if (ffmpegPath && ffprobePath) {
-      console.log("✅ FFmpeg initialization completed successfully");
+      logger.log("✅ FFmpeg initialization completed successfully");
     } else {
       console.error("❌ FFmpeg initialization failed");
     }

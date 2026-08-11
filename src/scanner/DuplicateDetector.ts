@@ -1,6 +1,11 @@
 import { createHash } from "crypto";
 import { promises as fs } from "fs";
+import { app } from "electron";
 import PrismaDatabaseManager from "../database/PrismaDatabaseManager.js";
+import { createLogger } from "../utils/logger.js";
+
+// production ビルドではデバッグログを抑制
+const logger = createLogger(app.isPackaged);
 
 export interface DuplicateGroup {
   videos: Array<{
@@ -73,7 +78,7 @@ export default class DuplicateDetector {
       select: { id: true, path: true },
     });
 
-    console.log(`Calculating partial hashes for ${videos.length} videos...`);
+    logger.debug(`Calculating partial hashes for ${videos.length} videos...`);
 
     for (let i = 0; i < videos.length; i++) {
       const video = videos[i];
@@ -95,7 +100,7 @@ export default class DuplicateDetector {
       }
     }
 
-    console.log(`✅ Updated ${videos.length} partial hashes`);
+    logger.debug(`✅ Updated ${videos.length} partial hashes`);
   }
 
   /**
@@ -127,11 +132,17 @@ export default class DuplicateDetector {
       },
     });
 
+    // partialHash が null の動画は重複判定できないため除外（型ガード付き）
+    const videosWithHash = videos.filter(
+      (video): video is (typeof videos)[number] & { partialHash: string } =>
+        video.partialHash !== null,
+    );
+
     // Group by: size + duration + partialHash
     onProgress?.(2, 3, "重複を検索中...");
-    const groups = new Map<string, typeof videos>();
+    const groups = new Map<string, typeof videosWithHash>();
 
-    for (const video of videos) {
+    for (const video of videosWithHash) {
       if (!video.partialHash) continue;
 
       // Create composite key
@@ -154,7 +165,7 @@ export default class DuplicateDetector {
       }
     }
 
-    console.log(`Found ${duplicateGroups.length} duplicate groups`);
+    logger.log(`Found ${duplicateGroups.length} duplicate groups`);
     onProgress?.(3, 3, "完了");
     return duplicateGroups;
   }
@@ -198,7 +209,7 @@ export default class DuplicateDetector {
         where: { id: videoId },
       });
 
-      console.log(`✅ Deleted video ${videoId}: ${video.path}`);
+      logger.log(`✅ Deleted video ${videoId}: ${video.path}`);
     } catch (error) {
       console.error(`Failed to delete video ${videoId}:`, error);
       throw error;

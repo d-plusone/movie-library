@@ -215,8 +215,6 @@ movie-library/
 │   │   └── ThumbnailGenerator.ts
 │   ├── database/        # データベース関連
 │   │   └── PrismaDatabaseManager.ts
-│   ├── config/          # 設定ファイル (TypeScript)
-│   │   └── optimization.ts
 │   ├── utils/           # ユーティリティ
 │   │   └── ffmpeg-utils.ts
 │   └── types/           # 型定義 (TypeScript)
