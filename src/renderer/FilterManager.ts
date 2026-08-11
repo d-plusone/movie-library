@@ -9,6 +9,8 @@ export interface FilterState {
   rating: number;
   tags: string[];
   directories: string[];
+  resolutions: string[];
+  codecs: string[];
 }
 
 // localStorage からディレクトリリストを安全に読み込む
@@ -31,7 +33,13 @@ export class FilterManager {
   private filterChangeCallback: ((filter: FilterState) => void) | null = null;
 
   constructor() {
-    this.currentFilter = { rating: 0, tags: [], directories: [] };
+    this.currentFilter = {
+      rating: 0,
+      tags: [],
+      directories: [],
+      resolutions: [],
+      codecs: [],
+    };
     this.selectedDirectories = []; // フォルダフィルター用の選択状態
     this.saveFilterStateEnabled = true; // フィルター状態保存を有効にする
 
@@ -66,6 +74,8 @@ export class FilterManager {
       rating: this.currentFilter.rating,
       tags: this.currentFilter.tags,
       selectedDirectories: this.selectedDirectories,
+      resolutions: this.currentFilter.resolutions,
+      codecs: this.currentFilter.codecs,
     };
     localStorage.setItem("filterState", JSON.stringify(filterState));
 
@@ -90,6 +100,13 @@ export class FilterManager {
         this.currentFilter.rating = filterState.rating || 0;
         this.currentFilter.tags = filterState.tags || [];
         this.selectedDirectories = filterState.selectedDirectories || [];
+        // 解像度・コーデック（壊れたデータ対策で Array ガード）
+        this.currentFilter.resolutions = Array.isArray(filterState.resolutions)
+          ? filterState.resolutions
+          : [];
+        this.currentFilter.codecs = Array.isArray(filterState.codecs)
+          ? filterState.codecs
+          : [];
       }
     } catch (error) {
       console.error("FilterManager.loadFilterState - error:", error);
@@ -178,6 +195,12 @@ export class FilterManager {
     if (filterData.ratingFilter !== undefined) {
       this.currentFilter.rating = filterData.ratingFilter;
     }
+    if (filterData.resolutions) {
+      this.currentFilter.resolutions = filterData.resolutions;
+    }
+    if (filterData.codecs) {
+      this.currentFilter.codecs = filterData.codecs;
+    }
   }
 
   // ディレクトリを初期化
@@ -230,6 +253,8 @@ export class FilterManager {
     searchQuery: string;
     ratingFilter: number;
     hasDirectoryFilter: boolean;
+    resolutions: string[];
+    codecs: string[];
   } {
     // 検索クエリを取得
     const searchInput = document.getElementById(
@@ -247,6 +272,8 @@ export class FilterManager {
       searchQuery: searchQuery,
       ratingFilter: this.currentFilter.rating,
       hasDirectoryFilter: hasDirectoryFilter,
+      resolutions: [...this.currentFilter.resolutions],
+      codecs: [...this.currentFilter.codecs],
     };
   }
 
@@ -258,6 +285,44 @@ export class FilterManager {
     } else {
       this.currentFilter.tags.push(tagName);
     }
+    this.saveFilterState();
+    this.notifyFilterChange();
+  }
+
+  // 解像度フィルターを切り替え
+  toggleResolution(resolution: string): void {
+    const index = this.currentFilter.resolutions.indexOf(resolution);
+    if (index > -1) {
+      this.currentFilter.resolutions.splice(index, 1);
+    } else {
+      this.currentFilter.resolutions.push(resolution);
+    }
+    this.saveFilterState();
+    this.notifyFilterChange();
+  }
+
+  // コーデックフィルターを切り替え
+  toggleCodec(codec: string): void {
+    const index = this.currentFilter.codecs.indexOf(codec);
+    if (index > -1) {
+      this.currentFilter.codecs.splice(index, 1);
+    } else {
+      this.currentFilter.codecs.push(codec);
+    }
+    this.saveFilterState();
+    this.notifyFilterChange();
+  }
+
+  // すべての解像度フィルターをクリア
+  clearResolutions(): void {
+    this.currentFilter.resolutions = [];
+    this.saveFilterState();
+    this.notifyFilterChange();
+  }
+
+  // すべてのコーデックフィルターをクリア
+  clearCodecs(): void {
+    this.currentFilter.codecs = [];
     this.saveFilterState();
     this.notifyFilterChange();
   }

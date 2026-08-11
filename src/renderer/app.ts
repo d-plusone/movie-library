@@ -8,6 +8,7 @@ import {
   SortState,
   BulkTagChange,
   DuplicateGroup,
+  FilterOptionCount,
 } from "../types/types.js";
 import {
   NotificationManager,
@@ -461,11 +462,14 @@ class MovieLibraryApp {
     this.uiRenderer.renderVideoList(this.filteredVideos, (path: string) =>
       this.playVideo(path),
     );
+    const currentFilter = this.filterManager.getCurrentFilter();
     this.uiRenderer.renderSidebar(
       this.videoManager.getTags(),
       this.videoManager.getDirectories(),
-      this.filterManager.getCurrentFilter(),
+      currentFilter,
       this.filterManager.getSelectedDirectories(),
+      this.getResolutionOptions(),
+      this.getCodecOptions(),
     );
     this.uiRenderer.updateStats(this.videoManager.getStats());
   }
@@ -542,6 +546,22 @@ class MovieLibraryApp {
               },
             );
             if (!hasMatchingDirectory) return false;
+          }
+        }
+
+        // 解像度フィルター（グループ内は OR）
+        if (filterData.resolutions.length > 0) {
+          const label = this.getResolutionLabel(video);
+          if (label === null || !filterData.resolutions.includes(label)) {
+            return false;
+          }
+        }
+
+        // コーデックフィルター（グループ内は OR）
+        if (filterData.codecs.length > 0) {
+          const codec = (video.codec || "").trim();
+          if (!codec || !filterData.codecs.includes(codec)) {
+            return false;
           }
         }
 
@@ -628,17 +648,58 @@ class MovieLibraryApp {
 
     // 現在の選択状態を取得して表示に使用（状態の変更は行わない）
     const selectedDirectories = this.filterManager.getSelectedDirectories();
+    const currentFilter = this.filterManager.getCurrentFilter();
 
     this.uiRenderer.renderSidebar(
       this.videoManager.getTags(),
       directories,
-      this.filterManager.getCurrentFilter(),
+      currentFilter,
       selectedDirectories,
+      this.getResolutionOptions(),
+      this.getCodecOptions(),
     );
 
     // 評価フィルタの表示を更新
-    const currentRating = this.filterManager.getCurrentFilter().rating;
-    this.updateRatingDisplay(currentRating);
+    this.updateRatingDisplay(currentFilter.rating);
+  }
+
+  // 解像度ラベル（大きい方の辺を基準に判定。レターボックス動画でも誤判定しにくい）
+  private getResolutionLabel(video: Video): string | null {
+    return FormatUtils.getResolutionLabel(video.width ?? 0, video.height ?? 0);
+  }
+
+  // 解像度オプション（件数付き、0件のバケットは非表示）
+  private getResolutionOptions(): FilterOptionCount[] {
+    const RESOLUTION_LABELS = ["4K", "1440p", "1080p", "720p", "SD"] as const;
+    const counts = new Map<string, number>();
+    for (const video of this.videoManager.getVideos()) {
+      const label = this.getResolutionLabel(video);
+      if (label) {
+        counts.set(label, (counts.get(label) ?? 0) + 1);
+      }
+    }
+    return RESOLUTION_LABELS.map((label) => ({
+      label,
+      count: counts.get(label) ?? 0,
+    })).filter((option) => option.count > 0);
+  }
+
+  // コーデックオプション（動的収集・件数の降順で表示）
+  private getCodecOptions(): FilterOptionCount[] {
+    const counts = new Map<string, number>();
+    for (const video of this.videoManager.getVideos()) {
+      const codec = (video.codec || "").trim();
+      if (!codec) continue;
+      counts.set(codec, (counts.get(codec) ?? 0) + 1);
+    }
+    // Map.forEach を使用（downlevelIteration 非依存で MapIterator の反復を回避）
+    const options: FilterOptionCount[] = [];
+    counts.forEach((count, label) => {
+      options.push({ label, count });
+    });
+    return options.sort(
+      (a, b) => b.count - a.count || a.label.localeCompare(b.label),
+    );
   }
 
   // 保存されたフィルタ状態を復元
@@ -910,6 +971,26 @@ class MovieLibraryApp {
         this.applyFiltersAndSort(); // フィルタを適用
       });
     }
+
+    // 解像度フィルター関連ボタン
+    const clearResolutionsBtn = document.getElementById("clearResolutionsBtn");
+    if (clearResolutionsBtn) {
+      clearResolutionsBtn.addEventListener("click", () => {
+        this.filterManager.clearResolutions();
+        this.renderSidebar(); // UIを更新
+        this.applyFiltersAndSort(); // フィルタを適用
+      });
+    }
+
+    // コーデックフィルター関連ボタン
+    const clearCodecsBtn = document.getElementById("clearCodecsBtn");
+    if (clearCodecsBtn) {
+      clearCodecsBtn.addEventListener("click", () => {
+        this.filterManager.clearCodecs();
+        this.renderSidebar(); // UIを更新
+        this.applyFiltersAndSort(); // フィルタを適用
+      });
+    }
   }
 
   private handleRatingFilter(rating: number): void {
@@ -1080,6 +1161,28 @@ class MovieLibraryApp {
       e.stopPropagation();
       const dirPath = dirElement.dataset.path;
       this.filterManager.toggleDirectorySelection(dirPath);
+      this.renderSidebar(); // UIを更新
+      this.applyFiltersAndSort(); // フィルタを適用
+      return;
+    }
+
+    // 解像度フィルターのトグル処理
+    const resolutionElement = target.closest(".resolution-item") as HTMLElement;
+    if (resolutionElement && resolutionElement.dataset.resolution) {
+      e.stopPropagation();
+      const resolution = resolutionElement.dataset.resolution;
+      this.filterManager.toggleResolution(resolution);
+      this.renderSidebar(); // UIを更新
+      this.applyFiltersAndSort(); // フィルタを適用
+      return;
+    }
+
+    // コーデックフィルターのトグル処理
+    const codecElement = target.closest(".codec-item") as HTMLElement;
+    if (codecElement && codecElement.dataset.codec) {
+      e.stopPropagation();
+      const codec = codecElement.dataset.codec;
+      this.filterManager.toggleCodec(codec);
       this.renderSidebar(); // UIを更新
       this.applyFiltersAndSort(); // フィルタを適用
       return;

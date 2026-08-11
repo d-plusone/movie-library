@@ -596,6 +596,18 @@ export class FormatUtils {
     // Unix/macOS の絶対パス
     return "file://" + filePath;
   }
+
+  // 解像度ラベルを返す（大きい方の辺を基準に判定。レターボックス動画でも誤判定しにくい）
+  // width/height が未知の場合は null を返す
+  static getResolutionLabel(width: number, height: number): string | null {
+    if (width <= 0 && height <= 0) return null;
+    const maxDimension = Math.max(width, height);
+    if (maxDimension >= 3840) return "4K";
+    if (maxDimension >= 2560) return "1440p";
+    if (maxDimension >= 1920) return "1080p";
+    if (maxDimension >= 1280) return "720p";
+    return "SD";
+  }
 }
 
 // プログレス管理（後方互換性のため、統一モーダルを使用）

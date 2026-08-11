@@ -101,12 +101,22 @@ export interface Filter {
   directories: string[];
   rating: number;
   searchQuery?: string;
+  resolutions?: string[];
+  codecs?: string[];
 }
 
 export interface FilterStateData {
   selectedDirectories?: string[];
   selectedTags?: string[];
   ratingFilter?: number;
+  resolutions?: string[];
+  codecs?: string[];
+}
+
+// サイドバーのフィルターオプション（ラベル + 件数）
+export interface FilterOptionCount {
+  label: string;
+  count: number;
 }
 
 export interface VideoStats {

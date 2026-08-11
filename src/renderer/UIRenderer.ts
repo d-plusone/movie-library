@@ -7,6 +7,7 @@ import {
   VideoStats,
   ThumbnailSettings,
   Filter,
+  FilterOptionCount,
   ViewType,
   ThumbnailInfo,
 } from "../types/types.js";
@@ -540,6 +541,18 @@ export class UIRenderer {
       thumbnailDiv.appendChild(thumbnailRatingDiv);
     }
 
+    // 解像度バッジ（右上。評価オーバーレイがある場合はその下に配置される）
+    const resolutionLabel = FormatUtils.getResolutionLabel(
+      video.width ?? 0,
+      video.height ?? 0,
+    );
+    if (resolutionLabel) {
+      const resolutionBadge = document.createElement("div");
+      resolutionBadge.className = "video-resolution-badge";
+      resolutionBadge.textContent = resolutionLabel;
+      thumbnailDiv.appendChild(resolutionBadge);
+    }
+
     // Assemble the complete video element
     div.appendChild(thumbnailDiv);
     div.appendChild(videoInfoDiv);
@@ -589,10 +602,17 @@ export class UIRenderer {
     directories: Directory[],
     currentFilter: Filter,
     selectedDirectories: string[],
+    resolutionOptions: FilterOptionCount[],
+    codecOptions: FilterOptionCount[],
   ): void {
     try {
       this.renderTags(tags, currentFilter.tags);
       this.renderDirectories(directories, selectedDirectories);
+      this.renderResolutionFilter(
+        resolutionOptions,
+        currentFilter.resolutions ?? [],
+      );
+      this.renderCodecFilter(codecOptions, currentFilter.codecs ?? []);
     } catch (error) {
       console.error("UIRenderer - Error rendering sidebar:", error);
     }
@@ -731,6 +751,71 @@ export class UIRenderer {
 
       directoriesList.appendChild(directoryElement);
     });
+  }
+
+  // 解像度フィルターリストを描画
+  renderResolutionFilter(
+    options: FilterOptionCount[],
+    selected: string[],
+  ): void {
+    const list = document.getElementById("resolutionsList");
+    if (!list) {
+      console.error("UIRenderer - resolutionsList element not found!");
+      return;
+    }
+    list.replaceChildren();
+
+    for (const option of options) {
+      const item = document.createElement("div");
+      item.className = "resolution-item";
+      item.dataset.resolution = option.label;
+      if (selected.includes(option.label)) {
+        item.classList.add("selected");
+      }
+
+      const nameSpan = document.createElement("span");
+      nameSpan.className = "filter-option-name";
+      nameSpan.textContent = option.label;
+
+      const countSpan = document.createElement("span");
+      countSpan.className = "filter-option-count";
+      countSpan.textContent = String(option.count);
+
+      item.appendChild(nameSpan);
+      item.appendChild(countSpan);
+      list.appendChild(item);
+    }
+  }
+
+  // コーデックフィルターリストを描画
+  renderCodecFilter(options: FilterOptionCount[], selected: string[]): void {
+    const list = document.getElementById("codecsList");
+    if (!list) {
+      console.error("UIRenderer - codecsList element not found!");
+      return;
+    }
+    list.replaceChildren();
+
+    for (const option of options) {
+      const item = document.createElement("div");
+      item.className = "codec-item";
+      item.dataset.codec = option.label;
+      if (selected.includes(option.label)) {
+        item.classList.add("selected");
+      }
+
+      const nameSpan = document.createElement("span");
+      nameSpan.className = "filter-option-name";
+      nameSpan.textContent = option.label;
+
+      const countSpan = document.createElement("span");
+      countSpan.className = "filter-option-count";
+      countSpan.textContent = String(option.count);
+
+      item.appendChild(nameSpan);
+      item.appendChild(countSpan);
+      list.appendChild(item);
+    }
   }
 
   // 設定画面のディレクトリリストを描画
