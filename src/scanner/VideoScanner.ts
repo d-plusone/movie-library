@@ -496,6 +496,8 @@ class VideoScanner {
 
       let stdout = "";
       let stderr = "";
+      // 起動失敗（error イベント）と終了（close イベント）の二重 reject を防ぐ
+      let settled = false;
 
       ffprobe.stdout.on("data", (data: Buffer) => {
         stdout += data.toString();
@@ -505,12 +507,29 @@ class VideoScanner {
         stderr += data.toString();
       });
 
-      ffprobe.on("close", (code: number) => {
+      // バイナリの起動失敗（存在しない・dylib ロード失敗など）を捕捉
+      ffprobe.on("error", (err: Error) => {
+        console.error("FFprobe failed to start:", err.message);
+        console.error("VideoScanner: ffprobe path was:", this.ffprobePath);
+        if (!settled) {
+          settled = true;
+          reject(new Error(`FFprobe failed to start: ${err.message}`));
+        }
+      });
+
+      ffprobe.on("close", (code: number | null) => {
         if (code !== 0) {
-          console.error("FFprobe error for file:", filePath, stderr);
-          console.error("VideoScanner: ffprobe path was:", this.ffprobePath);
-          reject(new Error(`FFprobe exited with code ${code}: ${stderr}`));
+          if (!settled) {
+            settled = true;
+            console.error("FFprobe error for file:", filePath, stderr);
+            console.error("VideoScanner: ffprobe path was:", this.ffprobePath);
+            reject(new Error(`FFprobe exited with code ${code}: ${stderr}`));
+          }
         } else {
+          if (settled) {
+            return;
+          }
+          settled = true;
           try {
             const metadata = JSON.parse(stdout) as VideoMetadata;
             logger.debug("FFprobe metadata for:", path.basename(filePath), {
@@ -535,12 +554,6 @@ class VideoScanner {
             reject(parseError);
           }
         }
-      });
-
-      ffprobe.on("error", (error: Error) => {
-        console.error("FFprobe spawn error for file:", filePath, error);
-        console.error("VideoScanner: ffprobe path was:", this.ffprobePath);
-        reject(error);
       });
     });
   }

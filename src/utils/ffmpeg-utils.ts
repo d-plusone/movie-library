@@ -146,47 +146,42 @@ export async function getFfprobePath(): Promise<string | null> {
   try {
     let ffprobePath: string;
 
-    if (isDevelopment()) {
-      // Development mode: prefer native arm64 ffprobe on Apple Silicon to avoid Rosetta 2 warning
-      if (process.platform === "darwin" && process.arch === "arm64") {
-        const homebrewFfprobe = "/opt/homebrew/bin/ffprobe";
-        try {
-          await accessAsync(homebrewFfprobe, constants.F_OK);
-          logger.debug("  - Dev mode: using Homebrew arm64 ffprobe ✅");
-          ffprobePath = homebrewFfprobe;
-        } catch {
-          logger.debug(
-            "  - Dev mode: Homebrew ffprobe not found, falling back to ffprobe-static",
-          );
-          const ffprobeStatic = require("ffprobe-static");
-          ffprobePath = ffprobeStatic.path;
-        }
-      } else {
-        const ffprobeStatic = require("ffprobe-static");
-        ffprobePath = ffprobeStatic.path;
-      }
-    } else {
-      // Production mode: use bundled arm64 ffprobe binary on Apple Silicon
-      if (process.platform === "darwin" && process.arch === "arm64") {
-        const resourcesPath = process.resourcesPath;
+    if (process.platform === "darwin" && process.arch === "arm64") {
+      // macOS arm64: 静的リンク版 ffprobe（Homebrew 依存なし）を dev/prod とも使用。
+      // scripts/prepare-ffprobe.js が dev / build 時に ffprobe-bin へ準備する。
+      // （Homebrew の ffprobe は動的リンクのため、アップグレードで dyld エラーになる）
+      if (isDevelopment()) {
+        // dev: dist-ts/utils/ffmpeg-utils.js → プロジェクトルート/ffprobe-bin
         ffprobePath = path.join(
-          resourcesPath,
+          __dirname,
+          "..",
+          "..",
           "ffprobe-bin",
           "darwin-arm64",
           "ffprobe",
         );
-        logger.debug("  - Prod mode: using bundled arm64 ffprobe ✅");
-        logger.debug("  - Constructed path:", ffprobePath);
+        logger.debug("  - Dev mode: using bundled static arm64 ffprobe ✅");
       } else {
-        const ffprobeStatic = require("ffprobe-static");
-        ffprobePath = ffprobeStatic.path;
-        // Fix ASAR path if needed
-        if (
-          ffprobePath.includes("app.asar") &&
-          !ffprobePath.includes("app.asar.unpacked")
-        ) {
-          ffprobePath = ffprobePath.replace("app.asar", "app.asar.unpacked");
-        }
+        // prod: extraResources でコピーされた ffprobe-bin/darwin-arm64/ffprobe
+        ffprobePath = path.join(
+          process.resourcesPath,
+          "ffprobe-bin",
+          "darwin-arm64",
+          "ffprobe",
+        );
+        logger.debug("  - Prod mode: using bundled static arm64 ffprobe ✅");
+      }
+      logger.debug("  - Constructed path:", ffprobePath);
+    } else {
+      // その他のプラットフォーム: ffprobe-static（静的リンクの同梱バイナリ）
+      const ffprobeStatic = require("ffprobe-static");
+      ffprobePath = ffprobeStatic.path;
+      // Fix ASAR path if needed
+      if (
+        ffprobePath.includes("app.asar") &&
+        !ffprobePath.includes("app.asar.unpacked")
+      ) {
+        ffprobePath = ffprobePath.replace("app.asar", "app.asar.unpacked");
       }
     }
 
