@@ -2939,9 +2939,9 @@ body[data-theme="dark"] .search-input::-moz-placeholder {
 }
 
 .video-player-container {
-    width: 90%;
-    max-width: 1200px;
-    max-height: 90%;
+    width: 94%;
+    max-width: 1400px;
+    max-height: 94%;
     background: #000;
     border-radius: 12px;
     overflow: hidden;
@@ -2987,13 +2987,20 @@ body[data-theme="dark"] .search-input::-moz-placeholder {
 
 .video-player-body video {
     width: 100%;
-    max-height: calc(90vh - 96px);
+    max-height: calc(94vh - 96px);
     background: #000;
     outline: none;
     /* GPU コンポジションレイヤーに載せて描画を高速化（ヌルヌル再生） */
     transform: translateZ(0);
     will-change: transform;
     backface-visibility: hidden;
+}
+
+/* キーボードショートカット操作のためフォーカスは video に置くが、
+   フォーカスリング（オレンジ枠）は非表示にする */
+.video-player-body video:focus,
+.video-player-body video:focus-visible {
+    outline: none !important;
 }
 
 .video-player-footer {

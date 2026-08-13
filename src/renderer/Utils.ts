@@ -1493,6 +1493,17 @@ export function setupModalFocusTrap(): void {
     const active = document.activeElement as HTMLElement | null;
     if (active && modal.contains(active)) return;
 
+    // 動画プレーヤーはキーボードショートカット（スペース/矢印）を優先するため、
+    // 最初のボタンではなく video 要素にフォーカスを置く
+    // （video にフォーカスが無いと、フォーカスされたボタンがスペースキーを消費してしまう）
+    if (modal.classList.contains("video-player-modal")) {
+      const video = modal.querySelector<HTMLElement>("video");
+      if (video) {
+        video.focus({ preventScroll: true });
+        return;
+      }
+    }
+
     const focusable = getFocusableElements(modal);
     if (focusable.length > 0) {
       focusable[0].focus({ preventScroll: true });

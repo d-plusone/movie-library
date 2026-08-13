@@ -66,6 +66,8 @@ class MovieLibraryApp {
   private playerErrorHandler: ((e: Event) => void) | null = null;
   // 内蔵プレーヤー用のキーボードハンドラ参照（重複登録防止のためフィールドに保持）
   private playerKeydownHandler: ((e: KeyboardEvent) => void) | null = null;
+  // スペースキーでのボタン誤発火防止用（keyup でフォーカスされたボタンがクリックされるため）
+  private playerKeyupHandler: ((e: KeyboardEvent) => void) | null = null;
 
   // Event delegation setup flag
   private eventDelegationSetup: boolean = false;
@@ -847,15 +849,19 @@ class MovieLibraryApp {
     this.safeAddEventListener("playerExternalPlayBtn", "click", () =>
       this.handlePlayerExternalPlay(),
     );
-    this.safeAddEventListener("resetWatchProgressBtn", "click", () =>
-      this.resetWatchProgress(),
-    );
-    this.safeAddEventListener("playerScreenshotBtn", "click", () =>
-      this.captureScreenshot(),
-    );
-    this.safeAddEventListener("playerThumbnailBtn", "click", () =>
-      this.createThumbnailFromPlayer(),
-    );
+    this.safeAddEventListener("resetWatchProgressBtn", "click", () => {
+      this.resetWatchProgress();
+      // ボタンにフォーカスが残るとスペースキーをボタンが消費するため video に戻す
+      this.focusPlayerVideo();
+    });
+    this.safeAddEventListener("playerScreenshotBtn", "click", () => {
+      this.captureScreenshot();
+      this.focusPlayerVideo();
+    });
+    this.safeAddEventListener("playerThumbnailBtn", "click", () => {
+      this.createThumbnailFromPlayer();
+      this.focusPlayerVideo();
+    });
     this.safeAddEventListener("selectScreenshotDirBtn", "click", () =>
       this.selectScreenshotDir(),
     );
@@ -929,6 +935,29 @@ class MovieLibraryApp {
       }
     };
     document.addEventListener("keydown", this.playerKeydownHandler, true);
+
+    // スペースキーでのボタン誤発火防止（keyup）
+    // Chrome ではフォーカスされたボタンはスペースキーで keyup 時にクリックされるため、
+    // keydown の preventDefault だけでは防げない。プレーヤー表示中は keyup も握る。
+    if (this.playerKeyupHandler) {
+      document.removeEventListener("keyup", this.playerKeyupHandler, true);
+    }
+    this.playerKeyupHandler = (e: KeyboardEvent) => {
+      const playerModal = document.getElementById("videoPlayerModal");
+      const isPlayerOpen =
+        !!playerModal && playerModal.style.display === "flex";
+      if (!isPlayerOpen) return;
+
+      if (e.key === " " || e.key === "Enter") {
+        const target = e.target as HTMLElement;
+        // フォーカスされたボタン/リンクのスペース・Enter クリック発火を防ぐ
+        if (target.tagName === "BUTTON" || target.tagName === "A") {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }
+    };
+    document.addEventListener("keyup", this.playerKeyupHandler, true);
 
     // Bulk tag management
     this.safeAddEventListener(
@@ -2899,6 +2928,10 @@ class MovieLibraryApp {
     modal.style.display = "flex";
     modal.setAttribute("is-open", "true");
 
+    // キーボードショートカット（スペース/矢印キー）が常に効くようにフォーカスを video に置く
+    // （ボタンにフォーカスがあるとスペースキーでボタンが誤発火するため）
+    videoEl.focus({ preventScroll: true });
+
     // 再生開始
     videoEl.play().catch((error) => {
       console.error("Failed to start playback:", error);
@@ -2958,6 +2991,17 @@ class MovieLibraryApp {
         "動画を再生できませんでした（コーデック非対応の可能性があります）",
         "error",
       );
+    }
+  }
+
+  // 内蔵プレーヤー内のボタン操作後にフォーカスを video に戻す
+  // （ボタンにフォーカスが残るとスペースキーがボタンのクリックに奪われるため）
+  private focusPlayerVideo(): void {
+    const videoEl = document.getElementById(
+      "internalPlayer",
+    ) as HTMLVideoElement | null;
+    if (videoEl) {
+      videoEl.focus({ preventScroll: true });
     }
   }
 

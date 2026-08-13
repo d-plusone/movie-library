@@ -616,7 +616,8 @@
                     </div>
                 </div>
                 <div class="video-player-body">
-                    <video id="internalPlayer" controls playsinline preload="auto"></video>
+                    <!-- tabindex="0": フォーカストラップの初期フォーカス先を video にする（ボタンにフォーカスが当たるとキーボードショートカットがボタンに奪われるため） -->
+                    <video id="internalPlayer" controls playsinline preload="auto" tabindex="0"></video>
                 </div>
                 <div class="video-player-footer">
                     <span id="playerProgressText" class="video-player-progress"></span>
