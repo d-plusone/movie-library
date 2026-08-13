@@ -1468,7 +1468,9 @@ app.on("window-all-closed", () => {
 });
 
 // before-quit で DB の WAL フラッシュを完了させてから終了する
-// （process.exit による強制終了は SQLite の WAL を破損させるリスクがあるため使わない）
+// （$disconnect() 完了後に process.exit で即座に終了する。
+//    app.quit() による通常シャットダウンは V8 isolate 破棄中に Prisma クエリエンジンの
+//    tokio ワーカースレッドが v8::String::MakeExternal を呼び EXC_BREAKPOINT でクラッシュするため）
 let quitCleanupDone = false;
 app.on("before-quit", (event) => {
   if (quitCleanupDone) {
@@ -1482,7 +1484,10 @@ app.on("before-quit", (event) => {
     })
     .finally(() => {
       quitCleanupDone = true;
-      app.quit();
+      // $disconnect() 完了後なので SQLite の WAL はフラッシュ済み（データは安全）。
+      // V8 isolate の破棄（v8::Isolate::Dispose）をスキップして即座に終了し、
+      // Prisma エンジンのワーカースレッドによる破棄中 isolate へのアクセスを防ぐ。
+      process.exit(0);
     });
 });
 
