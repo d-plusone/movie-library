@@ -6,23 +6,35 @@ import {
   shell,
   Menu,
   MenuItemConstructorOptions,
+  protocol,
 } from "electron";
 import path from "path";
 import { promises as fs } from "fs";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import * as chokidar from "chokidar";
-import PrismaDatabaseManager from "./src/database/PrismaDatabaseManager.js";
-import VideoScanner from "./src/scanner/VideoScanner.js";
-import ThumbnailGenerator from "./src/thumbnail/ThumbnailGenerator.js";
-import DuplicateDetector from "./src/scanner/DuplicateDetector.js";
+import PrismaDatabaseManager from "../database/PrismaDatabaseManager.js";
+import type { VideoRecord } from "../database/PrismaDatabaseManager.js";
+import VideoScanner from "../scanner/VideoScanner.js";
+import ThumbnailGenerator from "../thumbnail/ThumbnailGenerator.js";
+import DuplicateDetector from "../scanner/DuplicateDetector.js";
 import {
   ProcessedVideo,
+  ProgressEvent,
+  OperationProgress,
   ThumbnailResult,
   VideoUpdateData,
-} from "./src/types/types.js";
-import { initializeFFmpeg, getFfmpegPath } from "./src/utils/ffmpeg-utils.js";
-import { createLogger } from "./src/utils/logger.js";
+  ContainerMismatchItem,
+  ConvertVideosResult,
+  ConvertItemResult,
+} from "../types/types.js";
+import {
+  classifyContainer,
+  containerLabel,
+  detectContainerKind,
+} from "../utils/container.js";
+import { initializeFFmpeg, getFfmpegPath } from "../utils/ffmpeg-utils.js";
+import { createLogger } from "../utils/logger.js";
 
 // production ビルドではデバッグログを抑制
 const logger = createLogger(app.isPackaged);
@@ -42,6 +54,377 @@ for (const stream of [process.stdout, process.stderr]) {
 }
 
 const execFileAsync = promisify(execFile);
+
+// ============================================================
+// local-file:// カスタムプロトコル
+// ============================================================
+// 開発時はレンダラーが Vite の dev サーバー（http://localhost）配信されるため、
+// file:// 直読みのサムネイル/動画は Chromium のセキュリティ制限でブロックされる。
+// そこでレンダラー側は local-file:///... 形式の URL を使うようにし、
+// main 側でこのプロトコルを実ファイルへのアクセスに変換する。
+// （registerSchemesAsPrivileged は app ready より前に呼ぶ必要がある）
+const LOCAL_FILE_SCHEME = "local-file";
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: LOCAL_FILE_SCHEME,
+    privileges: {
+      // standard + secure: URL を通常の階層型 URL（ホスト付き）として解釈させる。
+      // 非標準スキームだと Chromium のメディアローダ（Range 前提の多段バッファ）が
+      // 正しく動作せず、大きな動画で NotSupportedError になる。
+      // レンダラー側はダミーホスト "local" を付けた URL を生成すること。
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+    },
+  },
+]);
+
+/**
+ * local-file:// リクエストを実ファイルパスへ解決する。
+ * URL 形式（standard スキーマ・ホストは "local" 固定）:
+ *   macOS/Linux: local-file://local/Users/x/y.mp4
+ *   Windows:     local-file://local/C:/x/y.mp4
+ */
+function resolveLocalFileUrl(requestUrl: string): string {
+  const parsed = new URL(requestUrl);
+  let pathname = decodeURIComponent(parsed.pathname);
+  // Windows のドライブレター（先頭の "/C:"）を正規化
+  if (/^\/[a-zA-Z]:/.test(pathname)) {
+    pathname = pathname.slice(1);
+  }
+  return pathname;
+}
+
+/** 拡張子から MIME タイプを推定する */
+function guessMimeType(filePath: string): string {
+  const ext = path.extname(filePath).toLowerCase();
+  switch (ext) {
+    case ".jpg":
+    case ".jpeg":
+      return "image/jpeg";
+    case ".png":
+      return "image/png";
+    case ".webp":
+      return "image/webp";
+    case ".gif":
+      return "image/gif";
+    case ".mp4":
+    case ".m4v":
+      return "video/mp4";
+    case ".webm":
+      return "video/webm";
+    default:
+      return "application/octet-stream";
+  }
+}
+
+/**
+ * 先頭バイトから実際のコンテナ形式を推定し、MIME を補正する。
+ * 拡張子を偽装したファイル（例: 中身が MPEG-TS の .mp4）への対策。
+ * 判定ロジックは src/utils/container.ts（テスト対象の純粋関数）に集約。
+ * 決定的手がかりがない場合は null を返し、拡張子ベースの推定にフォールバックする。
+ */
+async function sniffContainerMime(filePath: string): Promise<string | null> {
+  let handle;
+  try {
+    handle = await fs.open(filePath, "r");
+  } catch {
+    return null;
+  }
+  try {
+    const buffer = Buffer.alloc(512);
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+    const kind = detectContainerKind(buffer.subarray(0, bytesRead));
+    switch (kind) {
+      case "isobmff":
+        return path.extname(filePath).toLowerCase() === ".m4v"
+          ? "video/x-m4v"
+          : "video/mp4";
+      case "webm":
+        return "video/webm";
+      case "mpegts":
+        return "video/mp2t";
+      case "avi":
+        return "video/x-msvideo";
+      default:
+        return null;
+    }
+  } catch {
+    return null;
+  } finally {
+    await handle.close();
+  }
+}
+
+/**
+ * ストリームコピー（劣化なし）で MP4 へリマックスし、元ファイルを同一パスで上書きする。
+ * まず全ストリームのコピーを試み、MP4 に入らないストリーム（字幕/データ等）が
+ * 原因で失敗した場合は映像+音声に絞って再試行する。それでも失敗すればエラー。
+ */
+async function remuxToMp4(ffmpegPath: string, inputPath: string): Promise<void> {
+  const dir = path.dirname(inputPath);
+  const stem = path.basename(inputPath, path.extname(inputPath));
+  const tmpPath = path.join(dir, `${stem}.remuxing.mp4`);
+
+  const attempt = async (mapAll: boolean): Promise<void> => {
+    const args = [
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-fflags",
+      "+genpts",
+      "-i",
+      inputPath,
+      ...(mapAll ? ["-map", "0"] : ["-map", "0:v:0", "-map", "0:a?"]),
+      "-c",
+      "copy",
+      ...(mapAll ? [] : ["-ignore_unknown"]),
+      "-avoid_negative_ts",
+      "make_zero",
+      "-movflags",
+      "+faststart",
+      "-f",
+      "mp4",
+      "-y",
+      tmpPath,
+    ];
+    await execFileAsync(ffmpegPath, args, { maxBuffer: 1024 * 1024 });
+  };
+
+  try {
+    try {
+      await attempt(true);
+    } catch {
+      await attempt(false);
+    }
+    const statResult = await fs.stat(tmpPath);
+    if (statResult.size <= 0) throw new Error("変換結果が空です");
+    // 同一ボリュームへの rename はアトミックに上書きされる
+    await fs.rename(tmpPath, inputPath);
+  } catch (e) {
+    try {
+      await fs.unlink(tmpPath);
+    } catch {
+      // 一時ファイルが存在しない場合は無視
+    }
+    const message = e instanceof Error ? e.message : String(e);
+    throw new Error(`劣化なし（MP4 ストリームコピー）では変換できません: ${message}`);
+  }
+}
+
+/** ファイル先頭バイトを読み取る（読めない場合は null） */
+async function readFileHead(
+  filePath: string,
+  bytes: number,
+): Promise<Uint8Array | null> {
+  let handle;
+  try {
+    handle = await fs.open(filePath, "r");
+  } catch {
+    return null;
+  }
+  try {
+    const buffer = Buffer.alloc(bytes);
+    const { bytesRead } = await handle.read(buffer, 0, bytes, 0);
+    return buffer.subarray(0, bytesRead);
+  } finally {
+    await handle.close();
+  }
+}
+
+type RangeParseResult = ParsedRange | "invalid" | "unsatisfiable";
+
+interface ParsedRange {
+  start: number;
+  end: number;
+}
+
+/**
+ * Range ヘッダーを解釈する。
+ * - ヘッダー無し / 構文不正 → null（呼び出し側は 200 全体応答を行う）
+ * - start がファイル末尾以降 → "unsatisfiable"（416 を返す）
+ */
+function parseByteRange(header: string | null, size: number): RangeParseResult {
+  if (size <= 0) return "unsatisfiable";
+  if (!header) return { start: 0, end: size - 1 };
+
+  const match = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
+  if (!match) return "invalid";
+  const [, startText, endText] = match;
+  if (startText === "" && endText === "") return "invalid";
+
+  let start: number;
+  let end: number;
+  if (startText === "") {
+    // 後方指定（最後の N バイト）
+    const suffix = Number(endText);
+    if (!Number.isFinite(suffix) || suffix <= 0) return "invalid";
+    start = Math.max(0, size - suffix);
+    end = size - 1;
+  } else {
+    start = Number(startText);
+    end = endText === "" ? size - 1 : Math.min(Number(endText), size - 1);
+  }
+
+  if (!Number.isFinite(start) || !Number.isFinite(end)) {
+    return "invalid";
+  }
+  if (start >= size) return "unsatisfiable";
+  if (start > end) return "invalid";
+
+  return { start, end };
+}
+
+/** ストリーム 1 回の pull で読み取るバイト数 */
+const LOCAL_FILE_READ_CHUNK = 1024 * 1024;
+
+/**
+ * ファイルの [start, endInclusive] 区間を遅延読み込みする Web ReadableStream を返す。
+ * バックプレッシャーは ReadableStream の pull 経由で効くため、
+ * 巨大ファイルでもメモリを圧迫しない。
+ */
+async function openLocalFileStream(
+  filePath: string,
+  start: number,
+  endInclusive: number,
+): Promise<ReadableStream<Uint8Array>> {
+  const handle = await fs.open(filePath, "r");
+  let position = start;
+  let closed = false;
+
+  const closeOnce = async (): Promise<void> => {
+    if (closed) return;
+    closed = true;
+    await handle.close();
+  };
+
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      // desiredSize === null は close()/error() 済みを示す。
+      // メディアローダは通常の動作としてリクエストを中断するため、
+      // cancel 後に再開された pull が閉じ済み controller を操作しないよう
+      // すべての操作前にガードする（さもないと応答全体がエラー扱いになる）。
+      if (controller.desiredSize === null) {
+        await closeOnce();
+        return;
+      }
+      try {
+        if (position > endInclusive) {
+          await closeOnce();
+          if (controller.desiredSize !== null) controller.close();
+          return;
+        }
+        const want = Math.min(LOCAL_FILE_READ_CHUNK, endInclusive - position + 1);
+        const buffer = Buffer.alloc(want);
+        const { bytesRead } = await handle.read(buffer, 0, want, position);
+        if (bytesRead <= 0) {
+          // 予期しない EOF（ファイルが縮んだ等）
+          await closeOnce();
+          if (controller.desiredSize !== null) controller.close();
+          return;
+        }
+        position += bytesRead;
+        if (controller.desiredSize !== null) {
+          controller.enqueue(new Uint8Array(buffer.subarray(0, bytesRead)));
+        } else {
+          await closeOnce();
+        }
+      } catch (e) {
+        console.error(`local-file stream error (${filePath}):`, e);
+        await closeOnce();
+        if (controller.desiredSize !== null) {
+          controller.error(e instanceof Error ? e : new Error(String(e)));
+        }
+      }
+    },
+    async cancel() {
+      await closeOnce();
+    },
+  });
+}
+
+/**
+ * local-file リクエストに応答する。
+ * - Range リクエストには 206 + Content-Range で区間をストリーミング応答する
+ *   （<video> のシーク・部分バッファリングが正しく機能する）
+ * - 通常リクエストには 200 全体をストリーミング応答する
+ *   （Range 未指定への 206 応答は HTTP 違反であり、旧実装の不具合だった）
+ */
+async function serveLocalFile(request: Request): Promise<Response> {
+  const filePath = resolveLocalFileUrl(request.url);
+
+  let size: number;
+  try {
+    const stats = await fs.stat(filePath);
+    if (!stats.isFile()) {
+      logger.warn(`[local-file] not a file: ${filePath}`);
+      return new Response("Not Found", { status: 404 });
+    }
+    size = stats.size;
+  } catch {
+    // 存在しないパス。URL の破損(host 食い等)の診断に役立てるため出力する
+    logger.warn(`[local-file] 404: ${filePath} (request: ${request.url})`);
+    return new Response("Not Found", { status: 404 });
+  }
+
+  const rangeHeader = request.headers.get("Range");
+  const parsed = parseByteRange(rangeHeader, size);
+
+  // 拡張子偽装ファイル対策: 先頭バイトから実際のコンテナを判定して MIME を補正する
+  let mimeType = guessMimeType(filePath);
+  if (mimeType === "video/mp4" || mimeType === "application/octet-stream") {
+    const sniffed = await sniffContainerMime(filePath);
+    if (sniffed !== null) mimeType = sniffed;
+  }
+
+  // 要求シーケンスのトレース（dev のみ出力）
+  const planned =
+    parsed === "invalid"
+      ? "200 full(invalid range ignored)"
+      : parsed === "unsatisfiable"
+        ? "416"
+        : rangeHeader !== null && rangeHeader !== ""
+          ? `206 bytes ${parsed.start}-${parsed.end}`
+          : "200 full";
+  logger.debug(`[local-file] ${request.method} ${filePath} (size=${size}, Range=${rangeHeader ?? "-"}) -> ${planned}`);
+  const headers = new Headers({
+    "Content-Type": mimeType,
+    "Accept-Ranges": "bytes",
+    "Cache-Control": "no-cache",
+  });
+
+  if (parsed === "unsatisfiable") {
+    headers.set("Content-Range", `bytes */${size}`);
+    return new Response("Requested Range Not Satisfiable", { status: 416, headers });
+  }
+
+  try {
+    if (rangeHeader !== null && rangeHeader !== "" && parsed !== "invalid") {
+      headers.set("Content-Range", `bytes ${parsed.start}-${parsed.end}/${size}`);
+      headers.set("Content-Length", String(parsed.end - parsed.start + 1));
+      const body = await openLocalFileStream(filePath, parsed.start, parsed.end);
+      return new Response(body, { status: 206, headers });
+    }
+
+    // Range 未指定 / 構文不正は全体を 200 で返す
+    headers.set("Content-Length", String(size));
+    const body =
+      size === 0 ? new Response(new Uint8Array(0), { status: 200 }).body : await openLocalFileStream(filePath, 0, size - 1);
+    if (body === null) {
+      return new Response(new Uint8Array(0), { status: 200, headers });
+    }
+    return new Response(body, { status: 200, headers });
+  } catch (e) {
+    console.error(`local-file serve error (${filePath}):`, e);
+    return new Response("Internal Server Error", { status: 500 });
+  }
+}
+
+function registerLocalFileProtocol(): void {
+  protocol.handle(LOCAL_FILE_SCHEME, (request) => serveLocalFile(request));
+}
 
 // ============================================================
 // GPU アクセラレーション強化（動画再生のヌルヌル化。before ready で有効化）
@@ -98,13 +481,24 @@ async function runConcurrent<T>(
   await Promise.allSettled(workers);
 }
 
+// プログレスイベントの送信先チャネル
+type ProgressChannel =
+  | "scan-progress"
+  | "rescan-progress"
+  | "thumbnail-progress";
+
+// 汎用操作進捗（container-check / container-convert）の送信先チャネル
+type OperationProgressChannel =
+  | "container-check-progress"
+  | "container-convert-progress";
+
 class MovieLibraryApp {
   private mainWindow: BrowserWindow | null = null;
   private db: PrismaDatabaseManager;
   private videoScanner: VideoScanner;
   private duplicateDetector: DuplicateDetector;
   private thumbnailGenerator: ThumbnailGenerator;
-  public watchers: Map<string, chokidar.FSWatcher> = new Map();
+  private watchers: Map<string, chokidar.FSWatcher> = new Map();
 
   constructor() {
     // データベースファイルのパスを設定
@@ -131,6 +525,9 @@ class MovieLibraryApp {
 
   async initialize(): Promise<void> {
     logger.log("🚀 Initializing Movie Library App...");
+
+    // local-file:// プロトコルを有効化（サムネイル等のローカルファイル読み込み用）
+    registerLocalFileProtocol();
 
     // Initialize FFmpeg binaries
     try {
@@ -159,13 +556,14 @@ class MovieLibraryApp {
 
   createWindow(): void {
     // プラットフォーム別のアイコンパス
+    // （electron-vite のレイアウトでは out/main から 2 階層上 = アプリルートが assets の位置）
     let iconPath: string;
     if (process.platform === "darwin") {
-      iconPath = path.join(__dirname, "assets", "icon.icns");
+      iconPath = path.join(__dirname, "../../assets", "icon.icns");
     } else if (process.platform === "win32") {
-      iconPath = path.join(__dirname, "assets", "icon.ico");
+      iconPath = path.join(__dirname, "../../assets", "icon.ico");
     } else {
-      iconPath = path.join(__dirname, "assets", "icon.png");
+      iconPath = path.join(__dirname, "../../assets", "icon.png");
     }
 
     this.mainWindow = new BrowserWindow({
@@ -175,7 +573,7 @@ class MovieLibraryApp {
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,
-        preload: path.join(__dirname, "preload.js"),
+        preload: path.join(__dirname, "../preload/index.js"),
         // 動画再生中にタイマーが抑制されてカクつくのを防ぐ
         backgroundThrottling: false,
         // preload に production フラグを渡す（sandbox 下でも process.argv で読める）
@@ -196,9 +594,12 @@ class MovieLibraryApp {
     this.mainWindow.maximize();
     this.mainWindow.show();
 
-    // HTMLファイルのパスを設定
-    const htmlPath = path.join(__dirname, "src/renderer/index.html");
-    this.mainWindow.loadFile(htmlPath);
+    // HTML の読み込み（開発時は Vite の開発サーバー、本番ではビルド済みファイル）
+    if (!app.isPackaged && process.env["ELECTRON_RENDERER_URL"]) {
+      this.mainWindow.loadURL(process.env["ELECTRON_RENDERER_URL"]);
+    } else {
+      this.mainWindow.loadFile(path.join(__dirname, "../renderer/index.html"));
+    }
 
     // 開発モードでのみキーボードショートカットで開発者ツールを開く
     if (process.env.NODE_ENV === "development" || !app.isPackaged) {
@@ -353,6 +754,128 @@ class MovieLibraryApp {
     Menu.setApplicationMenu(menu);
   }
 
+  /**
+   * レンダラーへ進捗イベントを送信する型付きラッパー。
+   * webContents.send を直接呼ぶとペイロードが any になるため、
+   * このメソッド経由で ProgressEvent の形状をコンパイル時に強制する。
+   */
+  private sendProgress(channel: ProgressChannel, payload: ProgressEvent): void {
+    this.mainWindow?.webContents.send(channel, payload);
+  }
+
+  /** 汎用操作進捗（拡張子チェック / 変換）を送信する型付きラッパー */
+  private sendOperationProgress(
+    channel: OperationProgressChannel,
+    payload: OperationProgress,
+  ): void {
+    this.mainWindow?.webContents.send(channel, payload);
+  }
+
+  /**
+   * 動画をページング取得しながらサムネイルを並列生成し、
+   * 進捗を thumbnail-progress チャネルへ送信する。
+   * 「サムネイル生成」「全再生成」「再スキャン後の自動生成」で共用する。
+   *
+   * 常に先頭ページから再取得する: 「サムネイル無し」条件は生成のたびに
+   * 該当行が減るため、offset 進行方式だと未処理行を飛ばしてしまうため。
+   *
+   * @param fetchPage ページ取得関数（先頭から limit 件）
+   * @param totalVideos 総動画数（プログレス表示用）
+   * @param verb 進捗メッセージの先頭語（例: "サムネイル生成"）
+   */
+  private async generateThumbnailsBatch(
+    fetchPage: (limit: number) => Promise<VideoRecord[]>,
+    totalVideos: number,
+    verb: string,
+  ): Promise<ThumbnailResult[]> {
+    const BATCH_SIZE = 50;
+    const CONCURRENCY = 3;
+    const results: ThumbnailResult[] = [];
+    let processedVideos = 0;
+
+    logger.debug(`Generating thumbnails for ${totalVideos} videos (${verb})`);
+
+    // 無限ループ防止のガード（失敗行が残り続けるケースでも打ち切る）
+    const maxRounds = Math.ceil(totalVideos / BATCH_SIZE) + 10;
+    for (let round = 0; round < maxRounds; round++) {
+      const videos = await fetchPage(BATCH_SIZE);
+      if (videos.length === 0) break;
+      await runConcurrent(videos, CONCURRENCY, async (video) => {
+        try {
+          this.sendProgress("thumbnail-progress", {
+            kind: "progress",
+            current: processedVideos,
+            total: totalVideos,
+            message: `${verb}中: ${video.filename}`,
+            file: video.filename,
+          });
+
+          if (video.duration !== undefined) {
+            const thumbnailResult =
+              await this.thumbnailGenerator.generateThumbnails(video);
+            results.push(thumbnailResult);
+          }
+
+          processedVideos++;
+
+          this.sendProgress("thumbnail-progress", {
+            kind: "progress",
+            current: processedVideos,
+            total: totalVideos,
+            message: `${verb}完了: ${video.filename}`,
+            file: video.filename,
+          });
+        } catch (error) {
+          console.error(
+            `Error generating thumbnails (${verb}):`,
+            video.path,
+            error,
+          );
+          processedVideos++;
+          this.sendProgress("thumbnail-progress", {
+            kind: "progress",
+            current: processedVideos,
+            total: totalVideos,
+            message: `${verb}エラー: ${video.filename}`,
+            file: video.filename,
+          });
+        }
+      });
+    }
+
+    return results;
+  }
+
+  /**
+   * メインサムネイルを指定タイムスタンプで再生成し、DB を更新して
+   * 最新の動画オブジェクトを返す。
+   */
+  private async regenerateMainThumbnailAt(
+    videoId: number,
+    timestamp: number,
+  ): Promise<VideoRecord | null> {
+    const video = await this.db.getVideo(videoId);
+    if (!video) {
+      throw new Error("Video not found");
+    }
+
+    const thumbnailsDir = path.join(app.getPath("userData"), "thumbnails");
+    const mainThumbnailPath = path.join(thumbnailsDir, `${video.id}_main.jpg`);
+
+    await this.thumbnailGenerator.generateSingleThumbnail(
+      video.path,
+      mainThumbnailPath,
+      timestamp,
+    );
+
+    await this.db.updateVideo(video.id, {
+      thumbnailPath: mainThumbnailPath,
+    });
+
+    // 更新後の動画オブジェクトを返す
+    return await this.db.getVideo(videoId);
+  }
+
   setupIpcHandlers(): void {
     // Get videos
     ipcMain.handle("get-videos", async () => {
@@ -425,7 +948,8 @@ class MovieLibraryApp {
         directoryPaths,
         (progress) => {
           // プログレス送信
-          this.mainWindow?.webContents.send("scan-progress", {
+          this.sendProgress("scan-progress", {
+            kind: "progress",
             current: progress.current,
             total: progress.total,
             message: `スキャン中: ${progress.file}`,
@@ -469,7 +993,8 @@ class MovieLibraryApp {
       }
 
       // 最終プログレス送信
-      this.mainWindow?.webContents.send("scan-progress", {
+      this.sendProgress("scan-progress", {
+        kind: "done",
         message: "スキャン完了",
       });
 
@@ -498,7 +1023,8 @@ class MovieLibraryApp {
         directoryPaths,
         (progress) => {
           // プログレス送信
-          this.mainWindow?.webContents.send("rescan-progress", {
+          this.sendProgress("rescan-progress", {
+            kind: "progress",
             current: progress.current,
             total: progress.total,
             message: `再スキャン中: ${progress.file}`,
@@ -541,79 +1067,29 @@ class MovieLibraryApp {
       }
 
       // 再スキャン完了メッセージ
-      this.mainWindow?.webContents.send("rescan-progress", {
+      this.sendProgress("rescan-progress", {
+        kind: "done",
         message: "再スキャン完了 - サムネイル生成を開始しています...",
       });
 
       // 自動的にサムネイル生成を実行
       logger.log("Starting automatic thumbnail generation after rescan...");
       try {
-        const BATCH_SIZE = 50;
         const totalVideos = await this.db.getVideoCount();
-        const results: ThumbnailResult[] = [];
-        let processedVideos = 0;
-
-        logger.debug(
-          `Auto-generating thumbnails for ${totalVideos} videos after rescan`,
+        await this.generateThumbnailsBatch(
+          (limit) => this.db.getVideos("filename", "ASC", limit, 0),
+          totalVideos,
+          "自動サムネイル生成",
         );
 
-        for (let offset = 0; offset < totalVideos; offset += BATCH_SIZE) {
-          const videos = await this.db.getVideos(
-            "filename",
-            "ASC",
-            BATCH_SIZE,
-            offset,
-          );
-          await runConcurrent(videos, 3, async (video) => {
-            try {
-              this.mainWindow?.webContents.send("thumbnail-progress", {
-                current: processedVideos,
-                total: totalVideos,
-                message: `自動サムネイル生成中: ${video.filename}`,
-                file: video.filename,
-              });
-
-              if (video.duration !== undefined) {
-                const thumbnailResult =
-                  await this.thumbnailGenerator.generateThumbnails(video);
-                results.push(thumbnailResult);
-              }
-
-              processedVideos++;
-
-              this.mainWindow?.webContents.send("thumbnail-progress", {
-                current: processedVideos,
-                total: totalVideos,
-                message: `自動サムネイル生成完了: ${video.filename}`,
-                file: video.filename,
-              });
-            } catch (error) {
-              console.error(
-                "Error auto-generating thumbnails for:",
-                video.path,
-                error,
-              );
-              processedVideos++;
-              this.mainWindow?.webContents.send("thumbnail-progress", {
-                current: processedVideos,
-                total: totalVideos,
-                message: `自動サムネイル生成エラー: ${video.filename}`,
-                file: video.filename,
-              });
-            }
-          });
-        }
-
-        this.mainWindow?.webContents.send("thumbnail-progress", {
+        this.sendProgress("thumbnail-progress", {
+          kind: "done",
           message: "自動サムネイル生成完了",
         });
-
-        logger.log(
-          `Auto thumbnail generation completed: ${processedVideos}/${totalVideos} processed`,
-        );
       } catch (error) {
         console.error("Error during automatic thumbnail generation:", error);
-        this.mainWindow?.webContents.send("thumbnail-progress", {
+        this.sendProgress("thumbnail-progress", {
+          kind: "done",
           message: "自動サムネイル生成でエラーが発生しました",
         });
       }
@@ -630,131 +1106,41 @@ class MovieLibraryApp {
 
     // Generate thumbnails
     ipcMain.handle("generate-thumbnails", async () => {
-      const BATCH_SIZE = 50;
       const totalVideos = await this.db.getVideosWithoutThumbnailsCount();
-      const results: ThumbnailResult[] = [];
-      let processedVideos = 0;
 
       logger.log(`Starting generation of ${totalVideos} thumbnails`);
 
-      for (let offset = 0; offset < totalVideos; offset += BATCH_SIZE) {
-        const videos = await this.db.getVideosWithoutThumbnails(
-          BATCH_SIZE,
-          offset,
-        );
-        await runConcurrent(videos, 3, async (video) => {
-          try {
-            this.mainWindow?.webContents.send("thumbnail-progress", {
-              current: processedVideos,
-              total: totalVideos,
-              message: `サムネイル生成中: ${video.filename}`,
-              file: video.filename,
-            });
+      const results = await this.generateThumbnailsBatch(
+        (limit) => this.db.getVideosWithoutThumbnails(limit, 0),
+        totalVideos,
+        "サムネイル生成",
+      );
 
-            if (video.duration !== undefined) {
-              const result =
-                await this.thumbnailGenerator.generateThumbnails(video);
-              results.push(result);
-            }
-
-            processedVideos++;
-
-            this.mainWindow?.webContents.send("thumbnail-progress", {
-              current: processedVideos,
-              total: totalVideos,
-              message: `サムネイル生成完了: ${video.filename}`,
-              file: video.filename,
-            });
-          } catch (error) {
-            console.error(
-              "Error generating thumbnails for:",
-              video.path,
-              error,
-            );
-            processedVideos++;
-            this.mainWindow?.webContents.send("thumbnail-progress", {
-              current: processedVideos,
-              total: totalVideos,
-              message: `サムネイル生成エラー: ${video.filename}`,
-              file: video.filename,
-            });
-          }
-        });
-      }
-
-      this.mainWindow?.webContents.send("thumbnail-progress", {
+      this.sendProgress("thumbnail-progress", {
+        kind: "done",
         message: "サムネイル生成完了",
       });
 
-      logger.log(
-        `Thumbnail generation completed: ${processedVideos}/${totalVideos} processed`,
-      );
       return results;
     });
 
     // Regenerate all thumbnails
     ipcMain.handle("regenerate-all-thumbnails", async () => {
-      const BATCH_SIZE = 50;
       const totalVideos = await this.db.getVideoCount();
-      const results: ThumbnailResult[] = [];
-      let processedVideos = 0;
 
       logger.log(`Starting regeneration of ${totalVideos} thumbnails`);
 
-      for (let offset = 0; offset < totalVideos; offset += BATCH_SIZE) {
-        const videos = await this.db.getVideos(
-          "filename",
-          "ASC",
-          BATCH_SIZE,
-          offset,
-        );
-        await runConcurrent(videos, 3, async (video) => {
-          try {
-            this.mainWindow?.webContents.send("thumbnail-progress", {
-              current: processedVideos,
-              total: totalVideos,
-              message: `サムネイル再生成中: ${video.filename}`,
-              file: video.filename,
-            });
+      const results = await this.generateThumbnailsBatch(
+        (limit) => this.db.getVideos("filename", "ASC", limit, 0),
+        totalVideos,
+        "サムネイル再生成",
+      );
 
-            if (video.duration !== undefined) {
-              const result =
-                await this.thumbnailGenerator.generateThumbnails(video);
-              results.push(result);
-            }
-
-            processedVideos++;
-
-            this.mainWindow?.webContents.send("thumbnail-progress", {
-              current: processedVideos,
-              total: totalVideos,
-              message: `サムネイル再生成完了: ${video.filename}`,
-              file: video.filename,
-            });
-          } catch (error) {
-            console.error(
-              "Error regenerating thumbnails for:",
-              video.path,
-              error,
-            );
-            processedVideos++;
-            this.mainWindow?.webContents.send("thumbnail-progress", {
-              current: processedVideos,
-              total: totalVideos,
-              message: `サムネイル再生成エラー: ${video.filename}`,
-              file: video.filename,
-            });
-          }
-        });
-      }
-
-      this.mainWindow?.webContents.send("thumbnail-progress", {
+      this.sendProgress("thumbnail-progress", {
+        kind: "done",
         message: "全サムネイル再生成完了",
       });
 
-      logger.log(
-        `Thumbnail regeneration completed: ${processedVideos}/${totalVideos} processed`,
-      );
       return results;
     });
 
@@ -818,7 +1204,8 @@ class MovieLibraryApp {
             }
 
             if (isIncomplete) {
-              this.mainWindow?.webContents.send("thumbnail-progress", {
+              this.sendProgress("thumbnail-progress", {
+                kind: "progress",
                 current: generatedVideos,
                 total: totalCount,
                 message: `サムネイル補完中: ${video.filename}`,
@@ -831,7 +1218,8 @@ class MovieLibraryApp {
 
               generatedVideos++;
 
-              this.mainWindow?.webContents.send("thumbnail-progress", {
+              this.sendProgress("thumbnail-progress", {
+                kind: "progress",
                 current: generatedVideos,
                 total: totalCount,
                 message: `サムネイル補完完了: ${video.filename}`,
@@ -848,14 +1236,15 @@ class MovieLibraryApp {
         });
       }
 
-      this.mainWindow?.webContents.send("thumbnail-progress", {
+      this.sendProgress("thumbnail-progress", {
+        kind: "done",
         message: "サムネイル補完完了",
       });
 
       logger.log(
         `Incomplete thumbnail generation completed: ${generatedVideos} generated out of ${scannedVideos} scanned`,
       );
-      return { total: generatedVideos, generated: generatedVideos };
+      return { total: scannedVideos, generated: generatedVideos };
     });
 
     // Update thumbnail settings
@@ -952,33 +1341,11 @@ class MovieLibraryApp {
             throw new Error("Video not found");
           }
 
-          const path = await import("path");
-          const thumbnailsDir = path.join(
-            app.getPath("userData"),
-            "thumbnails",
-          );
-          const mainThumbnailPath = path.join(
-            thumbnailsDir,
-            `${video.id}_main.jpg`,
-          );
-
           // Use random timestamp (10% to 90% into the video)
           const randomPercent = 0.1 + Math.random() * 0.8; // 0.1 to 0.9
           const timestamp = video.duration * randomPercent;
 
-          await this.thumbnailGenerator.generateSingleThumbnail(
-            video.path,
-            mainThumbnailPath,
-            timestamp,
-          );
-
-          await this.db.updateVideo(video.id, {
-            thumbnailPath: mainThumbnailPath,
-          });
-
-          // Return the updated video object
-          const updatedVideo = await this.db.getVideo(videoId);
-          return updatedVideo;
+          return await this.regenerateMainThumbnailAt(videoId, timestamp);
         } catch (error) {
           console.error("Error regenerating main thumbnail:", error);
           throw error;
@@ -989,36 +1356,9 @@ class MovieLibraryApp {
     // Regenerate main thumbnail with custom timestamp
     ipcMain.handle(
       "regenerate-main-thumbnail-with-timestamp",
-      async (_event, videoId: string, timestamp: number) => {
+      async (_event, videoId: number, timestamp: number) => {
         try {
-          const video = await this.db.getVideo(parseInt(videoId, 10));
-          if (!video) {
-            throw new Error("Video not found");
-          }
-
-          const path = await import("path");
-          const thumbnailsDir = path.join(
-            app.getPath("userData"),
-            "thumbnails",
-          );
-          const mainThumbnailPath = path.join(
-            thumbnailsDir,
-            `${video.id}_main.jpg`,
-          );
-
-          await this.thumbnailGenerator.generateSingleThumbnail(
-            video.path,
-            mainThumbnailPath,
-            timestamp,
-          );
-
-          await this.db.updateVideo(video.id, {
-            thumbnailPath: mainThumbnailPath,
-          });
-
-          // Return the updated video object
-          const updatedVideo = await this.db.getVideo(parseInt(videoId, 10));
-          return updatedVideo;
+          return await this.regenerateMainThumbnailAt(videoId, timestamp);
         } catch (error) {
           console.error(
             "Error regenerating main thumbnail with timestamp:",
@@ -1030,6 +1370,122 @@ class MovieLibraryApp {
     );
 
     // Find duplicate videos
+    // 拡張子チェック: 「拡張子不一致 or 内蔵再生不可コンテナ」の動画を列挙する
+    ipcMain.handle("check-container-mismatches", async () => {
+      const videos = await this.db.getVideos();
+      const items: ContainerMismatchItem[] = [];
+      let checkedCount = 0;
+
+      await runConcurrent(videos, 4, async (video) => {
+        try {
+          const head = await readFileHead(video.path, 512);
+          if (head === null) return;
+
+          const kind = detectContainerKind(head);
+          if (kind === "unknown") return; // 判定不能は対象外
+
+          const extension = path.extname(video.path).toLowerCase();
+          const verdict = classifyContainer(kind, extension);
+          checkedCount++;
+
+          if (!verdict.nativePlayable || verdict.extensionMismatch) {
+            items.push({
+              videoId: video.id,
+              path: video.path,
+              filename: video.filename,
+              size: Number(video.size ?? 0),
+              extension,
+              detectedKind: kind,
+              detectedLabel: containerLabel(kind),
+              nativePlayable: verdict.nativePlayable,
+              extensionMismatch: verdict.extensionMismatch,
+              convertible: extension === ".mp4" || extension === ".m4v",
+            });
+          }
+        } catch (error) {
+          console.error("Error checking container:", video.path, error);
+        } finally {
+          this.sendOperationProgress("container-check-progress", {
+            current: checkedCount,
+            total: videos.length,
+            message: `確認中: ${video.filename}`,
+          });
+        }
+      });
+
+      logger.log(
+        `Container check completed: ${items.length} mismatches / ${videos.length} videos`,
+      );
+      return items;
+    });
+
+    // 選択動画をストリームコピーで MP4 にリマックスし、元ファイルを上書きする
+    ipcMain.handle(
+      "convert-videos-to-mp4",
+      async (_event, videoIds: number[]) => {
+        const ffmpegPath = await getFfmpegPath();
+        if (!ffmpegPath) {
+          throw new Error("FFmpeg binary not found");
+        }
+
+        const items: ConvertItemResult[] = [];
+        let succeeded = 0;
+        let failed = 0;
+        const total = videoIds.length;
+
+        for (let i = 0; i < total; i++) {
+          const videoId = videoIds[i] ?? 0;
+          try {
+            const video = await this.db.getVideo(videoId);
+            if (!video) throw new Error("動画が見つかりません");
+
+            const extension = path.extname(video.path).toLowerCase();
+            if (extension !== ".mp4" && extension !== ".m4v") {
+              throw new Error(
+                "拡張子が mp4/m4v ではないため上書き変換できません",
+              );
+            }
+
+            this.sendOperationProgress("container-convert-progress", {
+              current: i,
+              total,
+              message: `変換中: ${video.filename}`,
+            });
+
+            await remuxToMp4(ffmpegPath, video.path);
+
+            succeeded++;
+            items.push({ path: video.path, ok: true });
+            logger.log(`Remuxed to MP4: ${video.path}`);
+          } catch (e) {
+            failed++;
+            const message =
+              e instanceof Error ? e.message : String(e);
+            console.error(`Failed to convert video ${videoId}:`, message);
+            const fallbackPath =
+              (await this.db.getVideo(videoId))?.path ?? `(id:${videoId})`;
+            items.push({
+              path: fallbackPath,
+              ok: false,
+              error: message,
+            });
+          }
+
+          this.sendOperationProgress("container-convert-progress", {
+            current: i + 1,
+            total,
+            message: `変換完了 (${i + 1}/${total})`,
+          });
+        }
+
+        logger.log(
+          `Batch remux completed: ${succeeded} succeeded, ${failed} failed`,
+        );
+        const result: ConvertVideosResult = { succeeded, failed, items };
+        return result;
+      },
+    );
+
     ipcMain.handle("find-duplicates", async () => {
       try {
         return await this.duplicateDetector.findDuplicates(
@@ -1182,13 +1638,12 @@ class MovieLibraryApp {
           logger.debug("Processing new video file:", filePath);
 
           // プログレス通知を送信
-          if (this.mainWindow) {
-            this.mainWindow.webContents.send("scan-progress", {
-              message: `新しい動画を処理中: ${filePath.split("/").pop()}`,
-              current: 0,
-              total: 1,
-            });
-          }
+          this.sendProgress("scan-progress", {
+            kind: "progress",
+            current: 0,
+            total: 1,
+            message: `新しい動画を処理中: ${path.basename(filePath)}`,
+          });
 
           const video = await this.videoScanner.processFile(filePath);
 
@@ -1204,30 +1659,37 @@ class MovieLibraryApp {
             );
 
             // サムネイル生成の進捗通知
-            if (this.mainWindow) {
-              this.mainWindow.webContents.send("thumbnail-progress", {
-                message: `サムネイル生成中: ${video.filename}`,
-                current: 0,
-                total: 1,
-              });
-            }
+            this.sendProgress("thumbnail-progress", {
+              kind: "progress",
+              current: 0,
+              total: 1,
+              message: `サムネイル生成中: ${video.filename}`,
+              file: video.filename,
+            });
 
             await this.generateThumbnailsForSingleVideo(video);
 
             // 完了通知
-            if (this.mainWindow) {
-              this.mainWindow.webContents.send("thumbnail-progress", {
-                message: `サムネイル生成完了: ${video.filename}`,
-                current: 1,
-                total: 1,
-              });
-            }
+            this.sendProgress("thumbnail-progress", {
+              kind: "progress",
+              current: 1,
+              total: 1,
+              message: `サムネイル生成完了: ${video.filename}`,
+              file: video.filename,
+            });
           } else if (video && !video.needsThumbnails) {
             logger.debug(
               "Video already has thumbnails, skipping generation:",
               video.path,
             );
           }
+
+          // 単発処理の進捗を完了させる（完了イベントが無いと
+          // レンダラーの進捗表示にエントリが残留する）
+          this.sendProgress("scan-progress", {
+            kind: "done",
+            message: "新しい動画を処理しました",
+          });
 
           logger.debug("New video processed successfully:", filePath);
         } catch (error) {
@@ -1257,19 +1719,23 @@ class MovieLibraryApp {
           }
 
           // プログレス通知を送信
-          if (this.mainWindow) {
-            this.mainWindow.webContents.send("scan-progress", {
-              message: `動画を削除中: ${filePath.split("/").pop()}`,
-              current: 0,
-              total: 1,
-            });
-          }
+          this.sendProgress("scan-progress", {
+            kind: "progress",
+            current: 0,
+            total: 1,
+            message: `動画を削除中: ${path.basename(filePath)}`,
+          });
 
           await this.db.removeVideo(filePath);
 
           if (this.mainWindow) {
             this.mainWindow.webContents.send("video-removed", filePath);
           }
+
+          this.sendProgress("scan-progress", {
+            kind: "done",
+            message: "動画を削除しました",
+          });
 
           logger.debug("Video file removal processed successfully:", filePath);
         } catch (error) {
@@ -1314,6 +1780,11 @@ class MovieLibraryApp {
           if (this.mainWindow) {
             this.mainWindow.webContents.send("directory-removed", dirPath);
           }
+
+          this.sendProgress("scan-progress", {
+            kind: "done",
+            message: "ディレクトリを削除しました",
+          });
 
           logger.debug("Directory removal processed successfully:", dirPath);
         } catch (error) {
@@ -1407,8 +1878,8 @@ const movieApp = new MovieLibraryApp();
 app.whenReady().then(async () => {
   // macOS固有の設定
   if (process.platform === "darwin") {
-    // Dockアイコンの設定
-    const iconPath = path.join(__dirname, "assets", "icon.icns");
+    // Dockアイコンの設定（nativeImage が確実に扱える PNG を使用）
+    const iconPath = path.join(__dirname, "../../assets", "icon.png");
     if (
       await fs
         .access(iconPath)

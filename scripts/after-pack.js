@@ -127,7 +127,7 @@ exports.default = async function (context) {
     const prismaLocations = [
       path.join(unpackedPath, "node_modules", "prisma"),
       path.join(unpackedPath, "node_modules", ".prisma", "client"),
-      path.join(unpackedPath, "dist-ts", "generated", "prisma"),
+      path.join(unpackedPath, "generated", "prisma"),
     ];
 
     if (electronPlatformName === "darwin") {

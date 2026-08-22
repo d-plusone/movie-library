@@ -157,20 +157,90 @@ export interface ScanResult {
   totalErrors?: number;
 }
 
-export interface ScanProgress {
+/**
+ * プログレスイベント（scan-progress / rescan-progress / thumbnail-progress チャネルのペイロード）
+ * 「進捗中」と「完了」を判別可能ユニオンで表現する
+ */
+export type ProgressEvent =
+  | {
+      kind: "progress";
+      current: number;
+      total: number;
+      /** 表示用メッセージ（省略時は受信側でラベルを生成する） */
+      message?: string;
+      /** 処理対象ファイル名 */
+      file?: string;
+    }
+  | { kind: "done"; message: string };
+
+/** 重複検索の進捗（duplicate-search-progress チャネル） */
+export interface DuplicateSearchProgress {
   current: number;
   total: number;
-  file: string;
-  phase: "scanning" | "processing" | "thumbnails";
-  message?: string;
+  message: string;
 }
 
-export interface ThumbnailProgress {
+/** 汎用の操作進捗（container-check-progress / container-convert-progress チャネル） */
+export interface OperationProgress {
   current: number;
   total: number;
-  file: string;
-  phase: "main" | "chapters";
-  message?: string;
+  message: string;
+}
+
+/**
+ * 拡張子チェックで検出された「再生できない / 拡張子不一致」動画
+ */
+export interface ContainerMismatchItem {
+  videoId: number;
+  path: string;
+  filename: string;
+  size: number;
+  /** パスの拡張子（ドット付き・小文字） */
+  extension: string;
+  /** 実際のコンテナ種別（"isobmff" | "webm" | "mpegts" | "avi" | "flv" | "unknown"） */
+  detectedKind: string;
+  detectedLabel: string;
+  /** 内蔵プレーヤーで再生できないコンテナか（MPEG-TS 等） */
+  nativePlayable: boolean;
+  /** 拡張子と実際のコンテナが一致しないか */
+  extensionMismatch: boolean;
+  /** ストリームコピーで MP4 への上書き変換が可能か（拡張子が .mp4/.m4v のみ） */
+  convertible: boolean;
+}
+
+/** 単一動画の変換結果 */
+export interface ConvertItemResult {
+  path: string;
+  ok: boolean;
+  error?: string;
+}
+
+/** 一括変換の結果 */
+export interface ConvertVideosResult {
+  succeeded: number;
+  failed: number;
+  items: ConvertItemResult[];
+}
+
+/** フレームキャプチャ（スクリーンショット保存）の結果 */
+export interface CaptureFrameResult {
+  success: boolean;
+  outputPath?: string;
+  error?: string;
+}
+
+/** サムネイルクリーンアップの結果 */
+export interface CleanupThumbnailsResult {
+  removedFiles: number;
+  totalSize: number;
+}
+
+/** 起動時サムネイル補完の結果 */
+export interface IncompleteThumbnailsResult {
+  /** 走査した動画数 */
+  total: number;
+  /** サムネイルを生成した動画数 */
+  generated: number;
 }
 
 // ========================================
@@ -258,34 +328,6 @@ export interface ForceRescanResult {
 
 export interface ProgressCallback {
   (progress: { current: number; total: number; file: string }): void;
-}
-
-export interface ProgressManager {
-  showProgress: (message: string, progress: number) => void;
-  hideProgress: () => void;
-  handleScanProgress: (data: ScanProgress) => void;
-  handleThumbnailProgress: (data: ThumbnailProgress) => void;
-}
-
-// ========================================
-// テーマ管理型
-// ========================================
-
-export interface ThemeManager {
-  getCurrentTheme: () => string;
-  toggleTheme: () => void;
-  applyTheme: (theme: string) => void;
-}
-
-// ========================================
-// 通知管理型
-// ========================================
-
-export type NotificationType = "info" | "success" | "warning" | "error";
-
-export interface NotificationManager {
-  show: (message: string, type?: NotificationType, duration?: number) => void;
-  hide: () => void;
 }
 
 // ========================================

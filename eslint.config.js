@@ -13,8 +13,8 @@ const commonRules = {
       caughtErrorsIgnorePattern: "^_",
     },
   ],
-  // any 型の使用を警告（README 規約: any 型の使用禁止）
-  "@typescript-eslint/no-explicit-any": "warn",
+  // any 型の使用を禁止（README 規約: any 型の使用禁止）
+  "@typescript-eslint/no-explicit-any": "error",
   // 未使用 import をエラーとして検出（--fix で自動削除可能）
   "unused-imports/no-unused-imports": "error",
   // import 以外の未使用変数は @typescript-eslint/no-unused-vars に委ねる
@@ -34,14 +34,17 @@ const commonRules = {
 
 module.exports = [
   {
-    // Renderer用の設定（tsconfig.renderer.jsonを使用）
-    files: ["src/renderer/**/*.ts"],
+    // main / preload / renderer / tests を単一設定でカバー。
+    // プロジェクト解決は projectService に任せることで、
+    // ファイル↔tsconfig の包含関係による Parsing error を防ぐ。
+    files: ["src/**/*.{ts,tsx}", "tests/**/*.ts"],
     languageOptions: {
       parser: tsparser,
+      ecmaVersion: "latest",
+      sourceType: "module",
       parserOptions: {
-        ecmaVersion: "latest",
-        sourceType: "module",
-        project: "./tsconfig.renderer.json",
+        projectService: true,
+        tsconfigRootDir: __dirname,
       },
       globals: {
         console: "readonly",
@@ -61,36 +64,11 @@ module.exports = [
     rules: commonRules,
   },
   {
-    // Main process、preloadなどの設定（tsconfig.jsonを使用）
-    files: ["main.ts", "preload.ts", "src/**/*.ts"],
-    ignores: ["src/renderer/**/*.ts"], // rendererは除外
-    languageOptions: {
-      parser: tsparser,
-      parserOptions: {
-        ecmaVersion: "latest",
-        sourceType: "module",
-        project: "./tsconfig.json",
-      },
-      globals: {
-        console: "readonly",
-        process: "readonly",
-        Buffer: "readonly",
-        __dirname: "readonly",
-        __filename: "readonly",
-        global: "readonly",
-      },
-    },
-    plugins: {
-      "@typescript-eslint": tseslint,
-      "unused-imports": unusedImports,
-    },
-    rules: commonRules,
-  },
-  {
     // 除外するファイル
     ignores: [
       "dist/**",
       "dist-ts/**",
+      "out/**",
       "build/**",
       "node_modules/**",
       "generated/**",

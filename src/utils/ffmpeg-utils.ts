@@ -151,7 +151,8 @@ export async function getFfprobePath(): Promise<string | null> {
       // scripts/prepare-ffprobe.js が dev / build 時に ffprobe-bin へ準備する。
       // （Homebrew の ffprobe は動的リンクのため、アップグレードで dyld エラーになる）
       if (isDevelopment()) {
-        // dev: dist-ts/utils/ffmpeg-utils.js → プロジェクトルート/ffprobe-bin
+        // dev: バンドル済み out/main/index.js → プロジェクトルート/ffprobe-bin
+        // （out/main → out → プロジェクトルート の 2 段上がり）
         ffprobePath = path.join(
           __dirname,
           "..",

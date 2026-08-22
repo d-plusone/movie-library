@@ -98,9 +98,10 @@
     RMDir /r "$INSTDIR\prisma"
     RMDir /r "$INSTDIR\generated"
 
-    # TypeScriptビルド成果物の削除
+    # ビルド成果物の削除（dist-ts は旧バージョンの掃除用）
     RMDir /r "$INSTDIR\dist"
     RMDir /r "$INSTDIR\dist-ts"
+    RMDir /r "$INSTDIR\out"
     RMDir /r "$INSTDIR\build"
 
     # その他の開発ファイル

@@ -178,89 +178,15 @@ class PrismaDatabaseManager {
     }
   }
 
-  private async runPrismaDbPush(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      logger.log("Running prisma db push as fallback...");
-
-      // 開発中: プロジェクト直下、リリース時: ASAR unpackedからバイナリ参照
-      const baseDir = app.isPackaged
-        ? path.join(process.resourcesPath, "app.asar.unpacked")
-        : process.cwd();
-
-      // Prismaの実際のスクリプトパスを直接指定
-      const prismaScript = path.join(
-        baseDir,
-        "node_modules",
-        "prisma",
-        "build",
-        "index.js",
-      );
-      const schemaPath = path.join(baseDir, "prisma", "schema.prisma");
-
-      // パッケージ版ではprocess.execFilePathを使用（Electronに組み込まれたNode.js）
-      // 開発中は通常のnodeコマンドを使用
-      const nodeExecutable = app.isPackaged ? process.execPath : "node";
-
-      logger.debug("Node executable:", nodeExecutable);
-      logger.debug("Prisma script:", prismaScript);
-      logger.debug("Schema path:", schemaPath);
-      logger.debug("Working directory:", baseDir);
-
-      const prismaProcess = spawn(
-        nodeExecutable,
-        [prismaScript, "db", "push", "--schema", schemaPath, "--skip-generate"],
-        {
-          cwd: baseDir,
-          stdio: ["pipe", "pipe", "pipe"],
-          shell: false,
-          env: {
-            ...process.env,
-            ELECTRON_RUN_AS_NODE: "1", // ElectronをNode.jsモードで実行
-          },
-        },
-      );
-
-      let stdout = "";
-      let stderr = "";
-
-      prismaProcess.stdout.on("data", (data: Buffer) => {
-        stdout += data.toString("utf8");
-      });
-
-      prismaProcess.stderr.on("data", (data: Buffer) => {
-        stderr += data.toString("utf8");
-      });
-
-      prismaProcess.on("close", (code: number) => {
-        if (code === 0) {
-          logger.log("Prisma db push completed successfully");
-          if (stdout.trim()) {
-            logger.debug("Push output:", stdout);
-          }
-          resolve();
-        } else {
-          console.error("Prisma db push failed with code:", code);
-          if (stderr.trim()) {
-            console.error("Push error output:", stderr);
-          }
-          reject(
-            new Error(
-              `Database push failed with code ${code}${
-                stderr ? `: ${stderr}` : ""
-              }`,
-            ),
-          );
-        }
-      });
-
-      prismaProcess.on("error", (error: Error) => {
-        console.error("Failed to start Prisma db push process:", error);
-        reject(error);
-      });
-    });
-  }
-
-  private async runPrismaMigrateDeploy(): Promise<void> {
+  /**
+   * prisma CLI をサブプロセスで実行する共通ランナー。
+   * 開発中は node、パッケージ版では Electron を ELECTRON_RUN_AS_NODE=1 で
+   * Node.js モード起動して実行する。
+   *
+   * @param args prisma への引数（例: ["migrate", "deploy"]）
+   * @param successMessage 成功時にログへ出力するメッセージ
+   */
+  private runPrismaCli(args: string[], successMessage: string): Promise<void> {
     return new Promise((resolve, reject) => {
       // 開発中: プロジェクト直下、リリース時: ASAR unpackedからバイナリ参照
       const baseDir = app.isPackaged
@@ -285,10 +211,11 @@ class PrismaDatabaseManager {
       logger.debug("Prisma script:", prismaScript);
       logger.debug("Schema path:", schemaPath);
       logger.debug("Working directory:", baseDir);
+      logger.debug("Prisma args:", args.join(" "));
 
       const prismaProcess = spawn(
         nodeExecutable,
-        [prismaScript, "migrate", "deploy", "--schema", schemaPath],
+        [prismaScript, ...args, "--schema", schemaPath],
         {
           cwd: baseDir,
           stdio: ["pipe", "pipe", "pipe"],
@@ -313,31 +240,52 @@ class PrismaDatabaseManager {
 
       prismaProcess.on("close", (code: number) => {
         if (code === 0) {
-          logger.log("Prisma migration completed successfully");
+          logger.log(successMessage);
           if (stdout.trim()) {
-            logger.debug("Migration output:", stdout);
+            logger.debug("Prisma CLI output:", stdout);
           }
           resolve();
         } else {
-          console.error("Prisma migration failed with code:", code);
+          console.error(
+            `Prisma CLI (${args.join(" ")}) failed with code:`,
+            code,
+          );
           if (stderr.trim()) {
-            console.error("Migration error output:", stderr);
+            console.error("Error output:", stderr);
           }
 
-          // エラーメッセージを含めてreject（呼び出し側でP3005を検出できるように）
+          // エラーメッセージに stderr を含める
+          // （呼び出し側が P3005 / P3006 / "failed to apply" 等を検出できるように）
           reject(
             new Error(
-              `Migration failed with code ${code}${stderr ? `: ${stderr}` : ""}`,
+              `prisma ${args.join(" ")} failed with code ${code}${
+                stderr ? `: ${stderr}` : ""
+              }`,
             ),
           );
         }
       });
 
       prismaProcess.on("error", (error: Error) => {
-        console.error("Failed to start Prisma migration process:", error);
+        console.error("Failed to start Prisma CLI process:", error);
         reject(error);
       });
     });
+  }
+
+  /** マイグレーション履歴が無い/食い違っている DB 向けにスキーマを同期する */
+  private async runPrismaDbPush(): Promise<void> {
+    await this.runPrismaCli(
+      ["db", "push", "--skip-generate"],
+      "Prisma db push completed successfully",
+    );
+  }
+
+  private async runPrismaMigrateDeploy(): Promise<void> {
+    await this.runPrismaCli(
+      ["migrate", "deploy"],
+      "Prisma migration completed successfully",
+    );
   }
 
   async addVideo(videoData: VideoCreateData): Promise<number> {

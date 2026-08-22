@@ -1,6 +1,6 @@
 # Movie Library
 
-Mac/Electron ベースの動画管理アプリケーション。直感的な UI/UX で動画ファイルの整理、サムネイル表示、評価管理などができます。
+Mac/Windows 対応の Electron 製動画管理アプリケーション。React による直感的な UI で動画ファイルの整理、サムネイル表示、評価管理、内蔵プレーヤーでの再生などができます。
 
 ## 🎬 機能
 
@@ -14,6 +14,11 @@ Mac/Electron ベースの動画管理アプリケーション。直感的な UI/
 - ⭐ **評価システム**: 5 段階評価とタグ付け機能
 - 🎯 **詳細管理**: タイトル、説明、タグの編集
 - 📅 **柔軟なソート**: ファイル名、タイトル、作成日、追加日、評価など
+- 🎞️ **内蔵プレーヤー**: 視聴進捗の記録と「続きから再生」、キーボード操作（シーク/コマ送り/音量）、スクリーンショット保存、現在フレームからのサムネイル設定
+- ↗️ **外部プレーヤー連携**: お好みのプレーヤーで開く + 内蔵プレーヤーで再生できないファイル時の自動フォールバック
+- 🧐 **拡張子チェック**: 拡張子と中身が一致しない / 内蔵プレーヤーで再生できないコンテナ（MPEG-TS など）を検出し、**無劣化リマックス**で MP4 へ一括変換
+- 🔍 **重複動画検出**: 部分ハッシュ照合による重複グループ表示とゴミ箱削除
+- 🏷️ **一括タグ操作**: 表示中動画へのクイック付与・マトリクス UI による一括編集
 
 ### UI/UX 機能
 
@@ -26,11 +31,14 @@ Mac/Electron ベースの動画管理アプリケーション。直感的な UI/
 
 ### 技術仕様
 
-- **プラットフォーム**: macOS (Intel + Apple Silicon), Windows 10/11
-- **フレームワーク**: Electron 27
-- **データベース**: better-sqlite3 (Prisma ORM)
-- **動画処理**: FFmpeg (バンドル済み)
-- **サポート形式**: MP4, AVI, MOV, MKV, WMV, FLV など（MOV ファイル完全対応）
+- **プラットフォーム**: macOS (Apple Silicon), Windows 10/11 (x64)
+- **フレームワーク**: Electron 43
+- **UI**: React 19 + TypeScript（strict・`any`/`unknown` 禁止）+ TanStack Query
+- **ビルド**: electron-vite（main / preload / renderer 統合）
+- **データベース**: SQLite (Prisma ORM)
+- **動画処理**: FFmpeg / FFprobe（バンドル済み）
+- **テスト**: Vitest
+- **サポート形式**: MP4, MOV, MKV, WebM など（再生は Chromium 対応形式に依存。MPEG-TS 等は拡張子チェックから変換可能）
 
 ### パフォーマンス最適化
 
@@ -109,11 +117,11 @@ xattr -rd com.apple.quarantine "/Applications/Movie Library.app"
 git clone https://github.com/iku/movie-library.git
 cd movie-library
 
-# 依存関係をインストール
-npm install
+# 依存関係をインストール（パッケージマネージャは pnpm）
+pnpm install
 
-# アプリを起動
-npm start
+# アプリを起動（ビルドして electron を起動）
+pnpm start
 ```
 
 ## 🚀 使い方
@@ -153,27 +161,32 @@ npm start
 
 ### 必要環境
 
-- Node.js 18+
-- Python 3.8+ (ネイティブモジュールビルド用)
-- FFmpeg (自動インストール)
+- Node.js 22.12+（`.nvmrc` 参照）
+- pnpm 11+
+- FFmpeg / FFprobe（スクリプトが自動準備）
 
 ### セットアップ
 
 ```bash
 # 依存関係をインストール
-rpm install
+pnpm install
 
-# 開発モード (デバッグログ有効)
-npm run dev
+# 開発モード（Vite 開発サーバー + Electron、renderer はホットリロード）
+pnpm dev
 
-# TypeScriptコンパイル
-npm run build:ts:renderer    # レンダラーのみ
-npm run build:ts            # 全てのTypeScript
+# ビルド（main / preload / renderer を out/ へ出力）
+pnpm build:vite
 
-# ビルド
-npm run build:mac    # macOS用
-npm run build:win    # Windows用 (注: macOSからのクロスビルドの場合は下記参照)
-npm run build:all    # 全プラットフォーム
+# 型チェック（単一 tsconfig で main / preload / renderer / tests をカバー）
+pnpm type-check
+
+# ユニットテスト
+pnpm test
+
+# パッケージビルド
+pnpm build:mac    # macOS用
+pnpm build:win    # Windows用 (注: macOSからのクロスビルドの場合は下記参照)
+pnpm build:all    # 全プラットフォーム
 ```
 
 ### Windows ビルド（macOS からのクロスビルド）
@@ -198,34 +211,32 @@ npm run build:win
 
 ```
 movie-library/
-├── main.ts              # メインプロセス
-├── preload.ts           # プリロードスクリプト
 ├── src/
-│   ├── renderer/        # レンダラープロセス (TypeScript)
-│   │   ├── app.ts       # メインアプリケーションロジック
-│   │   ├── FilterManager.ts    # フィルタ管理
-│   │   ├── VideoManager.ts     # 動画データ管理
-│   │   ├── UIRenderer.ts       # UI描画
-│   │   ├── Utils.ts     # ユーティリティ関数
-│   │   ├── styles.css   # スタイルシート
-│   │   └── index.html   # UI構造
-│   ├── scanner/         # 動画スキャン機能
-│   │   └── VideoScanner.ts
-│   ├── thumbnail/       # サムネイル生成
-│   │   └── ThumbnailGenerator.ts
-│   ├── database/        # データベース関連
-│   │   └── PrismaDatabaseManager.ts
-│   ├── utils/           # ユーティリティ
-│   │   └── ffmpeg-utils.ts
-│   └── types/           # 型定義 (TypeScript)
-│       └── types.ts
-├── scripts/             # ビルドスクリプト
-│   ├── after-pack.js            # ビルド後処理
-│   ├── before-build.js          # ビルド前処理
-│   └── prepare-windows-ffmpeg.js # Windows用ffmpeg準備
-├── prisma/              # Prismaスキーマとマイグレーション
-├── dist-ts/             # TypeScriptコンパイル結果
-└── .github/workflows/   # CI/CDワークフロー
+│   ├── main/              # メインプロセス (CJS)
+│   │   └── index.ts       # IPC ハンドラ、ウィンドウ管理、local-file プロトコル
+│   ├── preload/           # プリロードスクリプト（contextBridge）
+│   │   └── index.ts
+│   ├── renderer/          # レンダラープロセス (React 19 + TypeScript)
+│   │   ├── index.html     # エントリ HTML
+│   │   ├── styles.css     # スタイルシート
+│   │   └── src/
+│   │       ├── main.tsx   # React エントリ
+│   │       ├── App.tsx    # レイアウト・キーボード操作・起動時処理
+│   │       ├── api/       # IPC アクセスと操作フロー
+│   │       ├── state/     # コンテキスト（テーマ/通知/進捗/フィルタ/UI）
+│   │       ├── components/# UI コンポーネント群
+│   │       └── lib/       # フォーマット・フィルタ・フック等のユーティリティ
+│   ├── scanner/           # 動画スキャン (VideoScanner)
+│   ├── thumbnail/         # サムネイル生成 (ThumbnailGenerator)
+│   ├── database/          # データベース (PrismaDatabaseManager)
+│   ├── utils/             # ffmpeg-utils / container 判定 / media-parsers / logger
+│   └── types/             # 型契約（electron-api.ts = IPC の真実源, types.ts）
+├── tests/                 # Vitest ユニットテスト
+├── scripts/               # ビルドスクリプト (after-pack / before-build / prepare-ffprobe 等)
+├── prisma/                # Prismaスキーマとマイグレーション
+├── electron.vite.config.ts # electron-vite 設定
+├── out/                   # electron-vite ビルド成果物（gitignore）
+└── .github/workflows/     # CI/CDワークフロー
 ```
 
 ## 🔄 リリース
@@ -298,30 +309,23 @@ ffmpeg バイナリの問題の可能性があります:
 ```bash
 # エラー例: mach-o file, but is an incompatible architecture
 # 解決方法: 依存関係を完全に再インストール
-rm -rf node_modules package-lock.json
-npm install
-npm rebuild better-sqlite3
+rm -rf node_modules
+pnpm install
 ```
 
 ### TypeScript コンパイルエラー
 
 ```bash
-# TypeScriptファイルを手動でコンパイル
-npm run build:ts:renderer
-
-# 型エラーの確認
-npx tsc --noEmit
+# 型エラーの確認（単一 tsconfig で main / preload / renderer / tests をカバー）
+pnpm type-check
 ```
 
 ### ビルドエラー
 
 ```bash
-# ネイティブモジュールの再ビルド
-npm rebuild
-
-# キャッシュクリア
-rm -rf node_modules package-lock.json
-npm install
+# 依存関係の再インストール
+rm -rf node_modules
+pnpm install
 ```
 
 ### サムネイル生成エラー
@@ -334,7 +338,7 @@ npm install
 
 - アプリを完全に終了して再起動
 - `movie-library.db` ファイルを削除（データは失われます）
-- better-sqlite3 のネイティブモジュールの再ビルド: `npm run rebuild:electron`
+- スキーマ更新が反映されない場合: `pnpm prisma:generate` を実行
 
 ### Windows アンインストールの問題
 

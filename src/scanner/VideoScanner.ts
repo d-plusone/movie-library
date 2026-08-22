@@ -1,5 +1,6 @@
 import { promises as fs } from "fs";
 import path from "path";
+import { spawn } from "child_process";
 import { app } from "electron";
 import PrismaDatabaseManager, {
   type VideoRecord,
@@ -11,6 +12,11 @@ import {
   ScanError,
 } from "../types/types.js";
 import { getFfprobePath } from "../utils/ffmpeg-utils.js";
+import {
+  parseBitrateValue,
+  parseDurationValue,
+  parseFrameRate,
+} from "../utils/media-parsers.js";
 import { createLogger } from "../utils/logger.js";
 
 // production ビルドではデバッグログを抑制
@@ -79,36 +85,73 @@ class VideoScanner {
     return this.supportedExtensions.includes(ext);
   }
 
-  async scanDirectory(
-    directoryPath: string,
-    progressCallback?: ProgressCallback | null,
-  ): Promise<ProcessedVideo[]> {
-    const videos: ProcessedVideo[] = [];
-    const allFiles = await this.getAllFiles(directoryPath);
-    const videoFiles = allFiles.filter((file) => this.isVideoFile(file));
+  /**
+   * スキャン系メソッド共通の前処理:
+   * 1. DB 内の全動画を取得する
+   * 2. ファイルシステムから動画ファイルを列挙する（アクセス不能ディレクトリはスキップして errors に記録）
+   * 3. アクセスできたディレクトリ配下で消えた動画を削除対象として検出する
+   *    （アクセス不能ディレクトリの動画を誤削除しないための保護）
+   *
+   * @param contextLabel ログ用ラベル（"scan" / "rescan"）
+   */
+  private async collectScanState(
+    directories: string[],
+    errors: ScanError[],
+    contextLabel: string,
+  ): Promise<{
+    existingVideos: VideoRecord[];
+    allCurrentFiles: string[];
+    currentFilePaths: Set<string>;
+    deletedPaths: string[];
+  }> {
+    // 現在のデータベース内の全動画を取得
+    const existingVideos = await this.getAllExistingVideos();
 
-    for (let i = 0; i < videoFiles.length; i++) {
-      const filePath = videoFiles[i];
+    // 現在のファイルシステムから全動画ファイルを取得
+    const allCurrentFiles: string[] = [];
+    const scannedDirs = new Set<string>();
 
-      if (progressCallback) {
-        progressCallback({
-          current: i + 1,
-          total: videoFiles.length,
-          file: path.basename(filePath),
-        });
-      }
-
+    for (const dir of directories) {
       try {
-        const video = await this.processFile(filePath);
-        if (video) {
-          videos.push(video);
-        }
+        await fs.access(dir);
+        const files = await this.getAllFiles(dir);
+        allCurrentFiles.push(...files.filter((file) => this.isVideoFile(file)));
+        scannedDirs.add(dir);
       } catch (error) {
-        console.error("Error processing video file:", filePath, error);
+        console.warn(
+          `Skipping inaccessible directory during ${contextLabel}: ${dir}`,
+          error,
+        );
+        errors.push({
+          filePath: dir,
+          error: `Directory inaccessible: ${error instanceof Error ? error.message : String(error)}`,
+          errorCode:
+            error instanceof Error && "code" in error
+              ? String(error.code)
+              : undefined,
+          timestamp: new Date(),
+        });
       }
     }
 
-    return videos;
+    const currentFilePaths = new Set(allCurrentFiles);
+    const deletedPaths: string[] = [];
+
+    for (const existingVideo of existingVideos) {
+      if (!currentFilePaths.has(existingVideo.path)) {
+        const belongsToScannedDir = [...scannedDirs].some(
+          (dir) =>
+            existingVideo.path.startsWith(dir + "/") ||
+            existingVideo.path.startsWith(dir + "\\"),
+        );
+        if (belongsToScannedDir) {
+          deletedPaths.push(existingVideo.path);
+          logger.debug(`Detected deleted video: ${existingVideo.path}`);
+        }
+      }
+    }
+
+    return { existingVideos, allCurrentFiles, currentFilePaths, deletedPaths };
   }
 
   // 改良されたディレクトリスキャン（包括的チェック）
@@ -130,56 +173,15 @@ class VideoScanner {
       errors: [] as ScanError[],
     };
 
-    // 1. 現在のデータベース内の全動画を取得
-    const existingVideos = await this.getAllExistingVideos();
-
-    // 2. 現在のファイルシステムから全動画ファイルを取得
-    const allCurrentFiles: string[] = [];
-    const scannedDirs = new Set<string>();
-
-    for (const dir of directories) {
-      try {
-        await fs.access(dir);
-        const files = await this.getAllFiles(dir);
-        allCurrentFiles.push(...files.filter((file) => this.isVideoFile(file)));
-        scannedDirs.add(dir);
-      } catch (error) {
-        console.warn(
-          `Skipping inaccessible directory during scan: ${dir}`,
-          error,
-        );
-        result.errors.push({
-          filePath: dir,
-          error: `Directory inaccessible: ${error instanceof Error ? error.message : String(error)}`,
-          errorCode:
-            error instanceof Error && "code" in error
-              ? String(error.code)
-              : undefined,
-          timestamp: new Date(),
-        });
-      }
-    }
-    const currentPaths = new Set(allCurrentFiles);
-
-    // 3. 削除された動画を検出（アクセスできたディレクトリ配下のみ対象）
-    // アクセス不能なディレクトリの動画を誤って削除しないよう保護
-    for (const existingVideo of existingVideos) {
-      if (!currentPaths.has(existingVideo.path)) {
-        const belongsToScannedDir = [...scannedDirs].some(
-          (dir) =>
-            existingVideo.path.startsWith(dir + "/") ||
-            existingVideo.path.startsWith(dir + "\\"),
-        );
-        if (belongsToScannedDir) {
-          result.deletedVideos.push(existingVideo.path);
-          logger.debug(`Detected deleted video: ${existingVideo.path}`);
-        }
-      }
-    }
+    // 1-3. DB / FS の状態収集と削除検出（forceRescanAllVideos と共通の前処理）
+    const { existingVideos, allCurrentFiles, currentFilePaths, deletedPaths } =
+      await this.collectScanState(directories, result.errors, "scan");
+    result.deletedVideos.push(...deletedPaths);
 
     // 4. 問題のある動画を検出（メタデータが不完全）
     const problematicVideos = existingVideos.filter(
-      (video) => currentPaths.has(video.path) && this.isVideoProblematic(video),
+      (video) =>
+        currentFilePaths.has(video.path) && this.isVideoProblematic(video),
     );
 
     // 5. 新規・更新・問題動画の処理
@@ -473,9 +475,6 @@ class VideoScanner {
         return;
       }
 
-      const { spawn } = require("child_process");
-
-      // Windows用の最適化オプション
       const ffprobeArgs = [
         "-v",
         "quiet",
@@ -486,11 +485,9 @@ class VideoScanner {
         filePath,
       ];
 
-      // Windows環境ではプロセス優先度を下げる
+      // Windows環境ではコンソールウィンドウを表示しない
       const spawnOptions =
-        process.platform === "win32"
-          ? { windowsHide: true, priority: 10 } // 10 = BELOW_NORMAL_PRIORITY_CLASS
-          : {};
+        process.platform === "win32" ? { windowsHide: true } : {};
 
       const ffprobe = spawn(this.ffprobePath, ffprobeArgs, spawnOptions);
 
@@ -559,75 +556,15 @@ class VideoScanner {
   }
 
   parseFps(frameRate?: string): number {
-    if (!frameRate) {
-      console.warn("Frame rate is undefined or empty");
-      return 0;
-    }
-
-    try {
-      // Handle different frame rate formats
-      if (frameRate.includes("/")) {
-        const [numerator, denominator] = frameRate.split("/").map(Number);
-        if (denominator === 0) {
-          console.warn("Frame rate denominator is 0:", frameRate);
-          return 0;
-        }
-        const fps = numerator / denominator;
-        logger.debug(`Parsed frame rate: ${frameRate} = ${fps.toFixed(2)} fps`);
-        return Math.round(fps * 100) / 100; // 小数点2桁で丸める
-      } else {
-        const fps = parseFloat(frameRate);
-        logger.debug(`Parsed frame rate: ${frameRate} = ${fps.toFixed(2)} fps`);
-        return isNaN(fps) ? 0 : Math.round(fps * 100) / 100;
-      }
-    } catch (error) {
-      console.error("Error parsing frame rate:", frameRate, error);
-      return 0;
-    }
+    return parseFrameRate(frameRate);
   }
 
   parseDuration(duration?: number | string): number {
-    if (!duration) return 0;
-
-    if (typeof duration === "string") {
-      const parsed = parseFloat(duration);
-      return isNaN(parsed) ? 0 : parsed;
-    }
-
-    return duration;
+    return parseDurationValue(duration);
   }
 
   parseBitrate(bitrate?: number | string): number {
-    if (!bitrate) return 0;
-
-    if (typeof bitrate === "string") {
-      const parsed = parseInt(bitrate);
-      return isNaN(parsed) ? 0 : parsed;
-    }
-
-    return bitrate;
-  }
-
-  formatDuration(seconds?: number): string {
-    if (!seconds) return "00:00:00";
-
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = Math.floor(seconds % 60);
-
-    return `${hours.toString().padStart(2, "0")}:${minutes
-      .toString()
-      .padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
-  }
-
-  formatFileSize(bytes: number): string {
-    if (bytes === 0) return "0 Bytes";
-
-    const k = 1024;
-    const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+    return parseBitrateValue(bitrate);
   }
 
   // 全ての動画を強制的に再スキャンするメソッド
@@ -658,52 +595,10 @@ class VideoScanner {
       directories,
     );
 
-    // 1. 現在のデータベース内の全動画を取得
-    const existingVideos = await this.getAllExistingVideos();
-
-    // 2. 現在のファイルシステムから全動画ファイルを取得
-    const allCurrentFiles: string[] = [];
-    const scannedDirs = new Set<string>();
-
-    for (const dir of directories) {
-      try {
-        await fs.access(dir);
-        const files = await this.getAllFiles(dir);
-        allCurrentFiles.push(...files.filter((file) => this.isVideoFile(file)));
-        scannedDirs.add(dir);
-      } catch (error) {
-        console.warn(
-          `Skipping inaccessible directory during rescan: ${dir}`,
-          error,
-        );
-        result.errors.push({
-          filePath: dir,
-          error: `Directory inaccessible: ${error instanceof Error ? error.message : String(error)}`,
-          errorCode:
-            error instanceof Error && "code" in error
-              ? String(error.code)
-              : undefined,
-          timestamp: new Date(),
-        });
-      }
-    }
-    const currentPaths = new Set(allCurrentFiles);
-
-    // 3. 削除された動画を検出（アクセスできたディレクトリ配下のみ対象）
-    // アクセス不能なディレクトリの動画を誤って削除しないよう保護
-    for (const existingVideo of existingVideos) {
-      if (!currentPaths.has(existingVideo.path)) {
-        const belongsToScannedDir = [...scannedDirs].some(
-          (dir) =>
-            existingVideo.path.startsWith(dir + "/") ||
-            existingVideo.path.startsWith(dir + "\\"),
-        );
-        if (belongsToScannedDir) {
-          result.deletedVideos.push(existingVideo.path);
-          logger.debug(`Detected deleted video: ${existingVideo.path}`);
-        }
-      }
-    }
+    // 1-3. DB / FS の状態収集と削除検出（comprehensiveScan と共通の前処理）
+    const { existingVideos, allCurrentFiles, deletedPaths } =
+      await this.collectScanState(directories, result.errors, "rescan");
+    result.deletedVideos.push(...deletedPaths);
 
     // 4. 存在する全ての動画ファイルを強制的に再処理
     const existingVideoMap = new Map(existingVideos.map((v) => [v.path, v]));

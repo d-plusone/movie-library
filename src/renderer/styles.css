@@ -5516,3 +5516,105 @@ list-view .video-thumbnail .thumbnail-indicator {
         scroll-behavior: auto !important;
     }
 }
+/* ========================================
+   拡張子チェックモーダル
+   ======================================== */
+.container-check-progress {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 24px 0;
+}
+
+.container-check-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 12px 0 8px;
+}
+
+.container-check-count {
+    margin-left: auto;
+    font-size: 12px;
+    opacity: 0.8;
+}
+
+.container-check-list {
+    max-height: 45vh;
+    overflow-y: auto;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+}
+
+.container-check-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    cursor: pointer;
+}
+
+.container-check-row:hover {
+    background-color: var(--hover-bg, rgba(128, 128, 128, 0.1));
+}
+
+.container-check-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 13px;
+}
+
+.container-check-meta {
+    grid-column: 2 / -1;
+    font-size: 11px;
+    opacity: 0.7;
+}
+
+.container-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.badge-error {
+    background-color: rgba(255, 59, 48, 0.15);
+    color: #ff453a;
+}
+
+.badge-warning {
+    background-color: rgba(255, 159, 10, 0.15);
+    color: #ff9f0a;
+}
+
+.badge-ok {
+    background-color: rgba(48, 209, 88, 0.15);
+    color: #30d158;
+}
+
+.badge-muted {
+    background-color: rgba(128, 128, 128, 0.15);
+    color: #999;
+}
+
+.container-convert-log {
+    list-style: none;
+    padding: 0;
+    max-height: 40vh;
+    overflow-y: auto;
+    font-size: 12px;
+}
+
+.container-convert-log li {
+    padding: 4px 0;
+    word-break: break-all;
+}
+
+.container-convert-error {
+    color: #ff453a;
+}

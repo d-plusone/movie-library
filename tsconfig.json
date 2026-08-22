@@ -1,51 +1,46 @@
 {
     "compilerOptions": {
-        "target": "ES2020",
-        "module": "CommonJS",
-        "lib": [
-            "ES2020",
-            "DOM"
-        ],
-        "outDir": "./dist-ts",
-        "rootDir": "./",
+        "target": "ES2022",
+        // tsc は型チェック専用（出力は electron-vite）。bundler 解決には ES2015+ が必要
+        "module": "ESNext",
+        // electron-vite (Rollup/esbuild) がビルドを行うため tsc は型チェックのみ
+        "noEmit": true,
         "strict": true,
         "esModuleInterop": true,
         "allowSyntheticDefaultImports": true,
         "skipLibCheck": true,
         "forceConsistentCasingInFileNames": true,
-        "allowJs": true,
-        "declaration": false,
-        "sourceMap": true,
-        "moduleResolution": "node",
+        // 単一 tsconfig で main / preload / renderer / tests をカバーする。
+        // （VSCode は tsconfig.json という名前のファイルのみをプロジェクト境界として
+        //   認識するため、分割設定だと renderer 配下が「設定なし」となり誤検出が出る）
+        "jsx": "react-jsx",
+        "lib": [
+            "ES2022",
+            "DOM",
+            "DOM.Iterable"
+        ],
+        "moduleResolution": "bundler",
         "resolveJsonModule": true,
         "types": [
             "node"
         ],
-        "experimentalDecorators": true,
-        "emitDecoratorMetadata": true,
-        "baseUrl": ".",
-        "paths": {
-            "@/*": [
-                "src/*"
-            ]
-        },
         // 未使用の要素を検出
         "noUnusedLocals": true,
         "noUnusedParameters": true
     },
     "include": [
-        "src/**/*.ts",
-        "src/types/**/*.d.ts",
         "main.ts",
-        "preload.ts"
+        "preload.ts",
+        "src/**/*.ts",
+        "src/**/*.tsx",
+        "src/types/**/*.d.ts",
+        "tests/**/*.ts"
     ],
     "exclude": [
         "node_modules",
+        "out",
         "dist",
         "dist-ts",
-        "build",
-        "src/renderer",
-        "**/*_backup.js",
-        "**/*_backup.ts"
+        "build"
     ]
 }
