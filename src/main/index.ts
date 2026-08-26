@@ -27,6 +27,7 @@ import {
   ContainerMismatchItem,
   ConvertVideosResult,
   ConvertItemResult,
+  DeleteVideoRequest,
 } from "../types/types.js";
 import {
   classifyContainer,
@@ -1506,10 +1507,14 @@ class MovieLibraryApp {
     // Delete videos (duplicate cleanup)
     ipcMain.handle(
       "delete-videos",
-      async (_event, videoIds: number[], moveToTrash: boolean = true) => {
+      async (
+        _event,
+        requests: DeleteVideoRequest[],
+        moveToTrash: boolean = true,
+      ) => {
         try {
           const result = await this.duplicateDetector.deleteVideos(
-            videoIds,
+            requests,
             moveToTrash,
             (current, total) => {
               this.mainWindow?.webContents.send("delete-progress", {

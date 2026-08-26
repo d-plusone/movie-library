@@ -7,6 +7,49 @@ import { createLogger } from "../utils/logger.js";
 // production ビルドではデバッグログを抑制
 const logger = createLogger(app.isPackaged);
 
+/** ファイル比較時に一度に読み込むバイト数 */
+const COMPARE_CHUNK_SIZE = 1024 * 1024; // 1MB
+
+/**
+ * 2 つのファイルが完全に同一（バイト単位）かどうかを判定する。
+ * findDuplicates の重複判定はサイズ+再生時間+先頭/中央/末尾のみの部分ハッシュという
+ * 確率的な近似でしかなく、別の動画が偶然衝突する可能性があるため、
+ * 実際にファイルを削除する前の最終確認として必ずこれを通す。
+ */
+async function filesAreIdentical(pathA: string, pathB: string): Promise<boolean> {
+  const handleA = await fs.open(pathA, "r");
+  try {
+    const handleB = await fs.open(pathB, "r");
+    try {
+      const [statA, statB] = await Promise.all([handleA.stat(), handleB.stat()]);
+      if (statA.size !== statB.size) return false;
+
+      const bufA = Buffer.alloc(COMPARE_CHUNK_SIZE);
+      const bufB = Buffer.alloc(COMPARE_CHUNK_SIZE);
+      let position = 0;
+      while (position < statA.size) {
+        const want = Math.min(COMPARE_CHUNK_SIZE, statA.size - position);
+        const [{ bytesRead: readA }, { bytesRead: readB }] = await Promise.all([
+          handleA.read(bufA, 0, want, position),
+          handleB.read(bufB, 0, want, position),
+        ]);
+        if (
+          readA !== readB ||
+          !bufA.subarray(0, readA).equals(bufB.subarray(0, readB))
+        ) {
+          return false;
+        }
+        position += readA;
+      }
+      return true;
+    } finally {
+      await handleB.close();
+    }
+  } finally {
+    await handleA.close();
+  }
+}
+
 export interface DuplicateGroup {
   videos: Array<{
     id: number;
@@ -171,73 +214,113 @@ export default class DuplicateDetector {
   }
 
   /**
-   * Delete a video file and its database entry
+   * Delete a video file and its database entry.
+   *
+   * verifyAgainstVideoId: 同一グループ内で「保持する」動画の ID。
+   * findDuplicates のグルーピングはサイズ+再生時間+部分ハッシュという確率的な
+   * 近似でしかないため、実際にファイルを削除する前に必ずバイト単位で
+   * 完全一致することを確認する（一致しない場合は削除せずエラーとする）。
    */
   async deleteVideo(
     videoId: number,
+    verifyAgainstVideoId: number,
     moveToTrash: boolean = true,
   ): Promise<void> {
-    const video = await this.db.prisma.video.findUnique({
-      where: { id: videoId },
-      select: { path: true, thumbnailPath: true },
-    });
+    const [video, referenceVideo] = await Promise.all([
+      this.db.prisma.video.findUnique({
+        where: { id: videoId },
+        select: { path: true, thumbnailPath: true },
+      }),
+      this.db.prisma.video.findUnique({
+        where: { id: verifyAgainstVideoId },
+        select: { path: true },
+      }),
+    ]);
 
     if (!video) {
       throw new Error(`Video ${videoId} not found`);
     }
+    if (!referenceVideo) {
+      throw new Error(
+        `検証用の動画 (id: ${verifyAgainstVideoId}) が見つからないため削除をスキップしました: ${video.path}`,
+      );
+    }
 
+    let identical: boolean;
     try {
-      // Delete or move to trash
-      if (moveToTrash) {
-        const { shell } = await import("electron");
-        await shell.trashItem(video.path);
-      } else {
-        await fs.unlink(video.path);
-      }
+      identical = await filesAreIdentical(video.path, referenceVideo.path);
+    } catch (error) {
+      throw new Error(
+        `重複ファイルの検証に失敗したため削除をスキップしました: ${video.path} (${error instanceof Error ? error.message : String(error)})`,
+      );
+    }
+    if (!identical) {
+      throw new Error(
+        `保持する動画とバイト内容が一致しないため削除をスキップしました（誤検出の可能性）: ${video.path}`,
+      );
+    }
 
-      // Delete thumbnail if exists
-      if (video.thumbnailPath) {
-        try {
-          await fs.unlink(video.thumbnailPath);
-        } catch (error) {
-          console.warn(`Failed to delete thumbnail: ${error}`);
-        }
-      }
+    // Delete or move to trash
+    if (moveToTrash) {
+      const { shell } = await import("electron");
+      await shell.trashItem(video.path);
+    } else {
+      await fs.unlink(video.path);
+    }
 
-      // Delete from database
+    // Delete thumbnail if exists
+    if (video.thumbnailPath) {
+      try {
+        await fs.unlink(video.thumbnailPath);
+      } catch (error) {
+        console.warn(`Failed to delete thumbnail: ${error}`);
+      }
+    }
+
+    // Delete from database. ファイルは既に削除済みのため、ここで失敗しても
+    // （DB 行が孤立するだけで）ユーザーの意図した「重複ファイルの削除」自体は
+    // 達成されている。次回スキャンで実体が無いことが検出され自動的に片付く。
+    try {
       await this.db.prisma.video.delete({
         where: { id: videoId },
       });
-
-      logger.log(`✅ Deleted video ${videoId}: ${video.path}`);
     } catch (error) {
-      console.error(`Failed to delete video ${videoId}:`, error);
-      throw error;
+      console.error(
+        `Deleted file but failed to remove DB record for video ${videoId} (will self-heal on next scan):`,
+        error,
+      );
     }
+
+    logger.log(`✅ Deleted video ${videoId}: ${video.path}`);
   }
 
   /**
    * Delete multiple videos at once
    */
   async deleteVideos(
-    videoIds: number[],
+    requests: Array<{ videoId: number; verifyAgainstVideoId: number }>,
     moveToTrash: boolean = true,
     onProgress?: (current: number, total: number) => void,
   ): Promise<{ success: number; failed: number }> {
     let success = 0;
     let failed = 0;
 
-    for (let i = 0; i < videoIds.length; i++) {
+    for (let i = 0; i < requests.length; i++) {
+      const request = requests[i];
       try {
-        await this.deleteVideo(videoIds[i], moveToTrash);
+        await this.deleteVideo(
+          request.videoId,
+          request.verifyAgainstVideoId,
+          moveToTrash,
+        );
         success++;
       } catch (error) {
-        console.error(`Failed to delete video ${videoIds[i]}:`, error);
+        console.error(`Failed to delete video ${request.videoId}:`, error);
         failed++;
       }
 
       if (onProgress) {
-        onProgress(i + 1, videoIds.length);
+        onProgress(i + 1, requests.length);
       }
     }
 

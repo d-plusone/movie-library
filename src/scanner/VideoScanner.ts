@@ -22,6 +22,19 @@ import { createLogger } from "../utils/logger.js";
 // production ビルドではデバッグログを抑制
 const logger = createLogger(app.isPackaged);
 
+/**
+ * filePath が dir 配下（dir 自身を含む）かどうかを判定する。
+ * dir の末尾セパレータ有無や区切り文字（"/" / "\\"）の違いを正規化してから比較する。
+ */
+function isPathUnderDirectory(filePath: string, dir: string): boolean {
+  const normalizedDir = dir.replace(/[/\\]+$/, "");
+  return (
+    filePath === normalizedDir ||
+    filePath.startsWith(`${normalizedDir}/`) ||
+    filePath.startsWith(`${normalizedDir}\\`)
+  );
+}
+
 class VideoScanner {
   private db: PrismaDatabaseManager;
   private supportedExtensions: string[];
@@ -90,7 +103,11 @@ class VideoScanner {
    * 1. DB 内の全動画を取得する
    * 2. ファイルシステムから動画ファイルを列挙する（アクセス不能ディレクトリはスキップして errors に記録）
    * 3. アクセスできたディレクトリ配下で消えた動画を削除対象として検出する
-   *    （アクセス不能ディレクトリの動画を誤削除しないための保護）
+   *    （アクセス不能ディレクトリの動画を誤削除しないための保護。
+   *    トップレベルの各 directories だけでなく、再帰中に読み取りに失敗した
+   *    サブディレクトリ配下も削除判定から除外する — NAS の瞬断等で
+   *    その配下のファイルが一時的に列挙できなかっただけの動画を、
+   *    実在するのに「削除された」と誤判定してDBから消してしまうのを防ぐ）
    *
    * @param contextLabel ログ用ラベル（"scan" / "rescan"）
    */
@@ -110,13 +127,26 @@ class VideoScanner {
     // 現在のファイルシステムから全動画ファイルを取得
     const allCurrentFiles: string[] = [];
     const scannedDirs = new Set<string>();
+    // 再帰中に読み取りに失敗したサブディレクトリ（この配下は削除判定を保留する）
+    const failedSubdirs = new Set<string>();
 
     for (const dir of directories) {
       try {
         await fs.access(dir);
-        const files = await this.getAllFiles(dir);
+        const { files, failedDirs } = await this.getAllFiles(dir);
         allCurrentFiles.push(...files.filter((file) => this.isVideoFile(file)));
         scannedDirs.add(dir);
+        for (const failedDir of failedDirs) {
+          failedSubdirs.add(failedDir);
+          console.warn(
+            `Skipping inaccessible subdirectory during ${contextLabel}: ${failedDir}`,
+          );
+          errors.push({
+            filePath: failedDir,
+            error: "Subdirectory could not be read during recursive scan (transient I/O error?)",
+            timestamp: new Date(),
+          });
+        }
       } catch (error) {
         console.warn(
           `Skipping inaccessible directory during ${contextLabel}: ${dir}`,
@@ -139,10 +169,18 @@ class VideoScanner {
 
     for (const existingVideo of existingVideos) {
       if (!currentFilePaths.has(existingVideo.path)) {
-        const belongsToScannedDir = [...scannedDirs].some(
-          (dir) =>
-            existingVideo.path.startsWith(dir + "/") ||
-            existingVideo.path.startsWith(dir + "\\"),
+        const underFailedSubdir = [...failedSubdirs].some((dir) =>
+          isPathUnderDirectory(existingVideo.path, dir),
+        );
+        if (underFailedSubdir) {
+          // 今回のスキャンでは実在の有無を確認できなかったため、削除扱いにしない
+          logger.debug(
+            `Skipping deletion check for video under inaccessible subdirectory: ${existingVideo.path}`,
+          );
+          continue;
+        }
+        const belongsToScannedDir = [...scannedDirs].some((dir) =>
+          isPathUnderDirectory(existingVideo.path, dir),
         );
         if (belongsToScannedDir) {
           deletedPaths.push(existingVideo.path);
@@ -188,6 +226,9 @@ class VideoScanner {
     const existingVideoMap = new Map(existingVideos.map((v) => [v.path, v]));
     const totalFiles = allCurrentFiles.length + problematicVideos.length;
     let processedCount = 0;
+    // このスキャンで新規/更新として既に再処理したパス
+    // （mtime 変化と「問題あり」を両方満たす動画を二重に processFile/ffprobe しないため）
+    const alreadyProcessedPaths = new Set<string>();
 
     for (const filePath of allCurrentFiles) {
       try {
@@ -208,6 +249,7 @@ class VideoScanner {
           const video = await this.processFile(filePath);
           if (video) {
             result.newVideos.push(video);
+            alreadyProcessedPaths.add(filePath);
             logger.debug(`New video detected: ${filePath}`);
           }
         } else if (
@@ -217,6 +259,7 @@ class VideoScanner {
           const video = await this.processFile(filePath);
           if (video) {
             result.updatedVideos.push(video);
+            alreadyProcessedPaths.add(filePath);
             logger.debug(`Updated video detected: ${filePath}`);
           }
         }
@@ -235,7 +278,12 @@ class VideoScanner {
     }
 
     // 6. 問題のある動画を再処理
-    for (const problematicVideo of problematicVideos) {
+    // （上のループで新規/更新として既に再処理済みのものは対象から除外し、
+    //   同一動画への ffprobe 二重実行と結果の二重カウントを防ぐ）
+    const remainingProblematicVideos = problematicVideos.filter(
+      (video) => !alreadyProcessedPaths.has(video.path),
+    );
+    for (const problematicVideo of remainingProblematicVideos) {
       try {
         processedCount++;
         if (progressCallback) {
@@ -302,38 +350,80 @@ class VideoScanner {
     }
   }
 
-  async getAllFiles(directoryPath: string): Promise<string[]> {
+  /**
+   * ディレクトリを再帰的に走査してファイル一覧を返す。
+   * - シンボリックリンク（ファイル/ディレクトリ双方）もリンク先を解決して辿る
+   *   （旧実装は isFile()/isDirectory() のどちらにも該当しないシンボリックリンクを
+   *   黙って無視しており、シンボリックリンク化された既存動画が「削除された」と
+   *   誤判定される原因になっていた）
+   * - ディレクトリの読み取りに失敗した場合はそこで諦めて failedDirs に記録する
+   *   （呼び出し側はこの配下を削除判定から除外する）
+   * - 実体の重複訪問（シンボリックリンクの循環）を realpath で防止する
+   */
+  async getAllFiles(
+    directoryPath: string,
+  ): Promise<{ files: string[]; failedDirs: string[] }> {
     const files: string[] = [];
+    const failedDirs: string[] = [];
+    const visitedRealDirs = new Set<string>();
 
-    async function scanDir(currentPath: string): Promise<void> {
+    const scanDir = async (currentPath: string): Promise<void> => {
       try {
-        const entries = await fs.readdir(currentPath, { withFileTypes: true });
+        const realPath = await fs.realpath(currentPath);
+        if (visitedRealDirs.has(realPath)) return;
+        visitedRealDirs.add(realPath);
+      } catch {
+        // realpath が解決できない場合は下の readdir で失敗として検出される
+      }
 
-        for (const entry of entries) {
-          const fullPath = path.join(currentPath, entry.name);
-
-          // 隠しディレクトリやシステムディレクトリをスキップ
-          if (entry.isDirectory()) {
-            if (
-              entry.name.startsWith(".") ||
-              entry.name === "__MACOSX" ||
-              entry.name === "System Volume Information" ||
-              entry.name === "$RECYCLE.BIN"
-            ) {
-              continue;
-            }
-            await scanDir(fullPath);
-          } else if (entry.isFile()) {
-            files.push(fullPath);
-          }
-        }
+      let entries;
+      try {
+        entries = await fs.readdir(currentPath, { withFileTypes: true });
       } catch (error) {
         console.error("Error reading directory:", currentPath, error);
+        failedDirs.push(currentPath);
+        return;
       }
-    }
+
+      for (const entry of entries) {
+        const fullPath = path.join(currentPath, entry.name);
+
+        // 隠しファイル/ディレクトリやシステムディレクトリをスキップ
+        if (
+          entry.name.startsWith(".") ||
+          entry.name === "__MACOSX" ||
+          entry.name === "System Volume Information" ||
+          entry.name === "$RECYCLE.BIN"
+        ) {
+          continue;
+        }
+
+        if (entry.isSymbolicLink()) {
+          let targetStat;
+          try {
+            targetStat = await fs.stat(fullPath);
+          } catch (error) {
+            console.warn("Skipping broken symlink:", fullPath, error);
+            continue;
+          }
+          if (targetStat.isDirectory()) {
+            await scanDir(fullPath);
+          } else if (targetStat.isFile()) {
+            files.push(fullPath);
+          }
+          continue;
+        }
+
+        if (entry.isDirectory()) {
+          await scanDir(fullPath);
+        } else if (entry.isFile()) {
+          files.push(fullPath);
+        }
+      }
+    };
 
     await scanDir(directoryPath);
-    return files;
+    return { files, failedDirs };
   }
 
   async processFile(

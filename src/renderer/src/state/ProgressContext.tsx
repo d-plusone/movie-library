@@ -2,8 +2,12 @@
  * main プロセスからの進捗イベントを集約する（旧 UnifiedProgressManager の移植）
  *
  * - scan / rescan / thumbnail の各チャネルを受信し、統一オーバーレイ用の状態へ変換する
- * - オーナープログレス（rescan-all, thumbnail-regen, cleanup）が残っている間は
- *   設定モーダルを閉じられない、という旧挙動を hasOwners で再現する
+ * - rescan-progress は専用チャネルを持つため owner: true を正しく付与できるが、
+ *   thumbnail-regen（全て再生成）・cleanup は thumbnail-progress を他の処理
+ *   （通常のサムネイル生成・再スキャン後の自動生成）と共有しており、ここだけでは
+ *   区別できない。「設定モーダルを閉じられない」という保証自体は、これら 4 操作
+ *   すべてを実際にラップしている UiContext の scanLocked 側で担保している
+ *   （SettingsModal の closeBlocked を参照）。hasOwners はそれを補完する表示用の値。
  */
 import {
   createContext,
@@ -38,8 +42,13 @@ interface ProgressContextValue {
 const ProgressContext = createContext<ProgressContextValue | null>(null);
 
 const COMPLETE_REMOVE_DELAY_MS = 1000;
-/** この時間更新がない進行中エントリは完了扱いにする（done イベント欠落の保険） */
-const STALE_AFTER_MS = 6000;
+/**
+ * この時間更新がない進行中エントリは完了扱いにする（done イベント欠落の保険）。
+ * 大きな 4K 動画 1 本のサムネイル生成・ハッシュ計算などは進捗 tick の間隔が
+ * 数秒〜十数秒空くことがあるため、それより十分長い値にする
+ * （短すぎると処理継続中に「完了」と誤表示され、オーナーロックも早期解除されてしまう）。
+ */
+const STALE_AFTER_MS = 30000;
 
 type ProgressChannel = "scan-progress" | "rescan-progress" | "thumbnail-progress";
 
@@ -138,17 +147,23 @@ export function ProgressProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const api = window.electronAPI;
-    api.onScanProgress((data) =>
-      setEntries((current) => applyEvent(current, "scan-progress", data)),
-    );
-    api.onRescanProgress((data) =>
-      setEntries((current) => applyEvent(current, "rescan-progress", data)),
-    );
-    api.onThumbnailProgress((data) =>
-      setEntries((current) => applyEvent(current, "thumbnail-progress", data)),
-    );
-    // preload が off を提供しないチャネルのため、アプリ生存期間中は
-    // リスナーを張りっぱなしにする（単一ページ構成のため実害なし）
+    const onScan = (data: ProgressEvent): void =>
+      setEntries((current) => applyEvent(current, "scan-progress", data));
+    const onRescan = (data: ProgressEvent): void =>
+      setEntries((current) => applyEvent(current, "rescan-progress", data));
+    const onThumbnail = (data: ProgressEvent): void =>
+      setEntries((current) => applyEvent(current, "thumbnail-progress", data));
+
+    api.onScanProgress(onScan);
+    api.onRescanProgress(onRescan);
+    api.onThumbnailProgress(onThumbnail);
+    // StrictMode の二重マウントで登録が重複しリスナーがリークするのを防ぐため、
+    // 他のプログレスチャネルと同様にアンマウント時に必ず解除する。
+    return () => {
+      api.offScanProgress(onScan);
+      api.offRescanProgress(onRescan);
+      api.offThumbnailProgress(onThumbnail);
+    };
   }, []);
 
   // 完了エントリの遅延除去 + スタイル（長時間更新なし）エントリの自動完了

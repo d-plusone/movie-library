@@ -13,6 +13,7 @@ import type {
   ContainerMismatchItem,
   ConvertVideosResult,
   DeleteProgress,
+  DeleteVideoRequest,
   DeleteVideosResult,
   Directory,
   DuplicateGroup,
@@ -84,8 +85,12 @@ export interface ElectronAPI {
 
   // ---- Duplicate detection ----
   findDuplicates(): Promise<DuplicateGroup[]>;
+  /**
+   * 重複動画を削除する。各リクエストの verifyAgainstVideoId で指定した
+   * 「保持する」動画とバイト単位で内容が一致することを、main 側が削除前に確認する。
+   */
   deleteVideos(
-    videoIds: number[],
+    requests: DeleteVideoRequest[],
     moveToTrash?: boolean,
   ): Promise<DeleteVideosResult>;
 
@@ -109,8 +114,11 @@ export interface ElectronAPI {
 
   // ---- Event listeners ----
   onScanProgress(callback: (data: ProgressEvent) => void): void;
+  offScanProgress(callback: (data: ProgressEvent) => void): void;
   onRescanProgress(callback: (data: ProgressEvent) => void): void;
+  offRescanProgress(callback: (data: ProgressEvent) => void): void;
   onThumbnailProgress(callback: (data: ProgressEvent) => void): void;
+  offThumbnailProgress(callback: (data: ProgressEvent) => void): void;
   onDuplicateSearchProgress(
     callback: (data: DuplicateSearchProgress) => void,
   ): void;

@@ -54,12 +54,15 @@ export function SettingsModal() {
     setScreenshotDir(storedDir !== "" ? storedDir : "~/Pictures");
   }, [ui.settingsOpen]);
 
-  // オーナープログレスが進行中はモーダルを閉じられない（旧挙動）
+  // オーナープログレスが進行中はモーダルを閉じられない（旧挙動）。
+  // 「全て再生成」「不要な画像を削除」は thumbnail-progress チャネルを他の処理と
+  // 共有しており owner フラグだけでは検出できないため、実際にこれら 4 操作
+  // （フォルダ追加・全再スキャン・全再生成・クリーンアップ）すべてをラップしている
+  // ui.scanLocked も条件に含めて確実にブロックする。
   const ownerLabels = entries
     .filter((entry) => entry.owner && !entry.completed)
     .map((entry) => entry.label);
-  const closeBlocked = hasOwners || ownerLabels.length > 0;
-  void hasOwners;
+  const closeBlocked = ui.scanLocked || hasOwners || ownerLabels.length > 0;
 
   const deps = { qc, notify };
 

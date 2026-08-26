@@ -14,18 +14,38 @@ export type ContainerKind =
   | "flv"
   | "unknown";
 
+// ISOBMFF（MP4/M4V/MOV）の先頭ボックスとして現れうる 4 文字タイプ。
+// 新しめのファイルはほぼ常に "ftyp" だが、古い QuickTime 由来の .mov は
+// ftyp を持たず moov/free/wide/skip/pnot/mdat/junk から始まることがある。
+// これらを判別できないと、実際は再生可能なファイルを
+// 「内蔵プレーヤーで再生不可」と誤判定してしまう。
+const ISOBMFF_BOX_TYPES = new Set([
+  "ftyp",
+  "moov",
+  "free",
+  "skip",
+  "wide",
+  "pnot",
+  "mdat",
+  "junk",
+]);
+
+function readAscii4(head: Readonly<Uint8Array>, offset: number): string {
+  return String.fromCharCode(
+    head[offset],
+    head[offset + 1],
+    head[offset + 2],
+    head[offset + 3],
+  );
+}
+
 /** 先頭バイト列からコンテナ種別を判定する（判別できない場合は "unknown"） */
 export function detectContainerKind(
   head: Readonly<Uint8Array>,
 ): ContainerKind {
   if (head.length >= 12) {
-    // ISOBMFF: 4 バイトのサイズの後に "ftyp" ブランドボックス
-    if (
-      head[4] === 0x66 &&
-      head[5] === 0x74 &&
-      head[6] === 0x79 &&
-      head[7] === 0x70
-    ) {
+    // ISOBMFF: 4 バイトのサイズの後にボックスタイプ（"ftyp" 等）
+    if (ISOBMFF_BOX_TYPES.has(readAscii4(head, 4))) {
       return "isobmff";
     }
     // Matroska / WebM: EBML マジック 0x1A45DFA3

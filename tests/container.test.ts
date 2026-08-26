@@ -45,6 +45,12 @@ describe("detectContainerKind", () => {
     expect(detectContainerKind(head(flv))).toBe("flv");
   });
 
+  it("ftyp を持たない古い QuickTime (.mov) の moov ボックスも isobmff と判定する", () => {
+    const moov = "moov".split("").map((c) => c.charCodeAt(0));
+    const bytes = [0, 0, 0, 8, ...moov, ...new Array<number>(16).fill(0)];
+    expect(detectContainerKind(head(bytes))).toBe("isobmff");
+  });
+
   it("判別できない入力は unknown を返す", () => {
     expect(detectContainerKind(head([1, 2, 3]))).toBe("unknown");
     expect(

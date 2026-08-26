@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import type { ElectronAPI } from "../types/electron-api";
 import type {
   DeleteProgress,
+  DeleteVideoRequest,
   DuplicateSearchProgress,
   OperationProgress,
   ProgressEvent,
@@ -58,6 +59,13 @@ const containerConvertListeners = createListenerPair<OperationProgress>(
 );
 const deleteProgressListeners = createListenerPair<DeleteProgress>(
   "delete-progress",
+);
+const scanProgressListeners = createListenerPair<ProgressEvent>("scan-progress");
+const rescanProgressListeners = createListenerPair<ProgressEvent>(
+  "rescan-progress",
+);
+const thumbnailProgressListeners = createListenerPair<ProgressEvent>(
+  "thumbnail-progress",
 );
 
 // main プロセスから追加引数で渡される production フラグ
@@ -127,8 +135,8 @@ const electronAPI: ElectronAPI = {
 
   // Duplicate detection
   findDuplicates: () => ipcRenderer.invoke("find-duplicates"),
-  deleteVideos: (videoIds: number[], moveToTrash: boolean = true) =>
-    ipcRenderer.invoke("delete-videos", videoIds, moveToTrash),
+  deleteVideos: (requests: DeleteVideoRequest[], moveToTrash: boolean = true) =>
+    ipcRenderer.invoke("delete-videos", requests, moveToTrash),
 
   onDuplicateSearchProgress: (
     callback: (data: DuplicateSearchProgress) => void,
@@ -165,19 +173,22 @@ const electronAPI: ElectronAPI = {
 
   // Event listeners
   onScanProgress: (callback: (data: ProgressEvent) => void) => {
-    ipcRenderer.on("scan-progress", (_event, data: ProgressEvent) =>
-      callback(data),
-    );
+    scanProgressListeners.on(callback);
+  },
+  offScanProgress: (callback: (data: ProgressEvent) => void) => {
+    scanProgressListeners.off(callback);
   },
   onRescanProgress: (callback: (data: ProgressEvent) => void) => {
-    ipcRenderer.on("rescan-progress", (_event, data: ProgressEvent) =>
-      callback(data),
-    );
+    rescanProgressListeners.on(callback);
+  },
+  offRescanProgress: (callback: (data: ProgressEvent) => void) => {
+    rescanProgressListeners.off(callback);
   },
   onThumbnailProgress: (callback: (data: ProgressEvent) => void) => {
-    ipcRenderer.on("thumbnail-progress", (_event, data: ProgressEvent) =>
-      callback(data),
-    );
+    thumbnailProgressListeners.on(callback);
+  },
+  offThumbnailProgress: (callback: (data: ProgressEvent) => void) => {
+    thumbnailProgressListeners.off(callback);
   },
   onVideoAdded: (callback: (filePath: string) => void) => {
     ipcRenderer.on("video-added", (_event, filePath) => callback(filePath));

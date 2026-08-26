@@ -38,6 +38,22 @@ type VideoWithTags = Prisma.VideoGetPayload<{
   };
 }>;
 
+// chapterThumbnails の JSON パース。壊れた行が1件あるだけで一覧取得全体が
+// 例外で落ちるのを防ぐため、失敗時は空配列にフォールバックする。
+function safeParseChapterThumbnails(raw: string | null): ChapterThumbnail[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as ChapterThumbnail[]) : [];
+  } catch (error) {
+    console.error(
+      "Failed to parse chapterThumbnails JSON, defaulting to []:",
+      error,
+    );
+    return [];
+  }
+}
+
 // Prisma のレコードをアプリ用の VideoRecord に変換する
 // （Prisma の nullable フィールドを optional に変換し、日付文字列を Date に変換する）
 function mapVideoRecord(video: VideoWithTags): VideoRecord {
@@ -51,10 +67,24 @@ function mapVideoRecord(video: VideoWithTags): VideoRecord {
     watchedAt: video.watchedAt ?? undefined,
     watchPosition: video.watchPosition,
     tags: video.videoTags.map((vt) => vt.tag.name),
-    chapterThumbnails: video.chapterThumbnails
-      ? (JSON.parse(video.chapterThumbnails) as ChapterThumbnail[])
-      : [],
+    chapterThumbnails: safeParseChapterThumbnails(video.chapterThumbnails),
   };
+}
+
+/** 一時的な DB ロックなど、リトライすれば成功する可能性があるエラーか */
+function isRetryableDbError(error: unknown): boolean {
+  if (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === "P2034"
+  ) {
+    return true;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes("database is locked") || message.includes("SQLITE_BUSY");
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // Prisma の orderBy に使用可能なフィールドのみ許可
@@ -143,6 +173,12 @@ class PrismaDatabaseManager {
         error instanceof Prisma.PrismaClientKnownRequestError &&
         (error.code === "P2021" || error.code === "P2022")
       ) {
+        // findFirst() の失敗により this._prisma は既にこの DB ファイルへ
+        // 遅延接続してしまっている。切断せずに migrate/db push を別プロセスで
+        // 起動すると、同一 SQLite ファイルへの接続が競合してロックし、
+        // 特に Windows でフォールバック自体が失敗する。マイグレーション完了後は
+        // initialize() が $connect() を呼び直すため、ここで一旦切断してよい。
+        await this._prisma.$disconnect();
         await this.runDatabaseMigration();
       } else {
         throw error;
@@ -273,10 +309,16 @@ class PrismaDatabaseManager {
     });
   }
 
-  /** マイグレーション履歴が無い/食い違っている DB 向けにスキーマを同期する */
+  /**
+   * マイグレーション履歴が無い/食い違っている DB 向けにスキーマを同期する。
+   * --accept-data-loss を付けない場合、破壊的な変更が必要なスキーマ差分では
+   * db push が対話的な確認を待ってハングしてしまう（非対話環境のため誰も応答できない）。
+   * この経路は既に migrate deploy が失敗した後の最終フォールバックであり、
+   * ここで止まるとアプリ自体が起動できなくなるため確認プロンプトを無効化する。
+   */
   private async runPrismaDbPush(): Promise<void> {
     await this.runPrismaCli(
-      ["db", "push", "--skip-generate"],
+      ["db", "push", "--skip-generate", "--accept-data-loss"],
       "Prisma db push completed successfully",
     );
   }
@@ -290,28 +332,35 @@ class PrismaDatabaseManager {
 
   async addVideo(videoData: VideoCreateData): Promise<number> {
     // 日付の型変換（DateオブジェクトはISO文字列に変換）
-    // Prisma スキーマでは必須のため、未指定時は現在時刻を使用
+    // Prisma スキーマでは必須のため、新規作成時に未指定なら現在時刻を使用
     const createdAtString = videoData.createdAt ?? new Date().toISOString();
     const modifiedAtString = videoData.modifiedAt ?? new Date().toISOString();
 
+    // update 側は明示的に渡されたフィールドのみ更新する。
+    // createdAt/modifiedAt を常に「今」でフォールバックして書き込むと、
+    // 呼び出し側がこれらを省略した場合に既存のファイル生成/更新時刻を
+    // 上書きしてしまう（現在の呼び出し元は必ず両方渡すため未発生だが、
+    // 将来別の呼び出し元が省略した場合の地雷になっていた）。
+    const updateData: Prisma.VideoUpdateInput = {
+      filename: videoData.filename,
+      title: videoData.title || videoData.filename,
+      duration: videoData.duration,
+      size: videoData.size,
+      width: videoData.width,
+      height: videoData.height,
+      fps: videoData.fps,
+      codec: videoData.codec,
+      bitrate: videoData.bitrate,
+      thumbnailPath: videoData.thumbnailPath,
+      chapterThumbnails: JSON.stringify(videoData.chapterThumbnails || []),
+      updatedAt: new Date(),
+    };
+    if (videoData.createdAt !== undefined) updateData.createdAt = videoData.createdAt;
+    if (videoData.modifiedAt !== undefined) updateData.modifiedAt = videoData.modifiedAt;
+
     const video = await this._prisma.video.upsert({
       where: { path: videoData.path },
-      update: {
-        filename: videoData.filename,
-        title: videoData.title || videoData.filename,
-        duration: videoData.duration,
-        size: videoData.size,
-        width: videoData.width,
-        height: videoData.height,
-        fps: videoData.fps,
-        codec: videoData.codec,
-        bitrate: videoData.bitrate,
-        createdAt: createdAtString,
-        modifiedAt: modifiedAtString,
-        thumbnailPath: videoData.thumbnailPath,
-        chapterThumbnails: JSON.stringify(videoData.chapterThumbnails || []),
-        updatedAt: new Date(),
-      },
+      update: updateData,
       create: {
         path: videoData.path,
         filename: videoData.filename,
@@ -359,7 +408,7 @@ class PrismaDatabaseManager {
         },
       },
       orderBy,
-      take: limit || undefined,
+      take: limit ?? undefined,
       skip: offset,
     });
 
@@ -401,45 +450,58 @@ class PrismaDatabaseManager {
   }
 
   async updateVideo(id: number, data: VideoUpdateData): Promise<boolean> {
-    try {
-      const updateData: {
-        title?: string;
-        rating?: number;
-        description?: string;
-        thumbnailPath?: string;
-        chapterThumbnails?: string;
-        watchedAt?: Date;
-        watchPosition?: number;
-        updatedAt?: Date;
-      } = {};
+    const updateData: {
+      title?: string;
+      rating?: number;
+      description?: string;
+      thumbnailPath?: string;
+      chapterThumbnails?: string;
+      watchedAt?: Date;
+      watchPosition?: number;
+      updatedAt?: Date;
+    } = {};
 
-      if (data.title !== undefined) updateData.title = data.title;
-      if (data.rating !== undefined) updateData.rating = data.rating;
-      if (data.description !== undefined)
-        updateData.description = data.description;
-      if (data.thumbnailPath !== undefined)
-        updateData.thumbnailPath = data.thumbnailPath;
-      if (data.chapterThumbnails !== undefined) {
-        updateData.chapterThumbnails = JSON.stringify(data.chapterThumbnails);
-      }
-      if (data.watchedAt !== undefined) updateData.watchedAt = data.watchedAt;
-      if (data.watchPosition !== undefined)
-        updateData.watchPosition = data.watchPosition;
-
-      if (Object.keys(updateData).length === 0) return false;
-
-      updateData.updatedAt = new Date();
-
-      await this._prisma.video.update({
-        where: { id },
-        data: updateData,
-      });
-
-      return true;
-    } catch (error) {
-      console.error("Error updating video:", error);
-      return false;
+    if (data.title !== undefined) updateData.title = data.title;
+    if (data.rating !== undefined) updateData.rating = data.rating;
+    if (data.description !== undefined)
+      updateData.description = data.description;
+    if (data.thumbnailPath !== undefined)
+      updateData.thumbnailPath = data.thumbnailPath;
+    if (data.chapterThumbnails !== undefined) {
+      updateData.chapterThumbnails = JSON.stringify(data.chapterThumbnails);
     }
+    if (data.watchedAt !== undefined) updateData.watchedAt = data.watchedAt;
+    if (data.watchPosition !== undefined)
+      updateData.watchPosition = data.watchPosition;
+
+    // 更新対象フィールドが無いのはエラーではない（何もする必要がないだけ）ため true を返す。
+    // false は「DB 書き込みが実際に失敗した」場合のみに限定する。
+    if (Object.keys(updateData).length === 0) return true;
+
+    updateData.updatedAt = new Date();
+
+    const MAX_ATTEMPTS = 3;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      try {
+        await this._prisma.video.update({
+          where: { id },
+          data: updateData,
+        });
+        return true;
+      } catch (error) {
+        if (attempt < MAX_ATTEMPTS && isRetryableDbError(error)) {
+          console.warn(
+            `updateVideo: transient DB error, retrying (attempt ${attempt}/${MAX_ATTEMPTS}):`,
+            error,
+          );
+          await delay(attempt * 150);
+          continue;
+        }
+        console.error("Error updating video:", error);
+        return false;
+      }
+    }
+    return false;
   }
 
   async removeVideo(path: string): Promise<boolean> {
@@ -455,23 +517,15 @@ class PrismaDatabaseManager {
   }
 
   async searchVideos(query: string): Promise<VideoRecord[]> {
+    // Prisma の contains は SQLite 上で LIKE に変換され、クエリ中の "%"/"_" が
+    // エスケープなしでワイルドカードとして解釈されてしまう
+    // （例: "100%" で検索すると "100" + 任意の1文字にマッチしてしまう）。
+    // ここでは全件取得してから JS のリテラル部分文字列一致でフィルタすることで、
+    // ワイルドカード解釈を避け、常に「入力した文字列そのもの」で検索する。
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery) return [];
+
     const videos = await this._prisma.video.findMany({
-      where: {
-        OR: [
-          { title: { contains: query } },
-          { filename: { contains: query } },
-          { description: { contains: query } },
-          {
-            videoTags: {
-              some: {
-                tag: {
-                  name: { contains: query },
-                },
-              },
-            },
-          },
-        ],
-      },
       include: {
         videoTags: {
           include: {
@@ -482,7 +536,16 @@ class PrismaDatabaseManager {
       orderBy: { title: "asc" },
     });
 
-    return videos.map(mapVideoRecord);
+    const matched = videos.filter((video) => {
+      if (video.title.toLowerCase().includes(normalizedQuery)) return true;
+      if (video.filename.toLowerCase().includes(normalizedQuery)) return true;
+      if (video.description?.toLowerCase().includes(normalizedQuery)) return true;
+      return video.videoTags.some((vt) =>
+        vt.tag.name.toLowerCase().includes(normalizedQuery),
+      );
+    });
+
+    return matched.map(mapVideoRecord);
   }
 
   async getVideoCount(): Promise<number> {
@@ -515,7 +578,7 @@ class PrismaDatabaseManager {
             },
           },
         },
-        take: limit || undefined,
+        take: limit ?? undefined,
         skip: offset,
       });
 
@@ -593,29 +656,32 @@ class PrismaDatabaseManager {
 
   async addTagToVideo(videoId: number, tagName: string): Promise<boolean> {
     try {
-      // First ensure the tag exists
-      const tag = await this._prisma.tag.upsert({
-        where: { name: tagName },
-        update: {},
-        create: {
-          name: tagName,
-          color: "#007AFF",
-        },
-      });
+      // タグの作成と動画への関連付けを 1 トランザクションにまとめる。
+      // 別々の await にすると、間でクラッシュ/DBエラーが起きた場合に
+      // 「誰にも使われていない Tag だけが残る」不整合な中間状態になりうる。
+      await this._prisma.$transaction(async (tx) => {
+        const tag = await tx.tag.upsert({
+          where: { name: tagName },
+          update: {},
+          create: {
+            name: tagName,
+            color: "#007AFF",
+          },
+        });
 
-      // Then create the video-tag relationship
-      await this._prisma.videoTag.upsert({
-        where: {
-          videoId_tagId: {
+        await tx.videoTag.upsert({
+          where: {
+            videoId_tagId: {
+              videoId,
+              tagId: tag.id,
+            },
+          },
+          update: {},
+          create: {
             videoId,
             tagId: tag.id,
           },
-        },
-        update: {},
-        create: {
-          videoId,
-          tagId: tag.id,
-        },
+        });
       });
 
       return true;

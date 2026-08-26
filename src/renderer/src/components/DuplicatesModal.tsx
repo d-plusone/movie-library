@@ -115,17 +115,32 @@ export function DuplicatesModal() {
     });
   };
 
+  /**
+   * 選択された videoId ごとに、同一グループ内で保持される（未選択の）動画を
+   * 検証基準として組にする。main 側はこの basis とバイト単位で内容が一致することを
+   * 削除前に確認するため、対応する組を作れない id（保持候補がいないグループ）は
+   * 安全側に倒して削除対象から外す。
+   */
+  const buildDeleteRequests = (): Array<{ videoId: number; verifyAgainstVideoId: number }> =>
+    groups.flatMap((group) => {
+      const keep = group.videos.find((video) => !selectedIds.has(video.id));
+      if (!keep) return [];
+      return group.videos
+        .filter((video) => selectedIds.has(video.id))
+        .map((video) => ({ videoId: video.id, verifyAgainstVideoId: keep.id }));
+    });
+
   const deleteSelected = async (): Promise<void> => {
-    const ids = [...selectedIds];
-    if (ids.length === 0) return;
+    const requests = buildDeleteRequests();
+    if (requests.length === 0) return;
     const confirmed = window.confirm(
-      `選択した${ids.length}件の動画を削除しますか？\n\n動画ファイルはゴミ箱に移動されます。`,
+      `選択した${requests.length}件の動画を削除しますか？\n\n動画ファイルはゴミ箱に移動されます。`,
     );
     if (!confirmed) return;
 
     setDeleting(true);
     try {
-      const result = await ipc().deleteVideos(ids, true);
+      const result = await ipc().deleteVideos(requests, true);
       await Promise.all([
         qc.invalidateQueries({ queryKey: queryKeys.videos }),
         qc.invalidateQueries({ queryKey: queryKeys.tags }),

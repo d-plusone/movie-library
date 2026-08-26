@@ -383,6 +383,16 @@ export interface DeleteVideosResult {
   failed: number;
 }
 
+/**
+ * 重複動画の削除リクエスト。
+ * verifyAgainstVideoId は同一グループ内で保持する動画の ID — 削除前に
+ * バイト単位で内容が一致することを確認するための基準として main 側で使用する。
+ */
+export interface DeleteVideoRequest {
+  videoId: number;
+  verifyAgainstVideoId: number;
+}
+
 export interface DeleteProgress {
   current: number;
   total: number;

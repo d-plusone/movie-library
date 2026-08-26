@@ -21,6 +21,13 @@ const execFileAsync = promisify(execFile);
 // production ビルドではデバッグログを抑制
 const logger = createLogger(app.isPackaged);
 
+/**
+ * クリーンアップ対象から除外する「直近に書き込まれたファイル」の猶予期間。
+ * サムネイル生成はファイル書き込み後に DB 更新（updateVideo）を行うため、
+ * その間にクリーンアップが走ると生成直後のファイルを孤立と誤判定しうる。
+ */
+const THUMBNAIL_CLEANUP_GRACE_PERIOD_MS = 5 * 60 * 1000; // 5分
+
 class ThumbnailGenerator {
   private ffmpegPath: string | null = null;
   private db: PrismaDatabaseManager;
@@ -66,7 +73,7 @@ class ThumbnailGenerator {
 
   async generateThumbnails(video: VideoRecord): Promise<ThumbnailResult> {
     try {
-      const videoId = video.id || video.path.replace(/[^a-zA-Z0-9]/g, "_");
+      const videoId = video.id ?? video.path.replace(/[^a-zA-Z0-9]/g, "_");
       const mainThumbnailPath = path.join(
         this.thumbnailsDir,
         `${videoId}_main.jpg`,
@@ -243,21 +250,12 @@ class ThumbnailGenerator {
     return null;
   }
 
-  async thumbnailExists(thumbnailPath: string): Promise<boolean> {
-    try {
-      await fs.access(thumbnailPath);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
   async regenerateMainThumbnail(video: VideoRecord): Promise<RegenerateResult> {
     try {
       logger.debug("🎬 regenerateMainThumbnail: START for video:", video.path);
       logger.debug("🎬 Video ID:", video.id, "Duration:", video.duration);
 
-      const videoId = video.id || video.path.replace(/[^a-zA-Z0-9]/g, "_");
+      const videoId = video.id ?? video.path.replace(/[^a-zA-Z0-9]/g, "_");
       const mainThumbnailPath = path.join(
         this.thumbnailsDir,
         `${videoId}_main.jpg`,
@@ -280,20 +278,10 @@ class ThumbnailGenerator {
         ).toFixed(1)}%)`,
       );
 
-      // Delete the old thumbnail if it exists
-      if (await this.thumbnailExists(mainThumbnailPath)) {
-        try {
-          logger.debug("🎬 Deleting old thumbnail...");
-          await fs.unlink(mainThumbnailPath);
-          logger.debug("🎬 Deleted old main thumbnail");
-        } catch (error) {
-          console.warn(
-            "⚠️  Could not delete old thumbnail:",
-            (error as Error).message,
-          );
-        }
-      }
-
+      // 新しいサムネイルを生成する（generateSingleThumbnail は ffmpeg の -y で
+      // 同一パスを上書きするため、旧ファイルを事前に削除する必要はない。
+      // 事前削除すると ffmpeg 失敗時にサムネイルを完全に失ってしまうため、
+      // 生成が成功するまで旧ファイルはそのまま残す）
       // Generate new main thumbnail at random position
       logger.debug("🎬 Calling generateSingleThumbnail...");
       await this.generateSingleThumbnail(
@@ -401,7 +389,25 @@ class ThumbnailGenerator {
 
           for (const file of files) {
             const filePath = path.join(thumbnailDir, file);
-            const stats = await fs.stat(filePath);
+            let stats;
+            try {
+              stats = await fs.stat(filePath);
+            } catch (error) {
+              // 他プロセス（ファイル監視の unlink 処理や動画削除）との競合で
+              // readdir 後にファイルが消えている場合がある。1 件のスキップに留め、
+              // クリーンアップ全体を中断させない。
+              console.warn("Skipping file (stat failed):", filePath, error);
+              continue;
+            }
+
+            // 生成直後でまだ DB に thumbnailPath/chapterThumbnails がコミットされていない
+            // ファイルを誤って「孤立ファイル」と判定して削除しないよう、
+            // 直近に書き込まれたファイルは今回のクリーンアップでは対象外とする
+            // （次回実行時にはコミット済みのはずなので、本当に孤立していれば削除される）
+            const ageMs = Date.now() - stats.mtimeMs;
+            if (ageMs < THUMBNAIL_CLEANUP_GRACE_PERIOD_MS) {
+              continue;
+            }
 
             if (stats.isFile() && !validThumbnailPaths.has(filePath)) {
               try {

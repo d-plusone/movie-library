@@ -91,7 +91,10 @@ export async function getFfmpegPath(): Promise<string | null> {
       if (platform === "darwin") {
         archDir = arch === "arm64" ? "darwin-arm64" : "darwin-x64";
       } else if (platform === "win32") {
-        archDir = arch === "x64" ? "win32-x64" : "win32-ia32";
+        // 同梱している Windows 用バイナリは win32-x64 のみ（win32-ia32 は同梱していない）。
+        // arm64 (Windows on ARM) は x64 バイナリを WOW64 エミュレーションで実行できるため、
+        // ia32 に誤解決せず常に win32-x64 を使う。
+        archDir = "win32-x64";
       } else {
         archDir = "linux-x64";
       }
