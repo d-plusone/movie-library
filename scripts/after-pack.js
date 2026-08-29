@@ -1,4 +1,3 @@
-const { execSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 
@@ -34,14 +33,35 @@ exports.default = async function (context) {
 
   // Set executable permissions for ffmpeg and ffprobe binaries
   try {
-    // ffmpeg-static stores binary at the root level (same for all platforms)
+    // ffmpeg is shipped via electron-builder's extraResources (see package.json
+    // build.mac/build.win), NOT bundled inside node_modules/ffmpeg-static
+    // (that package isn't even a dependency of this project — this used to
+    // point there as a leftover from an earlier packaging approach and never
+    // actually matched a real file, so the chmod below silently no-op'd).
+    // Only darwin-arm64 (dmg) and win32-x64 (nsis) targets are built
+    // (see package.json build.mac.target / build.win.target).
+    let ffmpegArchDir;
+    if (electronPlatformName === "darwin") {
+      ffmpegArchDir = archString === "arm64" ? "darwin-arm64" : "darwin-x64";
+    } else if (electronPlatformName === "win32") {
+      ffmpegArchDir = "win32-x64";
+    } else {
+      ffmpegArchDir = "linux-x64";
+    }
+    const ffmpegExt = electronPlatformName === "win32" ? ".exe" : "";
     const ffmpegPath = path.join(
       resourcesPath,
-      "app.asar.unpacked",
-      "node_modules",
-      "ffmpeg-static",
-      "ffmpeg",
+      "ffmpeg-bin",
+      ffmpegArchDir,
+      `ffmpeg${ffmpegExt}`,
     );
+
+    // macOS arm64 は Homebrew非依存の静的リンク ffprobe を extraResources 経由で
+    // 同梱している（scripts/prepare-ffprobe.js が用意する）。
+    const staticFfprobePath =
+      electronPlatformName === "darwin" && archString === "arm64"
+        ? path.join(resourcesPath, "ffprobe-bin", "darwin-arm64", "ffprobe")
+        : null;
 
     // ffprobe path with platform-specific directory structure
     // For universal builds, try both x64 and arm64
@@ -95,6 +115,15 @@ exports.default = async function (context) {
       // Set executable permission for ffmpeg
       if (fs.existsSync(ffmpegPath)) {
         fs.chmodSync(ffmpegPath, 0o755);
+        console.log(`✓ chmod +x ${path.relative(resourcesPath, ffmpegPath)}`);
+      }
+
+      // Set executable permission for the bundled static ffprobe (macOS arm64)
+      if (staticFfprobePath && fs.existsSync(staticFfprobePath)) {
+        fs.chmodSync(staticFfprobePath, 0o755);
+        console.log(
+          `✓ chmod +x ${path.relative(resourcesPath, staticFfprobePath)}`,
+        );
       }
 
       // Set executable permission for ffprobe (try all possible paths)

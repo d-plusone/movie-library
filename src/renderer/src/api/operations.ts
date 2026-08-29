@@ -26,12 +26,22 @@ function messageOf(e: Error | string): string {
 /** フォルダ選択 → 登録 → 自動スキャン → 必要ならサムネイル生成までの一連の流れ */
 export async function addDirectoriesFlow(deps: OperationDeps): Promise<void> {
   const { notify, qc } = deps;
+  // 追加済みのパス。途中で失敗しても、ここまで成功した分は必ず一覧に反映する
+  // （そうしないと DB には登録済みなのに UI キャッシュにだけ現れない状態になる）
+  const addedPaths: string[] = [];
   try {
     const paths = await ipc().chooseDirectory();
     if (paths.length === 0) return;
 
-    for (const path of paths) {
-      await ipc().addDirectory(path);
+    try {
+      for (const path of paths) {
+        await ipc().addDirectory(path);
+        addedPaths.push(path);
+      }
+    } finally {
+      if (addedPaths.length > 0) {
+        await qc.invalidateQueries({ queryKey: queryKeys.directories });
+      }
     }
     notify(`${paths.length}個のディレクトリを追加しました`, "success");
 
@@ -56,7 +66,12 @@ export async function addDirectoriesFlow(deps: OperationDeps): Promise<void> {
     }
   } catch (e) {
     console.error("Error adding directory:", e);
-    notify(`ディレクトリの追加に失敗しました (${messageOf(e as Error)})`, "error");
+    const partial =
+      addedPaths.length > 0 ? `（${addedPaths.length}件は追加済み）` : "";
+    notify(
+      `ディレクトリの追加に失敗しました${partial} (${messageOf(e as Error)})`,
+      "error",
+    );
   }
 }
 
@@ -135,6 +150,11 @@ export async function cleanupThumbnailsOp(deps: OperationDeps): Promise<void> {
 export async function rescanAllFlow(deps: OperationDeps): Promise<void> {
   const { notify, qc } = deps;
   try {
+    // main 側の rescan-all-videos ハンドラは、再スキャン本体だけでなく
+    // その後の自動サムネイル生成まで完了してから resolve する。
+    // そのため、ここに到達した時点で両方とも完了済みであり、
+    // 「生成中...」という中間通知や、その完了を待つための追加の遅延は不要
+    // （以前はここで無意味な setTimeout を挟んでおり、実態と表示がずれていた）。
     const result = await ipc().rescanAllVideos();
     await invalidateLibraryData(qc);
 
@@ -143,17 +163,9 @@ export async function rescanAllFlow(deps: OperationDeps): Promise<void> {
     if (result.totalUpdated > 0) details.push(`更新: ${result.totalUpdated}件`);
     if ((result.totalErrors ?? 0) > 0) details.push(`エラー: ${result.totalErrors}件`);
 
-    let message = "再スキャン完了";
+    let message = "再スキャンとサムネイル生成が完了しました";
     if (details.length > 0) message += ` (${details.join(", ")})`;
-    message += " - サムネイル生成中...";
-    notify(message, (result.totalErrors ?? 0) > 0 ? "warning" : "info");
-
-    // サムネイル生成は main 側で自動実行されるため、完了通知のみ遅延表示する
-    window.setTimeout(() => {
-      void invalidateLibraryData(qc).then(() => {
-        notify("再スキャンとサムネイル生成が完了しました", "success");
-      });
-    }, 2000);
+    notify(message, (result.totalErrors ?? 0) > 0 ? "warning" : "success");
   } catch (e) {
     console.error("Error rescanning all videos:", e);
     notify(`全動画再スキャンに失敗しました (${messageOf(e as Error)})`, "error");

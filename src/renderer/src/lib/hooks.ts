@@ -96,9 +96,14 @@ export function useIncrementalRender(
   const [count, setCount] = useState(() => Math.min(batchSize, total));
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
-  // 総数の変化（フィルタ変更など）に追従してクランプ
+  // 総数の変化（フィルタ変更など）に追従してクランプ。
+  // 上限は必ず total 自体にする（Math.max(total, batchSize) だと、
+  // フィルタで total が batchSize 未満まで絞られたときに
+  // count が total を超えたまま残ってしまう）。
   useEffect(() => {
-    setCount((current) => Math.min(Math.max(current, batchSize), Math.max(total, batchSize)));
+    setCount((current) =>
+      Math.min(Math.max(current, Math.min(batchSize, total)), total),
+    );
   }, [total, batchSize]);
 
   const ensure = useCallback(

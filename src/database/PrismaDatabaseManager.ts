@@ -3,6 +3,7 @@ import {
   Prisma,
 } from "../../generated/prisma";
 import path from "path";
+import { promises as fs } from "fs";
 import { app } from "electron";
 import { spawn } from "child_process";
 import type {
@@ -85,6 +86,21 @@ function isRetryableDbError(error: unknown): boolean {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * filePath が dir 配下（dir 自身を含む）かどうかを判定する。
+ * dir の末尾セパレータ有無や区切り文字（"/" / "\\"）の違いを正規化してから比較する
+ * （VideoScanner.ts の同名ヘルパーと同じロジック。DB 層は scanner モジュールに
+ * 依存させたくないためここに複製している）。
+ */
+function isPathUnderDirectory(filePath: string, dir: string): boolean {
+  const normalizedDir = dir.replace(/[/\\]+$/, "");
+  return (
+    filePath === normalizedDir ||
+    filePath.startsWith(`${normalizedDir}/`) ||
+    filePath.startsWith(`${normalizedDir}\\`)
+  );
 }
 
 // Prisma の orderBy に使用可能なフィールドのみ許可
@@ -617,11 +633,46 @@ class PrismaDatabaseManager {
     return directory.id;
   }
 
+  /**
+   * ディレクトリの登録解除。
+   * Directory と Video の間には DB 上の関連（FK）が無く、パスの前方一致だけで
+   * 暗黙的に紐づいているため、ここで明示的にディレクトリ配下の Video を削除しないと
+   * 二度と削除判定にかからない孤立レコード（タグ・サムネイル参照含む）が残り続ける
+   * （VideoScanner の削除検出は「現在登録済みのディレクトリ配下か」を見るため、
+   * 登録解除した時点でその配下の動画は永久に対象外になる）。
+   * 元動画ファイル自体は削除しない（ここでの「削除」はライブラリからの追跡解除のため）。
+   */
   async removeDirectory(directoryPath: string): Promise<boolean> {
     try {
-      await this._prisma.directory.delete({
-        where: { path: directoryPath },
+      const allVideos = await this._prisma.video.findMany({
+        select: { id: true, path: true, thumbnailPath: true, chapterThumbnails: true },
       });
+      const videosUnderDir = allVideos.filter((video) =>
+        isPathUnderDirectory(video.path, directoryPath),
+      );
+
+      // アプリが生成した副産物（サムネイル）のみベストエフォートで削除する。
+      // 元動画ファイルには一切触れない。
+      for (const video of videosUnderDir) {
+        if (video.thumbnailPath) {
+          await fs.unlink(video.thumbnailPath).catch(() => {});
+        }
+        const chapters = safeParseChapterThumbnails(video.chapterThumbnails);
+        for (const chapter of chapters) {
+          if (chapter.path) {
+            await fs.unlink(chapter.path).catch(() => {});
+          }
+        }
+      }
+
+      // Video 削除 + Directory 削除は同一トランザクションで行う
+      // （VideoTag は video 側の onDelete: Cascade で自動的に削除される）
+      await this._prisma.$transaction([
+        this._prisma.video.deleteMany({
+          where: { id: { in: videosUnderDir.map((video) => video.id) } },
+        }),
+        this._prisma.directory.delete({ where: { path: directoryPath } }),
+      ]);
       return true;
     } catch (error) {
       console.error("Error removing directory:", error);

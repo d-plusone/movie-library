@@ -23,10 +23,11 @@ export function formatFileSize(bytes: number | bigint): string {
   return `${value} ${sizes[i]}`;
 }
 
-/** ファイル名から拡張子を大文字で取り出す */
+/** ファイル名から拡張子を大文字で取り出す（ドットが無い場合は空文字） */
 export function getFileExtension(filename: string): string {
-  const ext = filename.split(".").pop();
-  return ext ? ext.toUpperCase() : "";
+  const lastDot = filename.lastIndexOf(".");
+  if (lastDot <= 0 || lastDot === filename.length - 1) return "";
+  return filename.slice(lastDot + 1).toUpperCase();
 }
 
 /**
@@ -78,8 +79,9 @@ export function formatDate(date: Date | string): string {
   return d.toLocaleDateString("ja-JP");
 }
 
-/** FPS を桁数を整えて表示する（0 は "0"） */
+/** FPS を桁数を整えて表示する（0 は "0"、不正な値は "-"） */
 export function formatFps(fps: number): string {
+  if (!Number.isFinite(fps)) return "-";
   if (fps === 0) return "0";
   if (Number.isInteger(fps)) return fps.toString();
   const firstDecimal = Math.round(fps * 10) / 10;

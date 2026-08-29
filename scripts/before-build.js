@@ -1,4 +1,3 @@
-const { execSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 
@@ -34,47 +33,32 @@ exports.default = async function (context) {
         `✅ @ffmpeg-installer/win32-x64/ffmpeg.exe already present (${stats.size} bytes)`,
       );
     } else {
-      console.log("📦 @ffmpeg-installer/win32-x64 not found, installing...");
-      try {
-        // プラットフォームを win32 に強制して npm install
-        // --no-save で package.json は変更しない
-        // npm_config_os / npm_config_cpu で OS チェックをバイパスして
-        // macOS 上でも Windows バイナリをインストールできる
-        execSync("npm install @ffmpeg-installer/win32-x64 --no-save", {
-          cwd: path.join(__dirname, ".."),
-          stdio: "inherit",
-          env: {
-            ...process.env,
-            npm_config_os: "win32",
-            npm_config_cpu: "x64",
-          },
-        });
-
-        if (fs.existsSync(ffmpegExePath)) {
-          const stats = fs.statSync(ffmpegExePath);
-          console.log(`✅ ffmpeg.exe installed: ${stats.size} bytes`);
-
-          // Windows PE形式かどうか確認 (MZ ヘッダー = 4d5a)
-          const buf = Buffer.alloc(2);
-          const fd = fs.openSync(ffmpegExePath, "r");
-          fs.readSync(fd, buf, 0, 2, 0);
-          fs.closeSync(fd);
-          if (buf[0] === 0x4d && buf[1] === 0x5a) {
-            console.log("✅ Binary is Windows PE format (MZ header) ✅");
-          } else {
-            console.warn(
-              `⚠️  Unexpected binary header: ${buf.toString("hex")} — may not be a valid Windows binary`,
-            );
-          }
-        } else {
-          throw new Error("ffmpeg.exe not found after install");
-        }
-      } catch (error) {
-        console.error("❌ Error preparing Windows ffmpeg:", error.message);
-        console.warn(
-          "⚠️  Build will continue, but ffmpeg may not work on Windows",
-        );
-      }
+      // pnpm はプラットフォーム/CPU が一致しない optionalDependencies を
+      // インストールしないため、macOS/Linux 上で Windows 向けビルドを行う場合は
+      // この依存を明示的に取得しておく必要がある。
+      //
+      // ここで npm install にフォールバックしてはいけない: pnpm が管理する
+      // node_modules はシンボリックリンクの構造（.pnpm ストア）に依存しており、
+      // 生の npm install を混在させるとその構造が壊れる
+      // （実際に過去これが原因でリポジトリ直下に package-lock.json が
+      // 誤って生成されたことがある）。失敗を警告に留めてビルドを継続すると、
+      // 壊れた/存在しない ffmpeg.exe のまま Windows パッケージが作られてしまうため、
+      // ここでは自動修復を試みずビルドを止める。
+      console.error(
+        "❌ @ffmpeg-installer/win32-x64/ffmpeg.exe not found in node_modules.",
+      );
+      console.error(
+        "   Windows 向けクロスビルドの前に、次のコマンドで明示的に取得してください:",
+      );
+      console.error(
+        "     pnpm add -D --no-save @ffmpeg-installer/win32-x64 --config.supportedArchitectures.os=win32 --config.supportedArchitectures.cpu=x64",
+      );
+      console.error(
+        "   (pnpm が管理する node_modules を壊すため、ここで npm install は行いません)",
+      );
+      throw new Error(
+        "@ffmpeg-installer/win32-x64/ffmpeg.exe is missing — see instructions above before building for Windows",
+      );
     }
   }
 
