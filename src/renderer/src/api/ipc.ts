@@ -18,6 +18,7 @@ export const queryKeys = {
   videos: ["videos"] as const,
   tags: ["tags"] as const,
   directories: ["directories"] as const,
+  directoryStatuses: ["directory-statuses"] as const,
 } as const;
 
 /** 進捗イベントが「進捗中」かどうかの型ガード */

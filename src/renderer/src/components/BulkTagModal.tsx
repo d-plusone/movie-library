@@ -86,7 +86,7 @@ export function BulkTagModal({ videos }: BulkTagModalProps) {
       } else {
         notify(
           `タグの一括反映が完了しました (成功: ${successCount}件、失敗: ${errorCount}件)`,
-          "info",
+          "warning",
         );
       }
       ui.setBulkTagOpen(false);

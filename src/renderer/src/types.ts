@@ -18,6 +18,3 @@ export interface FilterState {
 
 /** 詳細パネル等で選択中の動画参照 */
 export type SelectedVideo = SharedVideo;
-
-/** 通知種別（CSS クラス名に対応） */
-export type NotificationType = "info" | "success" | "warning" | "error";

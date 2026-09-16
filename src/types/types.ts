@@ -7,6 +7,11 @@
 // 基本的なエンティティ型
 // ========================================
 
+/**
+ * 通知トーストの種別（CSS クラス名に対応）
+ */
+export type NotificationType = "info" | "success" | "warning" | "error";
+
 export interface ChapterThumbnail {
   path: string;
   timestamp: number;
@@ -43,6 +48,19 @@ export interface Directory {
   path: string;
   name: string;
   addedAt: Date;
+}
+
+/**
+ * 登録ディレクトリの接続状態。
+ * NAS（SMB 共有）の切断中は "offline"（登録は維持し、再接続を試行する）。
+ */
+export type DirectoryAvailability = "online" | "offline";
+
+export interface DirectoryStatus {
+  path: string;
+  status: DirectoryAvailability;
+  /** 変化前の状態（未確定の場合は undefined）。描画側の通知判定に使う */
+  previousStatus?: DirectoryAvailability;
 }
 
 export interface Tag {
@@ -170,8 +188,17 @@ export type ProgressEvent =
       message?: string;
       /** 処理対象ファイル名 */
       file?: string;
+      /** true のときトースト通知は出さず、進捗オーバーレイにのみ表示する */
+      silent?: boolean;
     }
-  | { kind: "done"; message: string };
+  | {
+      kind: "done";
+      message: string;
+      /** トーストの種別（省略時は "success"） */
+      type?: NotificationType;
+      /** true のときはトーストを出さない（no-op 完了。進行中エントリが無ければオーバーレイにも出さない） */
+      silent?: boolean;
+    };
 
 /** 重複検索の進捗（duplicate-search-progress チャネル） */
 export interface DuplicateSearchProgress {

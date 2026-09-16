@@ -54,10 +54,16 @@ export function Sidebar() {
     queryFn: () => ipc().getDirectories(),
     staleTime: Infinity,
   });
+  const directoryStatusesQuery = useQuery({
+    queryKey: queryKeys.directoryStatuses,
+    queryFn: () => ipc().getDirectoryStatuses(),
+    staleTime: Infinity,
+  });
 
   const videos = videosQuery.data ?? [];
   const tags = tagsQuery.data ?? [];
   const directories = directoriesQuery.data ?? [];
+  const directoryStatuses = directoryStatusesQuery.data ?? {};
 
   // ファセット件数: 各軸の件数は「その軸以外のフィルタを反映した結果」で集計する
   // （例: 解像度の件数は、フォルダ/タグ/検索などの選択状態を反映する）
@@ -133,6 +139,10 @@ export function Sidebar() {
   );
   const codecOpts = useMemo(() => codecOptions(facetBase.codecs), [facetBase.codecs]);
   const directoryPaths = directories.map((d) => d.path);
+  // 接続エラー中のディレクトリはフィルタとして選択できない
+  const selectableDirectoryPaths = directoryPaths.filter(
+    (path) => directoryStatuses[path] !== "offline",
+  );
 
   return (
     <aside id="sidebar" className={`sidebar${ui.sidebarCollapsed ? " collapsed" : ""}`}>
@@ -286,7 +296,7 @@ export function Sidebar() {
               type="button"
               id="selectAllFoldersBtn"
               className="btn btn-small"
-              onClick={() => filtersState.selectAllDirectories(directoryPaths)}
+              onClick={() => filtersState.selectAllDirectories(selectableDirectoryPaths)}
             >
               全て選択
             </button>
@@ -300,38 +310,60 @@ export function Sidebar() {
             </button>
           </div>
           <div id="directoriesList" className="directories-list">
-            {directories.map((directory) => (
-              <div
-                key={directory.path}
-                className={`directory-item${filters.directories.includes(directory.path) ? " selected" : ""}`}
-                data-path={directory.path}
-                role="button"
-                tabIndex={0}
-                onClick={() => filtersState.toggleDirectory(directory.path)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ")
+            {directories.map((directory) => {
+              const unavailable =
+                directoryStatuses[directory.path] === "offline";
+              return (
+                <div
+                  key={directory.path}
+                  className={`directory-item${filters.directories.includes(directory.path) ? " selected" : ""}${unavailable ? " unavailable" : ""}`}
+                  data-path={directory.path}
+                  role="button"
+                  tabIndex={unavailable ? -1 : 0}
+                  aria-disabled={unavailable || undefined}
+                  title={
+                    unavailable
+                      ? `接続エラー: ${directory.path}（再接続を試行中）`
+                      : directory.path
+                  }
+                  onClick={() => {
+                    if (unavailable) return;
                     filtersState.toggleDirectory(directory.path);
-                }}
-              >
-                <span className="directory-path" title={directory.path}>
-                  {basename(directory.path)}
-                </span>
-                <div className="directory-actions">
-                  <button
-                    type="button"
-                    className="directory-remove-btn"
-                    title="削除"
-                    aria-label={`フォルダ「${basename(directory.path)}」を削除`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onRemoveDirectory(directory.path);
-                    }}
-                  >
-                    ×
-                  </button>
+                  }}
+                  onKeyDown={(e) => {
+                    if (unavailable) return;
+                    if (e.key === "Enter" || e.key === " ")
+                      filtersState.toggleDirectory(directory.path);
+                  }}
+                >
+                  <span className="directory-path" title={directory.path}>
+                    {basename(directory.path)}
+                  </span>
+                  {unavailable && (
+                    <span
+                      className="directory-status-badge offline"
+                      title="接続できません（再接続を試行中）"
+                    >
+                      接続エラー
+                    </span>
+                  )}
+                  <div className="directory-actions">
+                    <button
+                      type="button"
+                      className="directory-remove-btn"
+                      title="削除"
+                      aria-label={`フォルダ「${basename(directory.path)}」を削除`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onRemoveDirectory(directory.path);
+                      }}
+                    >
+                      ×
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 

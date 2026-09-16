@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ipc, queryKeys } from "./api/ipc";
-import { addDirectoriesFlow, removeDirectoryFlow } from "./api/operations";
+import { addDirectoriesFlow } from "./api/operations";
 import { filterVideos, sortVideos, readStoredDirectoryCount } from "./lib/filters";
 import { useDebouncedValue } from "./lib/hooks";
 import { FilterProvider, useFilters } from "./state/FilterContext";
@@ -26,7 +26,7 @@ import { TagEditDialog } from "./components/TagEditDialog";
 import { Toasts } from "./components/Toasts";
 import { ProgressOverlay } from "./components/ProgressOverlay";
 import { VideoArea } from "./components/VideoArea";
-import type { Video } from "./types";
+import type { DirectoryStatus, Video } from "./types";
 
 /** グリッドの 1 行あたり表示数を測定する（旧 calculateVideosPerRow の移植） */
 function measureVideosPerRow(container: HTMLDivElement): number {
@@ -49,6 +49,8 @@ function Shell() {
 
   const listRef = useRef<HTMLDivElement | null>(null);
   const startupRanRef = useRef(false);
+  /** 接続エラーを通知済みのディレクトリ（起動時処理との二重通知を防ぐ） */
+  const offlineNotifiedRef = useRef<Set<string>>(new Set());
 
   const debouncedSearch = useDebouncedValue(search, 200);
   const syncAvailableDirectories = filterState.syncAvailableDirectories;
@@ -63,6 +65,11 @@ function Shell() {
     queryFn: () => ipc().getDirectories(),
     staleTime: Infinity,
   });
+  const directoryStatusesQuery = useQuery({
+    queryKey: queryKeys.directoryStatuses,
+    queryFn: () => ipc().getDirectoryStatuses(),
+    staleTime: Infinity,
+  });
 
   const allVideos = videosQuery.data ?? [];
 
@@ -74,11 +81,21 @@ function Shell() {
     return sortVideos(filtered, sort);
   }, [allVideos, filters, debouncedSearch, sort]);
 
-  // ディレクトリ一覧をフィルタ状態へ同期
+  // ディレクトリ一覧と接続状態をフィルタ状態へ同期。
+  // 接続エラー中のディレクトリは選択対象から外れ（復帰時に自動で戻る）、フィルタは非活性になる
   useEffect(() => {
     if (directoriesQuery.data === undefined) return;
-    syncAvailableDirectories(directoriesQuery.data.map((directory) => directory.path));
-  }, [directoriesQuery.data, syncAvailableDirectories]);
+    const statuses = directoryStatusesQuery.data ?? {};
+    const paths = directoriesQuery.data.map((directory) => directory.path);
+    const unavailablePaths = paths.filter(
+      (path) => statuses[path] === "offline",
+    );
+    syncAvailableDirectories(paths, unavailablePaths);
+  }, [
+    directoriesQuery.data,
+    directoryStatusesQuery.data,
+    syncAvailableDirectories,
+  ]);
 
   const playVideo = useCallback(
     (video: Video): void => {
@@ -92,23 +109,42 @@ function Shell() {
     [ui],
   );
 
-  // ウォッチャー由来の IPC イベントでキャッシュを更新する
+  // ウォッチャー由来の IPC イベントでキャッシュを更新する。
+  // 追加・削除の完了トーストは main の進捗イベント（ProgressContext）側から出る
   useEffect(() => {
-    window.electronAPI.onVideoAdded((filePath) => {
+    window.electronAPI.onVideoAdded(() => {
       void qc.invalidateQueries({ queryKey: queryKeys.videos });
-      notify(`新しい動画が追加されました: ${basename(filePath)}`, "success");
     });
-    window.electronAPI.onVideoRemoved((filePath) => {
+    window.electronAPI.onVideoRemoved(() => {
       void qc.invalidateQueries({ queryKey: queryKeys.videos });
-      notify(`動画が削除されました: ${basename(filePath)}`, "info");
     });
-    window.electronAPI.onDirectoryRemoved((dirPath) => {
-      void Promise.all([
-        qc.invalidateQueries({ queryKey: queryKeys.directories }),
-        qc.invalidateQueries({ queryKey: queryKeys.videos }),
-      ]);
-      notify(`ディレクトリが削除されました: ${basename(dirPath)}`, "warning");
-    });
+  }, [qc]);
+
+  // NAS（SMB 共有）の接続エラー / 再接続の通知。
+  // 切断中も登録は維持される（main 側が接続エラーとして保持し再接続を試行する）
+  useEffect(() => {
+    const handler = (data: DirectoryStatus): void => {
+      void qc.invalidateQueries({ queryKey: queryKeys.directoryStatuses });
+      if (data.status === "offline") {
+        if (offlineNotifiedRef.current.has(data.path)) return;
+        offlineNotifiedRef.current.add(data.path);
+        notify(
+          `フォルダに接続できません（再接続を試行中）: ${basename(data.path)}`,
+          "warning",
+        );
+        return;
+      }
+      // 初回確認（previousStatus なし）では通知しない
+      if (data.previousStatus !== "offline") return;
+      offlineNotifiedRef.current.delete(data.path);
+      notify(`フォルダに再接続しました: ${basename(data.path)}`, "success");
+      // 切断中に増えたファイルを取り込むには再スキャンが必要
+      void qc.invalidateQueries({ queryKey: queryKeys.videos });
+    };
+    window.electronAPI.onDirectoryStatusChanged(handler);
+    return () => {
+      window.electronAPI.offDirectoryStatusChanged(handler);
+    };
   }, [qc, notify]);
 
   // ネイティブメニュー（Cmd+, / Cmd+O）からの IPC イベント
@@ -123,44 +159,47 @@ function Shell() {
     });
   }, [ui, qc, notify]);
 
-  // 起動時処理: 存在しないディレクトリの除外 + 不完全サムネイルの補完
+  // 起動時処理: 接続できないフォルダの通知 + 不完全サムネイルの補完。
+  // NAS の切断中でも登録は削除しない（main 側がオフラインとして保持し再接続を試行する）
   useEffect(() => {
     if (startupRanRef.current) return;
     const directories = directoriesQuery.data;
     if (directories === undefined) return;
 
     startupRanRef.current = true;
-    const deps = { qc, notify };
 
     void (async () => {
-      const removed: string[] = [];
-      for (const directory of directories) {
-        try {
-          const exists = await ipc().checkDirectoryExists(directory.path);
-          if (!exists) {
-            await removeDirectoryFlow(deps, directory.path);
-            removed.push(directory.path);
-          }
-        } catch (e) {
-          console.warn("Failed to check directory existence:", directory.path, e);
+      try {
+        const statuses = await ipc().getDirectoryStatuses();
+        const newlyOffline = directories.filter(
+          (directory) =>
+            statuses[directory.path] === "offline" &&
+            !offlineNotifiedRef.current.has(directory.path),
+        );
+        for (const directory of newlyOffline) {
+          offlineNotifiedRef.current.add(directory.path);
         }
-      }
-      if (removed.length > 0) {
-        await qc.invalidateQueries({ queryKey: queryKeys.directories });
-        await qc.invalidateQueries({ queryKey: queryKeys.videos });
-        if (removed.length === 1) {
-          notify(`削除されたディレクトリをアプリから除外しました: ${basename(removed[0] ?? "")}`, "warning");
-        } else {
-          notify(`${removed.length}個の削除されたディレクトリをアプリから除外しました`, "warning");
+        if (newlyOffline.length === 1) {
+          notify(
+            `フォルダに接続できません（再接続を試行中）: ${basename(newlyOffline[0]!.path)}`,
+            "warning",
+          );
+        } else if (newlyOffline.length > 1) {
+          notify(
+            `${newlyOffline.length}個のフォルダに接続できません（再接続を試行中）`,
+            "warning",
+          );
         }
+      } catch (e) {
+        console.warn("Failed to check directory availability:", e);
       }
 
       // 不完全なサムネイルをバックグラウンドで補完
+      // （完了トーストは main の進捗イベント（ProgressContext）側から出る）
       try {
         const result = await ipc().generateIncompleteThumbnails();
-        if (result.total > 0) {
+        if (result.generated > 0) {
           await qc.invalidateQueries({ queryKey: queryKeys.videos });
-          notify(`不完全なサムネイルを補完しました (${result.generated}/${result.total})`, "info");
         }
       } catch (e) {
         console.error("Error during incomplete thumbnail generation:", e);

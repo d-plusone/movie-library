@@ -2,6 +2,8 @@
  * main プロセスからの進捗イベントを集約する（旧 UnifiedProgressManager の移植）
  *
  * - scan / rescan / thumbnail の各チャネルを受信し、統一オーバーレイ用の状態へ変換する
+ * - 進捗の開始と完了はトーストにも流す。完了メッセージ（件数入り）は main 側が送るため
+ *   ここでは文言を加工せず、`type` と `silent` に従って表示するだけにする
  * - rescan-progress は専用チャネルを持つため owner: true を正しく付与できるが、
  *   thumbnail-regen（全て再生成）・cleanup は thumbnail-progress を他の処理
  *   （通常のサムネイル生成・再スキャン後の自動生成）と共有しており、ここだけでは
@@ -11,13 +13,16 @@
  */
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
 import type { ProgressEvent } from "../../../types/types";
+import { useNotify } from "./NotificationContext";
 
 export interface ProgressEntry {
   id: string;
@@ -119,6 +124,8 @@ function applyEvent(
   // kind === "done"
   const existing = previous.find((entry) => entry.id === binding.id && !entry.completed);
   if (!existing) {
+    // 表示対象にならない完了（何もしなかった no-op など）はエントリを作らない
+    if (event.silent) return previous;
     // プログレス未登録なら一時的に作って即完了扱い（旧挙動）
     return [
       ...previous.filter((entry) => entry.id !== binding.id),
@@ -143,16 +150,59 @@ function applyEvent(
 }
 
 export function ProgressProvider({ children }: { children: ReactNode }) {
+  const { notify } = useNotify();
   const [entries, setEntries] = useState<ProgressEntry[]>([]);
+  /**
+   * entries のミラー。IPC イベント受信時に「開始済みか」を同期的に判定するために使う。
+   * イベント処理時に状態と一緒に更新するため、連続イベントでも開始判定を誤らない
+   */
+  const entriesRef = useRef<ProgressEntry[]>([]);
+
+  const updateEntries = useCallback(
+    (updater: (current: ProgressEntry[]) => ProgressEntry[]) => {
+      setEntries((current) => {
+        const next = updater(current);
+        entriesRef.current = next;
+        return next;
+      });
+    },
+    [],
+  );
 
   useEffect(() => {
     const api = window.electronAPI;
+
+    const handle = (channel: ProgressChannel, data: ProgressEvent): void => {
+      const previous = entriesRef.current;
+      const binding = bindingFor(channel, previous);
+      // 進行中のエントリがまだ無ければ、この progress イベントが操作の開始
+      const isNewOperation = !previous.some(
+        (entry) => entry.id === binding.id && !entry.completed,
+      );
+
+      if (!data.silent) {
+        if (data.kind === "progress" && isNewOperation) {
+          notify(
+            data.message ?? `${binding.label} (${data.current}/${data.total})`,
+            "info",
+          );
+        } else if (data.kind === "done") {
+          notify(data.message, data.type ?? "success");
+        }
+      }
+
+      // 連続イベントで開始判定を誤らないよう、状態と ref を同期的に進める
+      const next = applyEvent(previous, channel, data);
+      entriesRef.current = next;
+      setEntries(next);
+    };
+
     const onScan = (data: ProgressEvent): void =>
-      setEntries((current) => applyEvent(current, "scan-progress", data));
+      handle("scan-progress", data);
     const onRescan = (data: ProgressEvent): void =>
-      setEntries((current) => applyEvent(current, "rescan-progress", data));
+      handle("rescan-progress", data);
     const onThumbnail = (data: ProgressEvent): void =>
-      setEntries((current) => applyEvent(current, "thumbnail-progress", data));
+      handle("thumbnail-progress", data);
 
     api.onScanProgress(onScan);
     api.onRescanProgress(onRescan);
@@ -164,13 +214,13 @@ export function ProgressProvider({ children }: { children: ReactNode }) {
       api.offRescanProgress(onRescan);
       api.offThumbnailProgress(onThumbnail);
     };
-  }, []);
+  }, [notify]);
 
   // 完了エントリの遅延除去 + スタイル（長時間更新なし）エントリの自動完了
   useEffect(() => {
     const timer = window.setInterval(() => {
       const now = Date.now();
-      setEntries((current) => {
+      updateEntries((current) => {
         let changed = false;
         const next = current
           .map((entry) => {
@@ -194,7 +244,7 @@ export function ProgressProvider({ children }: { children: ReactNode }) {
       });
     }, 1000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [updateEntries]);
 
   const value = useMemo<ProgressContextValue>(
     () => ({

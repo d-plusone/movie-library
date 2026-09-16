@@ -12,6 +12,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -46,7 +47,7 @@ interface FilterContextValue {
   setSaveEnabled: (enabled: boolean) => void;
 
   /** ディレクトリ一覧の同期（選択状態のプルーニングと初回全選択を含む） */
-  syncAvailableDirectories: (paths: string[]) => void;
+  syncAvailableDirectories: (paths: string[], unavailablePaths?: string[]) => void;
 }
 
 const FilterContext = createContext<FilterContextValue | null>(null);
@@ -122,32 +123,65 @@ export function FilterProvider({ children }: { children: ReactNode }) {
     localStorage.getItem(LS_VIEW_MODE) === "list" ? "list" : "grid",
   );
 
+  /** 接続エラーで選択から外れたディレクトリ（復帰時に自動で選択へ戻す） */
+  const pendingSelectionRef = useRef<Set<string>>(new Set());
+
   /**
    * ディレクトリ一覧の同期。
    * 実際に変化がある場合のみ state を更新する（同一オブジェクトを返すことで
    * 再レンダリングを抑制し、呼び出し側 effect の無限ループを防ぐ）。
+   *
+   * unavailablePaths（NAS 切断中など）は選択対象から除外する。
+   * 除外した選択は記憶しておき、復帰時に自動で選択へ戻す。
    */
-  const syncAvailableDirectories = useCallback((paths: string[]): void => {
-    localStorage.setItem(LS_AVAILABLE_DIRS, JSON.stringify(paths));
+  const syncAvailableDirectories = useCallback(
+    (paths: string[], unavailablePaths: string[] = []): void => {
+      localStorage.setItem(LS_AVAILABLE_DIRS, JSON.stringify(paths));
 
-    const sameList = (a: string[], b: string[]): boolean =>
-      a.length === b.length && a.every((item, i) => item === b[i]);
+      const sameList = (a: string[], b: string[]): boolean =>
+        a.length === b.length && a.every((item, i) => item === b[i]);
 
-    setFilters((prev) => {
-      if (!readSaveEnabled()) {
-        // 保存無効時は常に全選択
-        return sameList(prev.directories, paths) ? prev : { ...prev, directories: paths };
-      }
+      const unavailable = new Set(unavailablePaths);
+      const selectablePaths = paths.filter((path) => !unavailable.has(path));
 
-      const pruned = prev.directories.filter((selected) => paths.includes(selected));
-      const hasSavedState = localStorage.getItem(LS_FILTER_STATE) !== null;
-      if (!hasSavedState && pruned.length === 0 && paths.length > 0) {
-        // 初回起動時のみ全選択
-        return sameList(prev.directories, paths) ? prev : { ...prev, directories: paths };
-      }
-      return sameList(prev.directories, pruned) ? prev : { ...prev, directories: pruned };
-    });
-  }, []);
+      setFilters((prev) => {
+        if (!readSaveEnabled()) {
+          // 保存無効時は常に全選択（ただし切断中のディレクトリは除く）
+          return sameList(prev.directories, selectablePaths)
+            ? prev
+            : { ...prev, directories: selectablePaths };
+        }
+
+        const selectable = new Set(selectablePaths);
+        const pruned = prev.directories.filter((selected) => selectable.has(selected));
+        for (const removed of prev.directories) {
+          if (!selectable.has(removed)) {
+            // 切断で選択から外れたディレクトリは、復帰時に戻せるよう記憶しておく
+            pendingSelectionRef.current.add(removed);
+          }
+        }
+        const restored: string[] = [];
+        for (const pending of pendingSelectionRef.current) {
+          if (selectable.has(pending) && !pruned.includes(pending)) {
+            restored.push(pending);
+            pendingSelectionRef.current.delete(pending);
+          }
+        }
+        const next =
+          restored.length > 0 ? [...pruned, ...restored] : pruned;
+
+        const hasSavedState = localStorage.getItem(LS_FILTER_STATE) !== null;
+        if (!hasSavedState && next.length === 0 && selectablePaths.length > 0) {
+          // 初回起動時のみ全選択
+          return sameList(prev.directories, selectablePaths)
+            ? prev
+            : { ...prev, directories: selectablePaths };
+        }
+        return sameList(prev.directories, next) ? prev : { ...prev, directories: next };
+      });
+    },
+    [],
+  );
 
   // 永続化（保存が有効な場合のみ）
   useEffect(() => {

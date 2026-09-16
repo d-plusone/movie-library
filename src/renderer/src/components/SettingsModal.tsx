@@ -42,6 +42,13 @@ export function SettingsModal() {
     staleTime: Infinity,
     enabled: ui.settingsOpen,
   });
+  const directoryStatusesQuery = useQuery({
+    queryKey: queryKeys.directoryStatuses,
+    queryFn: () => ipc().getDirectoryStatuses(),
+    staleTime: Infinity,
+    enabled: ui.settingsOpen,
+  });
+  const directoryStatuses = directoryStatusesQuery.data ?? {};
 
   // 開くたびに現在の設定を読み込む
   useEffect(() => {
@@ -177,6 +184,14 @@ export function SettingsModal() {
               {(directoriesQuery.data ?? []).map((directory) => (
                 <div key={directory.path} className="settings-directory-item">
                   <span className="directory-path" title={directory.path}>{directory.path}</span>
+                  {directoryStatuses[directory.path] === "offline" && (
+                    <span
+                      className="directory-status-badge offline"
+                      title="接続できません（再接続を試行中）"
+                    >
+                      接続エラー
+                    </span>
+                  )}
                   <button
                     type="button"
                     className="remove-directory-btn"

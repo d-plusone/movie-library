@@ -28,12 +28,27 @@ import {
   ConvertVideosResult,
   ConvertItemResult,
   DeleteVideoRequest,
+  DirectoryAvailability,
+  DirectoryStatus,
 } from "../types/types.js";
 import {
   classifyContainer,
   containerLabel,
   detectContainerKind,
 } from "../utils/container.js";
+import {
+  classifyMissingPath,
+  findMountForPath,
+  fsErrorCode,
+  isNetworkMount,
+  isNotExistError,
+  isPathUnderDirectory,
+  isTransientFsError,
+  readMountEntries,
+  smbUrlFromSource,
+  type MountEntry,
+  type PathState,
+} from "../utils/network-mount.js";
 import { initializeFFmpeg, getFfmpegPath } from "../utils/ffmpeg-utils.js";
 import { createLogger } from "../utils/logger.js";
 
@@ -55,6 +70,58 @@ for (const stream of [process.stdout, process.stderr]) {
 }
 
 const execFileAsync = promisify(execFile);
+
+// ============================================================
+// NAS / SMB 切断への耐性
+// ============================================================
+// ファイルやディレクトリが「見えない」と報告されても、NAS の瞬断・スリープ復帰直後は
+// 実在するケースがある。削除と断定する前に複数回・時間を空けて再確認する。
+const MISSING_CONFIRM_DELAYS_MS = [3000, 10000, 30000] as const;
+
+// オフラインになった登録ディレクトリの再接続リトライ間隔（試行回数に応じて延長）
+const RECONNECT_DELAYS_MS = [3000, 10000, 30000, 60000] as const;
+
+// ローカルパスの削除確認（ネットワークマウントより誤検知が少ないため短め）
+const LOCAL_MISSING_CONFIRM_DELAYS_MS = [3000] as const;
+
+// 連続して SMB 再マウントを試みる回数（以降は間隔を空けて試行し、Finder を頻繁に呼ばない）
+const MAX_CONSECUTIVE_MOUNT_ATTEMPTS = 3;
+
+// SMB の stale マウントで fs.access が固まらないようにするタイムアウト
+const FS_CHECK_TIMEOUT_MS = 10000;
+
+// 再マウントを要求した後、マウント完了を待つ時間
+const MOUNT_WAIT_MS = 20000;
+
+// ネットワークマウントの定期ヘルスチェック間隔
+// （stale マウントではファイル監視イベントが来ないことがあるため、定期的に確認する）
+const NETWORK_HEALTH_CHECK_INTERVAL_MS = 60000;
+
+function delay(ms: number): Promise<void> {
+  return new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+/** promise が指定時間内に解決しなければタイムアウトさせる */
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`Timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    timer.unref();
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
 
 // ============================================================
 // local-file:// カスタムプロトコル
@@ -500,6 +567,26 @@ class MovieLibraryApp {
   private duplicateDetector: DuplicateDetector;
   private thumbnailGenerator: ThumbnailGenerator;
   private watchers: Map<string, chokidar.FSWatcher> = new Map();
+  /** 登録ディレクトリの接続状態（描画側のバッジ表示用） */
+  private directoryAvailability: Map<string, DirectoryAvailability> =
+    new Map();
+  /** オフライン中のディレクトリの再接続タイマー */
+  private reconnectTimers: Map<string, NodeJS.Timeout> = new Map();
+  /** 再接続処理が実行中のディレクトリ（多重実行の防止） */
+  private reconnectRunning: Set<string> = new Set();
+  /** オフラインになってからの再接続試行回数 */
+  private reconnectAttempts: Map<string, number> = new Map();
+  /** 再マウント用に記録した SMB URL（マウントポイント -> smb://...） */
+  private networkMountUrls: Map<string, string> = new Map();
+  private networkMountUrlsLoaded = false;
+  private mountEntriesCache: { at: number; entries: MountEntry[] } | null =
+    null;
+  /** 登録ディレクトリのパス一覧の短時間キャッシュ */
+  private registeredDirectoriesCache: { at: number; paths: string[] } | null =
+    null;
+  /** ネットワークマウントの定期ヘルスチェック */
+  private healthCheckTimer: NodeJS.Timeout | null = null;
+  private healthCheckRunning = false;
 
   constructor() {
     // データベースファイルのパスを設定
@@ -909,7 +996,18 @@ class MovieLibraryApp {
     // Add directory
     ipcMain.handle("add-directory", async (_event, directoryPath: string) => {
       const id = await this.db.addDirectory(directoryPath);
-      this.startWatching(directoryPath);
+      this.registeredDirectoriesCache = null;
+      if (await this.isDirectoryAvailable(directoryPath)) {
+        this.setDirectoryAvailability(directoryPath, "online");
+        this.startWatching(directoryPath);
+        await this.rememberNetworkMount(directoryPath);
+      } else {
+        // 追加時点でマウントされていない場合も登録は維持し、再接続を試みる
+        await this.handleDirectoryUnavailable(
+          directoryPath,
+          "added while unavailable",
+        );
+      }
       return id;
     });
 
@@ -918,29 +1016,55 @@ class MovieLibraryApp {
       "remove-directory",
       async (_event, directoryPath: string) => {
         const result = await this.db.removeDirectory(directoryPath);
+        this.registeredDirectoriesCache = null;
         this.stopWatching(directoryPath);
+        this.forgetDirectory(directoryPath);
         return result;
       },
     );
+
+    // Directory availability (online / offline)
+    ipcMain.handle("get-directory-statuses", async () => {
+      const directories = await this.db.getDirectories();
+      const statuses: Record<string, DirectoryAvailability> = {};
+      for (const directory of directories) {
+        const known = this.directoryAvailability.get(directory.path);
+        if (known === undefined) {
+          // 起動時の一括チェックが終わっていない場合はバックグラウンドで確認し、
+          // 結果は directory-status-changed イベントで通知する
+          void this.probeDirectoryAvailability(directory.path);
+          statuses[directory.path] = "online";
+          continue;
+        }
+        statuses[directory.path] = known;
+      }
+      return statuses;
+    });
 
     // Check directory exists
     ipcMain.handle(
       "check-directory-exists",
       async (_event, dirPath: string) => {
-        try {
-          const fs = await import("fs");
-          await fs.promises.access(dirPath, fs.constants.F_OK);
-          return true;
-        } catch (_error) {
-          return false;
-        }
+        return await this.isDirectoryAccessible(dirPath);
       },
     );
 
     // Scan directories (improved comprehensive scan)
     ipcMain.handle("scan-directories", async () => {
       const directories = await this.db.getDirectories();
-      const directoryPaths = directories.map((d) => d.path);
+      const directoryPaths: string[] = [];
+      for (const directory of directories) {
+        if (await this.isDirectoryAvailable(directory.path)) {
+          directoryPaths.push(directory.path);
+          continue;
+        }
+        // 切断中のディレクトリはスキャン対象から除外する。
+        // （マウントポイントだけが残るケースで配下の動画を誤って削除しないため）
+        await this.handleDirectoryUnavailable(
+          directory.path,
+          "skipped during scan",
+        );
+      }
 
       logger.log("Starting comprehensive scan of directories:", directoryPaths);
 
@@ -993,10 +1117,32 @@ class MovieLibraryApp {
         );
       }
 
-      // 最終プログレス送信
+      // 最終プログレス送信（件数入りの文言をトーストにも流す）
+      const details: string[] = [];
+      if (result.newVideos.length > 0) {
+        details.push(`新規: ${result.newVideos.length}件`);
+      }
+      if (result.updatedVideos.length > 0) {
+        details.push(`更新: ${result.updatedVideos.length}件`);
+      }
+      if (result.reprocessedVideos.length > 0) {
+        details.push(`再処理: ${result.reprocessedVideos.length}件`);
+      }
+      if (result.deletedVideos.length > 0) {
+        details.push(`削除: ${result.deletedVideos.length}件`);
+      }
+      const hasChanges = details.length > 0;
       this.sendProgress("scan-progress", {
         kind: "done",
-        message: "スキャン完了",
+        message: hasChanges
+          ? `スキャンが完了しました (${details.join(", ")})`
+          : "スキャンが完了しました（変更はありませんでした）",
+        type:
+          result.errors.length > 0
+            ? "warning"
+            : hasChanges
+              ? "success"
+              : "info",
       });
 
       return {
@@ -1012,7 +1158,18 @@ class MovieLibraryApp {
     // Rescan all videos (force rescan of all existing videos)
     ipcMain.handle("rescan-all-videos", async () => {
       const directories = await this.db.getDirectories();
-      const directoryPaths = directories.map((d) => d.path);
+      const directoryPaths: string[] = [];
+      for (const directory of directories) {
+        if (await this.isDirectoryAvailable(directory.path)) {
+          directoryPaths.push(directory.path);
+          continue;
+        }
+        // 切断中のディレクトリは再スキャン対象から除外する（誤削除防止）
+        await this.handleDirectoryUnavailable(
+          directory.path,
+          "skipped during rescan",
+        );
+      }
 
       logger.log(
         "Starting force rescan of all videos in directories:",
@@ -1067,17 +1224,32 @@ class MovieLibraryApp {
         );
       }
 
-      // 再スキャン完了メッセージ
+      // 再スキャン完了メッセージ（件数入りの文言をトーストにも流す）
+      const rescanDetails: string[] = [`処理: ${result.totalProcessed}件`];
+      if (result.totalUpdated > 0) rescanDetails.push(`更新: ${result.totalUpdated}件`);
+      if (result.deletedVideos.length > 0) {
+        rescanDetails.push(`削除: ${result.deletedVideos.length}件`);
+      }
+      if (result.totalErrors > 0) rescanDetails.push(`エラー: ${result.totalErrors}件`);
       this.sendProgress("rescan-progress", {
         kind: "done",
-        message: "再スキャン完了 - サムネイル生成を開始しています...",
+        message:
+          result.totalProcessed === 0
+            ? "再スキャン対象の動画はありませんでした"
+            : `再スキャンが完了しました (${rescanDetails.join(", ")})。サムネイル生成を開始します`,
+        type:
+          result.totalErrors > 0
+            ? "warning"
+            : result.totalProcessed === 0
+              ? "info"
+              : "success",
       });
 
       // 自動的にサムネイル生成を実行
       logger.log("Starting automatic thumbnail generation after rescan...");
       try {
         const totalVideos = await this.db.getVideoCount();
-        await this.generateThumbnailsBatch(
+        const thumbnailResults = await this.generateThumbnailsBatch(
           (limit) => this.db.getVideos("filename", "ASC", limit, 0),
           totalVideos,
           "自動サムネイル生成",
@@ -1085,13 +1257,20 @@ class MovieLibraryApp {
 
         this.sendProgress("thumbnail-progress", {
           kind: "done",
-          message: "自動サムネイル生成完了",
+          message:
+            thumbnailResults.length > 0
+              ? `サムネイル生成が完了しました (${thumbnailResults.length}件)`
+              : "サムネイル生成の対象はありませんでした",
+          type: thumbnailResults.length > 0 ? "success" : "info",
+          // 再スキャン側の完了トーストで結果が分かるため、0 件時は重ねて出さない
+          silent: thumbnailResults.length === 0,
         });
       } catch (error) {
         console.error("Error during automatic thumbnail generation:", error);
         this.sendProgress("thumbnail-progress", {
           kind: "done",
           message: "自動サムネイル生成でエラーが発生しました",
+          type: "warning",
         });
       }
 
@@ -1119,7 +1298,11 @@ class MovieLibraryApp {
 
       this.sendProgress("thumbnail-progress", {
         kind: "done",
-        message: "サムネイル生成完了",
+        message:
+          results.length > 0
+            ? `サムネイル生成が完了しました (${results.length}件)`
+            : "サムネイル生成の対象はありませんでした",
+        type: results.length > 0 ? "success" : "info",
       });
 
       return results;
@@ -1139,7 +1322,11 @@ class MovieLibraryApp {
 
       this.sendProgress("thumbnail-progress", {
         kind: "done",
-        message: "全サムネイル再生成完了",
+        message:
+          results.length > 0
+            ? `サムネイル再生成が完了しました (${results.length}件)`
+            : "サムネイル再生成の対象はありませんでした",
+        type: results.length > 0 ? "success" : "info",
       });
 
       return results;
@@ -1211,6 +1398,8 @@ class MovieLibraryApp {
                 total: totalCount,
                 message: `サムネイル補完中: ${video.filename}`,
                 file: video.filename,
+                // 起動時のバックグラウンド補完はオーバーレイのみ（完了時にまとめて通知する）
+                silent: true,
               });
 
               if (video.duration !== undefined) {
@@ -1225,6 +1414,7 @@ class MovieLibraryApp {
                 total: totalCount,
                 message: `サムネイル補完完了: ${video.filename}`,
                 file: video.filename,
+                silent: true,
               });
             }
           } catch (error) {
@@ -1239,7 +1429,10 @@ class MovieLibraryApp {
 
       this.sendProgress("thumbnail-progress", {
         kind: "done",
-        message: "サムネイル補完完了",
+        message: `不完全なサムネイルを補完しました (${generatedVideos}/${scannedVideos})`,
+        type: "info",
+        // 補完対象が無かった起動では何も出さない
+        silent: generatedVideos === 0,
       });
 
       logger.log(
@@ -1613,14 +1806,569 @@ class MovieLibraryApp {
     );
   }
 
-  async generateThumbnailsForSingleVideo(video: ProcessedVideo): Promise<void> {
+  async generateThumbnailsForSingleVideo(video: ProcessedVideo): Promise<boolean> {
     try {
       if (video.id !== undefined) {
         await this.thumbnailGenerator.generateThumbnails(video);
         logger.debug("Thumbnails generated for:", video.path);
+        return true;
       }
+      return false;
     } catch (error) {
       console.error("Error generating thumbnails for:", video.path, error);
+      return false;
+    }
+  }
+
+  // ============================================================
+  // ディレクトリの可用性判定と再接続（NAS / SMB 切断対策）
+  // ============================================================
+
+  /** タイムアウト付きでディレクトリへアクセスできるか確認する */
+  private async isDirectoryAccessible(dirPath: string): Promise<boolean> {
+    try {
+      await withTimeout(fs.access(dirPath), FS_CHECK_TIMEOUT_MS);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * パスが「本当に存在しない」と確認できるか調べる。
+   * 登録ディレクトリ（マウント）が生きていれば、パスが無いのは本当の削除。
+   * マウントごと見えなくなっている場合（アンマウント後にマウントポイントだけが
+   * 残るケースを含む）は切断と区別が付かないため「不明」として扱う。
+   */
+  private async checkPathState(targetPath: string): Promise<PathState> {
+    try {
+      await withTimeout(fs.access(targetPath), FS_CHECK_TIMEOUT_MS);
+      return "present";
+    } catch (error) {
+      if (!isNotExistError(error)) {
+        if (isTransientFsError(error)) {
+          // 切断中は多数のパスで発生し得るため、通常のデバッグログに留める
+          logger.debug(
+            `Transient I/O error while checking (${fsErrorCode(error)}):`,
+            targetPath,
+          );
+        } else {
+          logger.debug(
+            `Path check failed, deferring removal (${fsErrorCode(error) ?? "unknown"}):`,
+            targetPath,
+          );
+        }
+        return "unknown";
+      }
+    }
+
+    // ENOENT: 所属する登録ディレクトリ（＝マウント）が生きているかを確認する
+    const owner = await this.findRegisteredDirectoryOwner(targetPath);
+    if (owner === null) {
+      logger.debug("Path is outside registered directories:", targetPath);
+      return "unknown";
+    }
+    const recordedNetworkMountMissing =
+      await this.isRecordedNetworkMountMissing(owner);
+    const ownerAccessible = recordedNetworkMountMissing
+      ? false
+      : await this.isDirectoryAccessible(owner);
+    return classifyMissingPath({
+      hasRegisteredOwner: true,
+      isRegisteredDirectoryItself: owner === targetPath,
+      ownerAccessible,
+      recordedNetworkMountMissing,
+    });
+  }
+
+  /**
+   * 以前 SMB マウントだったマウントポイントが、現在のマウント一覧に存在しないか。
+   * アンマウント後も空ディレクトリが残るケースで「アクセスできる＝生きている」と
+   * 誤判定しないための確認。
+   */
+  private async isRecordedNetworkMountMissing(
+    targetPath: string,
+  ): Promise<boolean> {
+    await this.loadNetworkMountUrls();
+    if (this.networkMountUrls.size === 0) {
+      return false;
+    }
+    let recordedMountPoint: string | null = null;
+    for (const mountPoint of this.networkMountUrls.keys()) {
+      if (!isPathUnderDirectory(targetPath, mountPoint)) {
+        continue;
+      }
+      if (
+        recordedMountPoint === null ||
+        mountPoint.length > recordedMountPoint.length
+      ) {
+        recordedMountPoint = mountPoint;
+      }
+    }
+    if (recordedMountPoint === null) {
+      return false;
+    }
+    const entries = await this.getMountEntries();
+    return !entries.some((entry) => entry.mountPoint === recordedMountPoint);
+  }
+
+  /** ディレクトリが利用可能か（アクセス可能かつ、以前の SMB マウントが消えていない） */
+  private async isDirectoryAvailable(dirPath: string): Promise<boolean> {
+    if (await this.isRecordedNetworkMountMissing(dirPath)) {
+      return false;
+    }
+    return await this.isDirectoryAccessible(dirPath);
+  }
+
+  /**
+   * 削除と断定する前に再確認する。
+   * NAS（ネットワークマウント）配下や状態不明の場合は 3秒 / 10秒 / 30秒と長めに確認し、
+   * ローカルパスで明確に存在しない場合は短い確認に留める。
+   * 1度でも存在が確認できれば "present"、最後まで不明なら "unknown"。
+   */
+  private async confirmRemoval(targetPath: string): Promise<PathState> {
+    let state = await this.checkPathState(targetPath);
+    const isNetworkPath =
+      state === "unknown" || (await this.isUnderNetworkMount(targetPath));
+    const waitMsList = isNetworkPath
+      ? MISSING_CONFIRM_DELAYS_MS
+      : LOCAL_MISSING_CONFIRM_DELAYS_MS;
+
+    for (const waitMs of waitMsList) {
+      if (state === "present") {
+        return "present";
+      }
+      await delay(waitMs);
+      state = await this.checkPathState(targetPath);
+    }
+    return state;
+  }
+
+  /** パスがネットワークマウント（NAS など）の配下かどうか */
+  private async isUnderNetworkMount(targetPath: string): Promise<boolean> {
+    const mount = findMountForPath(targetPath, await this.getMountEntries());
+    return isNetworkMount(mount);
+  }
+
+  private setDirectoryAvailability(
+    dirPath: string,
+    status: DirectoryAvailability,
+  ): void {
+    const previous = this.directoryAvailability.get(dirPath);
+    if (previous === status) {
+      return;
+    }
+    this.directoryAvailability.set(dirPath, status);
+    const payload: DirectoryStatus = {
+      path: dirPath,
+      status,
+      previousStatus: previous,
+    };
+    this.mainWindow?.webContents.send("directory-status-changed", payload);
+    logger.log(`Directory ${status}:`, dirPath);
+  }
+
+  /** マウント一覧を取得する（短時間はキャッシュする） */
+  private async getMountEntries(force = false): Promise<MountEntry[]> {
+    const now = Date.now();
+    if (
+      !force &&
+      this.mountEntriesCache !== null &&
+      now - this.mountEntriesCache.at < 5000
+    ) {
+      return this.mountEntriesCache.entries;
+    }
+    const entries = await readMountEntries();
+    this.mountEntriesCache = { at: now, entries };
+    return entries;
+  }
+
+  private networkMountInfoPath(): string {
+    return path.join(app.getPath("userData"), "network-mounts.json");
+  }
+
+  /** 再マウント用の SMB URL をファイルから読み込む */
+  private async loadNetworkMountUrls(): Promise<void> {
+    if (this.networkMountUrlsLoaded) {
+      return;
+    }
+    try {
+      const raw = await fs.readFile(this.networkMountInfoPath(), "utf-8");
+      const parsed: unknown = JSON.parse(raw);
+      if (parsed !== null && typeof parsed === "object") {
+        for (const [mountPoint, url] of Object.entries(
+          parsed as Record<string, unknown>,
+        )) {
+          if (typeof url === "string" && url.startsWith("smb://")) {
+            this.networkMountUrls.set(mountPoint, url);
+          }
+        }
+      }
+      this.networkMountUrlsLoaded = true;
+    } catch (error) {
+      if (isNotExistError(error)) {
+        // まだ記録ファイルが無いだけ
+        this.networkMountUrlsLoaded = true;
+        return;
+      }
+      // 破損・権限エラー時は次回また読み込む（空の内容で上書きしない）
+      logger.debug("Failed to load network mount info:", error);
+    }
+  }
+
+  private async saveNetworkMountUrls(): Promise<void> {
+    try {
+      const filePath = this.networkMountInfoPath();
+      // 読み込みに失敗した場合に備え、既存ファイルの内容とマージしてから保存する
+      const merged: Record<string, string> = {};
+      try {
+        const raw = await fs.readFile(filePath, "utf-8");
+        const parsed: unknown = JSON.parse(raw);
+        if (parsed !== null && typeof parsed === "object") {
+          for (const [mountPoint, url] of Object.entries(
+            parsed as Record<string, unknown>,
+          )) {
+            if (typeof url === "string") {
+              merged[mountPoint] = url;
+            }
+          }
+        }
+      } catch {
+        // 既存ファイルが無い・壊れている場合はメモリ上の内容のみ保存する
+      }
+      for (const [mountPoint, url] of this.networkMountUrls) {
+        merged[mountPoint] = url;
+      }
+
+      // 書き込み途中のクラッシュで既存の記録を壊さないよう一時ファイル経由で置き換える
+      const tempPath = `${filePath}.tmp`;
+      await fs.writeFile(tempPath, JSON.stringify(merged, null, 2), "utf-8");
+      await fs.rename(tempPath, filePath);
+    } catch (error) {
+      logger.debug("Failed to save network mount info:", error);
+    }
+  }
+
+  /**
+   * アクセスできたタイミングで、所属する SMB 共有の URL を記録しておく。
+   * 切断後に再マウントするには、接続中のうちに情報を残しておく必要がある。
+   */
+  private async rememberNetworkMount(dirPath: string): Promise<void> {
+    await this.loadNetworkMountUrls();
+    const mount = findMountForPath(dirPath, await this.getMountEntries());
+    const url = smbUrlFromSource(mount);
+    if (mount === null || url === null) {
+      return;
+    }
+    if (this.networkMountUrls.get(mount.mountPoint) === url) {
+      return;
+    }
+    this.networkMountUrls.set(mount.mountPoint, url);
+    await this.saveNetworkMountUrls();
+    logger.debug(
+      `Recorded SMB mount for remount: ${mount.mountPoint} -> ${url}`,
+    );
+  }
+
+  /** 登録ディレクトリに紐づく SMB URL を探す（最も深いマウントポイントを優先） */
+  private findRemountUrl(dirPath: string): string | null {
+    let bestMountPoint: string | null = null;
+    let bestUrl: string | null = null;
+    for (const [mountPoint, url] of this.networkMountUrls) {
+      if (!isPathUnderDirectory(dirPath, mountPoint)) {
+        continue;
+      }
+      if (bestMountPoint === null || mountPoint.length > bestMountPoint.length) {
+        bestMountPoint = mountPoint;
+        bestUrl = url;
+      }
+    }
+    return bestUrl;
+  }
+
+  /**
+   * アンマウントされた SMB 共有を再マウントする。
+   * Finder 経由（osascript → 失敗時は open）で行うため、Keychain に保存済みの
+   * 認証情報がそのまま使われる。未保存の場合は Finder が入力を求める。
+   */
+  private async attemptRemount(dirPath: string): Promise<boolean> {
+    if (process.platform !== "darwin") {
+      return false;
+    }
+    const entries = await this.getMountEntries(true);
+
+    await this.loadNetworkMountUrls();
+    const url = this.findRemountUrl(dirPath);
+    if (url === null) {
+      logger.debug(
+        "No SMB URL recorded for directory; cannot remount automatically:",
+        dirPath,
+      );
+      return false;
+    }
+
+    // 共有自体が（別のマウントポイントでも）マウント済みなら再マウントは不要
+    const mountedEntry = entries.find(
+      (entry) => smbUrlFromSource(entry) === url,
+    );
+    if (mountedEntry !== undefined) {
+      logger.debug(
+        "SMB share is already mounted; skipping remount:",
+        mountedEntry.mountPoint,
+      );
+      return false;
+    }
+
+    logger.log(`Attempting to remount ${url} for ${dirPath}`);
+    const script = `mount volume ${JSON.stringify(url)}`;
+    try {
+      await execFileAsync("/usr/bin/osascript", ["-e", script], {
+        timeout: MOUNT_WAIT_MS,
+      });
+    } catch (error) {
+      logger.debug(
+        "osascript mount volume failed, falling back to open:",
+        fsErrorCode(error) ?? error,
+      );
+      try {
+        await execFileAsync("/usr/bin/open", [url], { timeout: 15000 });
+      } catch (openError) {
+        console.error("Failed to remount SMB share:", url, openError);
+        return false;
+      }
+    }
+
+    // マウント完了を待つ（完了前に fs.access すると失敗するため）
+    const deadline = Date.now() + MOUNT_WAIT_MS;
+    while (Date.now() < deadline) {
+      if (await this.isDirectoryAvailable(dirPath)) {
+        return true;
+      }
+      await delay(1000);
+    }
+    return false;
+  }
+
+  private clearReconnectTimer(dirPath: string): void {
+    const timer = this.reconnectTimers.get(dirPath);
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      this.reconnectTimers.delete(dirPath);
+    }
+  }
+
+  private scheduleReconnect(dirPath: string, delayMs: number): void {
+    this.clearReconnectTimer(dirPath);
+    const timer = setTimeout(() => {
+      this.reconnectTimers.delete(dirPath);
+      void this.tryReconnect(dirPath);
+    }, delayMs);
+    timer.unref();
+    this.reconnectTimers.set(dirPath, timer);
+  }
+
+  /**
+   * ディレクトリが見えなくなったときの共通処理。
+   * 登録は削除せず、オフラインとして保持したうえで再接続（必要なら再マウント）を試みる。
+   */
+  private async handleDirectoryUnavailable(
+    dirPath: string,
+    reason: string,
+  ): Promise<void> {
+    // 見えていないパスを watch し続けても意味がないため一旦止める（復帰時に張り直す）
+    this.stopWatching(dirPath);
+    this.setDirectoryAvailability(dirPath, "offline");
+
+    if (
+      this.reconnectTimers.has(dirPath) ||
+      this.reconnectRunning.has(dirPath)
+    ) {
+      return; // すでに再接続待ち・再接続処理中
+    }
+    logger.log(`Directory unavailable (${reason}):`, dirPath);
+    this.reconnectAttempts.set(dirPath, 0);
+    this.scheduleReconnect(dirPath, RECONNECT_DELAYS_MS[0]);
+  }
+
+  /** オフラインから復帰したときの処理 */
+  private async markDirectoryOnline(dirPath: string): Promise<void> {
+    if (!(await this.isDirectoryRegistered(dirPath))) {
+      // ユーザーが登録解除した後に復帰した場合は何もしない
+      this.forgetDirectory(dirPath);
+      return;
+    }
+    this.clearReconnectTimer(dirPath);
+    this.reconnectAttempts.delete(dirPath);
+    this.setDirectoryAvailability(dirPath, "online");
+    if (!this.watchers.has(dirPath)) {
+      this.startWatching(dirPath);
+    }
+    await this.rememberNetworkMount(dirPath);
+  }
+
+  /** 再接続を試みる（成功するまで間隔を空けて繰り返す） */
+  private async tryReconnect(dirPath: string): Promise<void> {
+    if (this.reconnectRunning.has(dirPath)) {
+      return;
+    }
+    this.reconnectRunning.add(dirPath);
+    try {
+      if (!(await this.isDirectoryRegistered(dirPath))) {
+        this.forgetDirectory(dirPath);
+        return;
+      }
+
+      const attempt = (this.reconnectAttempts.get(dirPath) ?? 0) + 1;
+      this.reconnectAttempts.set(dirPath, attempt);
+
+      if (await this.isDirectoryAvailable(dirPath)) {
+        await this.markDirectoryOnline(dirPath);
+        logger.log(`Directory reconnected (attempt ${attempt}):`, dirPath);
+        return;
+      }
+
+      if (attempt <= MAX_CONSECUTIVE_MOUNT_ATTEMPTS || attempt % 10 === 0) {
+        if (await this.attemptRemount(dirPath)) {
+          await this.markDirectoryOnline(dirPath);
+          logger.log("Directory remounted and reconnected:", dirPath);
+          return;
+        }
+      }
+
+      // 実行中にユーザーが登録解除した場合はチェーンを止める
+      if (!(await this.isDirectoryRegistered(dirPath))) {
+        this.forgetDirectory(dirPath);
+        return;
+      }
+      const index = Math.min(attempt, RECONNECT_DELAYS_MS.length - 1);
+      this.scheduleReconnect(dirPath, RECONNECT_DELAYS_MS[index]);
+    } finally {
+      this.reconnectRunning.delete(dirPath);
+    }
+  }
+
+  /** ディレクトリが DB に登録されているか */
+  private async isDirectoryRegistered(dirPath: string): Promise<boolean> {
+    const directories = await this.db.getDirectories();
+    return directories.some((directory) => directory.path === dirPath);
+  }
+
+  /** 登録解除されたディレクトリの状態を破棄する */
+  private forgetDirectory(dirPath: string): void {
+    this.clearReconnectTimer(dirPath);
+    this.reconnectAttempts.delete(dirPath);
+    this.directoryAvailability.delete(dirPath);
+  }
+
+  /**
+   * 起動直後などで状態が未確定のディレクトリを確認し、結果をイベントで通知する。
+   * （起動時の一括チェックが終わる前に描画側が状態を取得した場合の保険）
+   */
+  private async probeDirectoryAvailability(dirPath: string): Promise<void> {
+    if (this.directoryAvailability.has(dirPath)) {
+      return;
+    }
+    if (await this.isDirectoryAvailable(dirPath)) {
+      this.setDirectoryAvailability(dirPath, "online");
+      return;
+    }
+    await this.handleDirectoryUnavailable(dirPath, "initial check failed");
+  }
+
+  /**
+   * ファイルが読めない原因がディレクトリ（マウント）自体の消失かどうかを確認し、
+   * 該当する場合は所属ディレクトリをオフライン扱いにして再接続を開始する。
+   */
+  private async handleUnreachablePath(targetPath: string): Promise<void> {
+    const owner = await this.findRegisteredDirectoryOwner(targetPath);
+    if (owner === null) {
+      return;
+    }
+    if (this.directoryAvailability.get(owner) === "offline") {
+      // すでにオフライン処理済み（切断時に多数の unlink が来ても二重処理しない）
+      return;
+    }
+    if (await this.isDirectoryAvailable(owner)) {
+      // ディレクトリ自体は利用可能 → 個別ファイルの問題なので登録には触れない
+      return;
+    }
+    await this.handleDirectoryUnavailable(
+      owner,
+      "contained path became unreachable",
+    );
+  }
+
+  /** パスを含む登録ディレクトリを返す（最も深いものを優先） */
+  private async findRegisteredDirectoryOwner(
+    targetPath: string,
+  ): Promise<string | null> {
+    const paths = await this.getRegisteredDirectoryPaths();
+    let owner: string | null = null;
+    for (const dirPath of paths) {
+      if (!isPathUnderDirectory(targetPath, dirPath)) {
+        continue;
+      }
+      if (owner === null || dirPath.length > owner.length) {
+        owner = dirPath;
+      }
+    }
+    return owner;
+  }
+
+  /** 登録ディレクトリのパス一覧（短時間キャッシュ。切断時の大量イベント対策） */
+  private async getRegisteredDirectoryPaths(): Promise<string[]> {
+    const now = Date.now();
+    if (
+      this.registeredDirectoriesCache !== null &&
+      now - this.registeredDirectoriesCache.at < 5000
+    ) {
+      return this.registeredDirectoriesCache.paths;
+    }
+    const directories = await this.db.getDirectories();
+    const paths = directories.map((directory) => directory.path);
+    this.registeredDirectoriesCache = { at: now, paths };
+    return paths;
+  }
+
+  /**
+   * ネットワークマウントの定期チェックを開始する。
+   * 共有が stale になった場合、ファイル監視イベントが来ないまま
+   * 「接続できているように見える」状態が続くことがあるため、能動的に確認する。
+   */
+  private startNetworkHealthCheck(): void {
+    if (this.healthCheckTimer !== null) {
+      return;
+    }
+    this.healthCheckTimer = setInterval(() => {
+      void this.checkNetworkDirectoriesHealth();
+    }, NETWORK_HEALTH_CHECK_INTERVAL_MS);
+    this.healthCheckTimer.unref();
+  }
+
+  private async checkNetworkDirectoriesHealth(): Promise<void> {
+    if (this.healthCheckRunning) {
+      return;
+    }
+    this.healthCheckRunning = true;
+    try {
+      const directories = await this.getRegisteredDirectoryPaths();
+      for (const dirPath of directories) {
+        if (this.directoryAvailability.get(dirPath) !== "online") {
+          continue; // オフライン中のディレクトリは再接続処理側で確認している
+        }
+        if (!(await this.isUnderNetworkMount(dirPath))) {
+          continue; // ローカルディスクは対象外
+        }
+        if (await this.isDirectoryAvailable(dirPath)) {
+          continue;
+        }
+        await this.handleDirectoryUnavailable(
+          dirPath,
+          "periodic health check failed",
+        );
+      }
+    } finally {
+      this.healthCheckRunning = false;
     }
   }
 
@@ -1642,12 +2390,13 @@ class MovieLibraryApp {
         try {
           logger.debug("Processing new video file:", filePath);
 
-          // プログレス通知を送信
+          // プログレス通知を送信（トーストは追加完了時にまとめて出す）
           this.sendProgress("scan-progress", {
             kind: "progress",
             current: 0,
             total: 1,
             message: `新しい動画を処理中: ${path.basename(filePath)}`,
+            silent: true,
           });
 
           const video = await this.videoScanner.processFile(filePath);
@@ -1656,6 +2405,16 @@ class MovieLibraryApp {
             this.mainWindow.webContents.send("video-added", filePath);
           }
 
+          // 追加処理の完了。完了イベントが無いと進捗表示にエントリが残留する
+          this.sendProgress("scan-progress", {
+            kind: "done",
+            message: video
+              ? `新しい動画が追加されました: ${path.basename(filePath)}`
+              : "新しい動画は追加されませんでした",
+            type: video ? "success" : "info",
+            silent: video === null,
+          });
+
           // 新しく追加された動画で、サムネイル生成が必要な場合のみ実行
           if (video && video.needsThumbnails) {
             logger.debug(
@@ -1663,24 +2422,25 @@ class MovieLibraryApp {
               video.path,
             );
 
-            // サムネイル生成の進捗通知
+            // サムネイル生成の進捗通知（トーストは完了時に出す）
             this.sendProgress("thumbnail-progress", {
               kind: "progress",
               current: 0,
               total: 1,
               message: `サムネイル生成中: ${video.filename}`,
               file: video.filename,
+              silent: true,
             });
 
-            await this.generateThumbnailsForSingleVideo(video);
+            const generated = await this.generateThumbnailsForSingleVideo(video);
 
-            // 完了通知
+            // 完了通知（トーストにも流す）
             this.sendProgress("thumbnail-progress", {
-              kind: "progress",
-              current: 1,
-              total: 1,
-              message: `サムネイル生成完了: ${video.filename}`,
-              file: video.filename,
+              kind: "done",
+              message: generated
+                ? `サムネイル生成が完了しました: ${video.filename}`
+                : `サムネイルの生成に失敗しました: ${video.filename}`,
+              type: generated ? "success" : "error",
             });
           } else if (video && !video.needsThumbnails) {
             logger.debug(
@@ -1689,16 +2449,14 @@ class MovieLibraryApp {
             );
           }
 
-          // 単発処理の進捗を完了させる（完了イベントが無いと
-          // レンダラーの進捗表示にエントリが残留する）
-          this.sendProgress("scan-progress", {
-            kind: "done",
-            message: "新しい動画を処理しました",
-          });
-
           logger.debug("New video processed successfully:", filePath);
         } catch (error) {
           console.error("Error processing new video file:", filePath, error);
+          this.sendProgress("scan-progress", {
+            kind: "done",
+            message: `新しい動画の追加に失敗しました: ${path.basename(filePath)}`,
+            type: "error",
+          });
         }
       }
     });
@@ -1708,27 +2466,50 @@ class MovieLibraryApp {
         try {
           logger.debug("Processing video file removal:", filePath);
 
-          // 外付けドライブの一時的な切断など誤検知を防ぐため、少し待ってから再確認する
-          await new Promise<void>((resolve) => setTimeout(resolve, 3000));
-
-          try {
-            await fs.access(filePath);
-            // ファイルが復活していた（一時的なイベントだった）
-            logger.debug(
-              "File re-appeared after unlink (transient event), keeping:",
-              filePath,
-            );
-            return;
-          } catch {
-            // ファイルが本当に存在しない
+          // 接続エラー中のディレクトリでは削除確認をスキップする
+          // （切断時に大量の unlink が来て fs 呼び出しが滞留するのを防ぐ）
+          const owner = await this.findRegisteredDirectoryOwner(filePath);
+          if (owner !== null) {
+            if (this.directoryAvailability.get(owner) === "offline") {
+              logger.debug(
+                "Skipping removal check for offline directory:",
+                filePath,
+              );
+              return;
+            }
+            if (!(await this.isDirectoryAvailable(owner))) {
+              // マウント自体が見えない → ファイル個別の削除判定はせず接続エラーとして扱う
+              await this.handleDirectoryUnavailable(
+                owner,
+                "file unlinked while directory is unreachable",
+              );
+              return;
+            }
           }
 
-          // プログレス通知を送信
+          // 外付けドライブや NAS の一時的な切断で「消えたように見える」ことがあるため、
+          // 3秒 / 10秒 / 30秒と再確認し、所属ディレクトリ（マウント）が生きている
+          // 状態でファイルが無いと確認できた場合のみ削除する。
+          const state = await this.confirmRemoval(filePath);
+          if (state !== "missing") {
+            logger.debug(
+              `Deferring video removal (${state}):`,
+              filePath,
+            );
+            if (state === "unknown") {
+              // マウント消失が疑われる場合は、所属ディレクトリをオフラインにして再接続を試みる
+              await this.handleUnreachablePath(filePath);
+            }
+            return;
+          }
+
+          // プログレス通知を送信（トーストは削除完了時にまとめて出す）
           this.sendProgress("scan-progress", {
             kind: "progress",
             current: 0,
             total: 1,
             message: `動画を削除中: ${path.basename(filePath)}`,
+            silent: true,
           });
 
           await this.db.removeVideo(filePath);
@@ -1737,9 +2518,11 @@ class MovieLibraryApp {
             this.mainWindow.webContents.send("video-removed", filePath);
           }
 
+          // 完了通知（トーストにも流す）
           this.sendProgress("scan-progress", {
             kind: "done",
-            message: "動画を削除しました",
+            message: `動画が削除されました: ${path.basename(filePath)}`,
+            type: "info",
           });
 
           logger.debug("Video file removal processed successfully:", filePath);
@@ -1749,6 +2532,11 @@ class MovieLibraryApp {
             filePath,
             error,
           );
+          this.sendProgress("scan-progress", {
+            kind: "done",
+            message: `動画の削除に失敗しました: ${path.basename(filePath)}`,
+            type: "error",
+          });
         }
       }
     });
@@ -1760,38 +2548,20 @@ class MovieLibraryApp {
         try {
           logger.debug("Directory unlinkDir event:", dirPath);
 
-          // 外付けドライブの一時的な切断など誤検知を防ぐため、少し待ってから再確認する
-          await new Promise<void>((resolve) => setTimeout(resolve, 3000));
-
-          const { promises: fsPromises } = await import("fs");
-          try {
-            await fsPromises.access(dirPath);
-            // ディレクトリが復活していた（一時的なイベントだった）
-            logger.debug(
-              "Directory re-appeared after unlinkDir (transient event), keeping:",
-              dirPath,
-            );
+          // 外付けドライブや NAS の一時的な切断で「消えたように見える」ことがあるため、
+          // 削除と断定する前に複数回（3秒 / 10秒 / 30秒）再確認する
+          const state = await this.confirmRemoval(dirPath);
+          if (state === "present") {
+            logger.debug("Directory re-appeared, keeping watch:", dirPath);
             return;
-          } catch {
-            // ディレクトリが本当に存在しない
           }
 
-          // データベースからディレクトリを削除
-          await this.db.removeDirectory(dirPath);
-
-          // 監視を停止
-          this.stopWatching(dirPath);
-
-          if (this.mainWindow) {
-            this.mainWindow.webContents.send("directory-removed", dirPath);
-          }
-
-          this.sendProgress("scan-progress", {
-            kind: "done",
-            message: "ディレクトリを削除しました",
-          });
-
-          logger.debug("Directory removal processed successfully:", dirPath);
+          // 本当に無くなっている場合でも、NAS の切断と区別が付かないため登録は削除しない。
+          // オフライン扱いにして再接続を試み、削除はユーザーの明示操作（UI の削除）のみとする。
+          await this.handleDirectoryUnavailable(
+            dirPath,
+            `watch root unavailable (${state})`,
+          );
         } catch (error) {
           console.error("Error processing directory removal:", dirPath, error);
         }
@@ -1810,46 +2580,29 @@ class MovieLibraryApp {
   }
 
   async startWatchingAllDirectories(): Promise<void> {
+    await this.loadNetworkMountUrls();
     const directories = await this.db.getDirectories();
-    const removedDirectories: string[] = [];
 
     for (const directory of directories) {
-      try {
-        // ディレクトリの存在をチェック
-        const fs = await import("fs");
-        await fs.promises.access(directory.path, fs.constants.F_OK);
-
-        // 存在する場合は監視を開始
+      if (await this.isDirectoryAvailable(directory.path)) {
+        this.setDirectoryAvailability(directory.path, "online");
         this.startWatching(directory.path);
-      } catch (_error) {
-        // 存在しない場合はリストに追加
-        logger.debug("Directory no longer exists:", directory.path);
-        removedDirectories.push(directory.path);
+        // 切断後に再マウントできるよう、接続中に SMB URL を記録しておく
+        await this.rememberNetworkMount(directory.path);
+        continue;
       }
+
+      // 起動時に共有がまだマウントされていないケース（ログイン直後・スリープ復帰など）。
+      // ここで登録を削除すると NAS のフォルダが勝手に消えるため、オフライン扱いで維持し、
+      // 再接続（必要なら SMB の再マウント）を試みる。
+      await this.handleDirectoryUnavailable(
+        directory.path,
+        "not accessible at startup",
+      );
     }
 
-    // 削除されたディレクトリがある場合の処理
-    if (removedDirectories.length > 0) {
-      for (const dirPath of removedDirectories) {
-        try {
-          await this.db.removeDirectory(dirPath);
-          logger.debug(
-            "Removed non-existent directory from database:",
-            dirPath,
-          );
-
-          if (this.mainWindow) {
-            this.mainWindow.webContents.send("directory-removed", dirPath);
-          }
-        } catch (error) {
-          console.error(
-            "Failed to remove directory from database:",
-            dirPath,
-            error,
-          );
-        }
-      }
-    }
+    // stale マウント対策として定期的な確認を開始する
+    this.startNetworkHealthCheck();
   }
 
   // アプリケーションのクリーンアップメソッド
@@ -1866,6 +2619,18 @@ class MovieLibraryApp {
       }
     });
     this.watchers.clear();
+
+    // 再接続タイマーを停止（終了を妨げないように）
+    for (const timer of this.reconnectTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.reconnectTimers.clear();
+
+    // 定期ヘルスチェックを停止
+    if (this.healthCheckTimer !== null) {
+      clearInterval(this.healthCheckTimer);
+      this.healthCheckTimer = null;
+    }
 
     // データベース接続を閉じる（$disconnect で WAL をフラッシュ）
     try {

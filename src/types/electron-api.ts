@@ -16,6 +16,8 @@ import type {
   DeleteVideoRequest,
   DeleteVideosResult,
   Directory,
+  DirectoryAvailability,
+  DirectoryStatus,
   DuplicateGroup,
   DuplicateSearchProgress,
   IncompleteThumbnailsResult,
@@ -54,6 +56,11 @@ export interface ElectronAPI {
   chooseDirectory(): Promise<string[]>;
   scanDirectories(): Promise<ScanResult>;
   rescanAllVideos(): Promise<ScanResult>;
+  /**
+   * 登録ディレクトリの接続状態（path -> "online" | "offline"）。
+   * NAS の切断中も登録は維持され、offline として報告される。
+   */
+  getDirectoryStatuses(): Promise<Record<string, DirectoryAvailability>>;
 
   // ---- Thumbnail operations ----
   generateThumbnails(): Promise<ThumbnailResult[]>;
@@ -127,7 +134,9 @@ export interface ElectronAPI {
   ): void;
   onVideoAdded(callback: (filePath: string) => void): void;
   onVideoRemoved(callback: (filePath: string) => void): void;
-  onDirectoryRemoved(callback: (dirPath: string) => void): void;
+  /** ディレクトリの接続状態が変化した（NAS 切断 / 再接続） */
+  onDirectoryStatusChanged(callback: (data: DirectoryStatus) => void): void;
+  offDirectoryStatusChanged(callback: (data: DirectoryStatus) => void): void;
   onDeleteProgress(callback: (data: DeleteProgress) => void): void;
   offDeleteProgress(callback: (data: DeleteProgress) => void): void;
   onOpenSettings(callback: () => void): void;

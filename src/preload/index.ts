@@ -3,6 +3,7 @@ import type { ElectronAPI } from "../types/electron-api";
 import type {
   DeleteProgress,
   DeleteVideoRequest,
+  DirectoryStatus,
   DuplicateSearchProgress,
   OperationProgress,
   ProgressEvent,
@@ -67,6 +68,9 @@ const rescanProgressListeners = createListenerPair<ProgressEvent>(
 const thumbnailProgressListeners = createListenerPair<ProgressEvent>(
   "thumbnail-progress",
 );
+const directoryStatusListeners = createListenerPair<DirectoryStatus>(
+  "directory-status-changed",
+);
 
 // main プロセスから追加引数で渡される production フラグ
 // （sandbox 化された preload でも process.argv は利用可能）
@@ -97,6 +101,7 @@ const electronAPI: ElectronAPI = {
   chooseDirectory: () => ipcRenderer.invoke("choose-directory"),
   scanDirectories: () => ipcRenderer.invoke("scan-directories"),
   rescanAllVideos: () => ipcRenderer.invoke("rescan-all-videos"),
+  getDirectoryStatuses: () => ipcRenderer.invoke("get-directory-statuses"),
 
   // Thumbnail operations
   generateThumbnails: () => ipcRenderer.invoke("generate-thumbnails"),
@@ -196,10 +201,11 @@ const electronAPI: ElectronAPI = {
   onVideoRemoved: (callback: (filePath: string) => void) => {
     ipcRenderer.on("video-removed", (_event, filePath) => callback(filePath));
   },
-  onDirectoryRemoved: (callback: (dirPath: string) => void) => {
-    ipcRenderer.on("directory-removed", (_event, dirPath) =>
-      callback(dirPath),
-    );
+  onDirectoryStatusChanged: (callback: (data: DirectoryStatus) => void) => {
+    directoryStatusListeners.on(callback);
+  },
+  offDirectoryStatusChanged: (callback: (data: DirectoryStatus) => void) => {
+    directoryStatusListeners.off(callback);
   },
   onDeleteProgress: (callback: (data: DeleteProgress) => void) => {
     deleteProgressListeners.on(callback);

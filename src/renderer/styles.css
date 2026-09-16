@@ -1175,6 +1175,18 @@ body {
     color: white !important;
 }
 
+/* 接続エラー中のディレクトリ（フィルタとして選択不可） */
+.directory-item.unavailable {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.directory-item.unavailable:hover {
+    background: #2a2a2a !important;
+    border-color: var(--border-color) !important;
+    color: #ccc !important;
+}
+
 /* Remove checkbox styling - now just text */
 .directory-checkbox {
     display: none;
@@ -1195,6 +1207,24 @@ body {
     gap: 4px;
     opacity: 0;
     transition: opacity 0.2s ease;
+}
+
+/* 接続状態バッジ（NAS 切断中など） */
+.directory-status-badge {
+    flex-shrink: 0;
+    padding: 1px 6px;
+    margin-right: 6px;
+    border-radius: 8px;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 16px;
+    white-space: nowrap;
+}
+
+.directory-status-badge.offline {
+    background: rgba(255, 149, 0, 0.18);
+    border: 1px solid rgba(255, 149, 0, 0.6);
+    color: #ff9f0a;
 }
 
 .directory-item:hover .directory-actions {

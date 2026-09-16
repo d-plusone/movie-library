@@ -16,7 +16,7 @@ const RESUME_SKIP_THRESHOLD = 0.95;
 
 export function PlayerModal() {
   const qc = useQueryClient();
-  const { notify } = useNotify();
+  const { notify, dismiss } = useNotify();
   const ui = useUi();
 
   const videosQuery = useQuery({
@@ -176,38 +176,50 @@ export function PlayerModal() {
     const position = Math.floor(element.currentTime) || 0;
     const savedDir = localStorage.getItem("screenshotDir")?.trim();
     const outputDir = savedDir && savedDir !== "" ? savedDir : "~/Pictures";
+    // 完了時に「保存中...」を消してから結果を出す（2 枚同時に残らないようにする）
+    const progressId = notify(
+      `スクリーンショットを保存中... (${formatDuration(position)})`,
+      "info",
+    );
     try {
-      notify(`スクリーンショットを保存中... (${formatDuration(position)})`, "info");
       const result = await ipc().captureFrame(video.path, position, outputDir);
+      dismiss(progressId);
       if (result.success && result.outputPath !== undefined) {
         notify(`スクリーンショットを保存しました: ${result.outputPath}`, "success");
       } else {
         notify(`スクリーンショットの保存に失敗しました（${result.error ?? "不明なエラー"}）`, "error");
       }
     } catch (e) {
+      dismiss(progressId);
       notify(
         `スクリーンショットの保存に失敗しました（${e instanceof Error ? e.message : String(e)}）`,
         "error",
       );
     }
-  }, [notify, video]);
+  }, [dismiss, notify, video]);
 
   const createThumbnailFromFrame = useCallback(async (): Promise<void> => {
     const element = videoRef.current;
     if (!element || !video) return;
     const position = Math.floor(element.currentTime) || 0;
+    // 完了時に「作成中...」を消してから結果を出す（2 枚同時に残らないようにする）
+    const progressId = notify(
+      `サムネイルを作成中... (${formatDuration(position)})`,
+      "info",
+    );
     try {
-      notify(`サムネイルを作成中... (${formatDuration(position)})`, "info");
       await ipc().regenerateMainThumbnailWithTimestamp(video.id, position);
       await invalidateVideos();
+      dismiss(progressId);
       notify("サムネイルを作成しました", "success");
     } catch (e) {
+      dismiss(progressId);
       notify(
         `サムネイルの作成に失敗しました（${e instanceof Error ? e.message : String(e)}）`,
         "error",
       );
     }
-  }, [notify, video]);
+  }, [dismiss, notify, video]);
 
   // プレーヤー表示中のキーボード操作（キャプチャフェーズで他ハンドラより優先）
   useEffect(() => {

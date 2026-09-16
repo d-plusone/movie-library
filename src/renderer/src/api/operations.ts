@@ -54,16 +54,7 @@ export async function addDirectoriesFlow(deps: OperationDeps): Promise<void> {
       await ipc().generateThumbnails();
       await invalidateLibraryData(qc);
     }
-
-    if (hasNew) {
-      const details: string[] = [];
-      if (result.totalNew > 0) details.push(`新規: ${result.totalNew}件`);
-      if (result.totalUpdated > 0) details.push(`更新: ${result.totalUpdated}件`);
-      if (result.totalReprocessed > 0) details.push(`再処理: ${result.totalReprocessed}件`);
-      notify(`スキャンが完了しました (${details.join(", ")})。サムネイルも生成しました`, "success");
-    } else {
-      notify("新しい動画は見つかりませんでした", "info");
-    }
+    // スキャン・サムネイル生成の完了トーストは main の進捗イベント側から出る
   } catch (e) {
     console.error("Error adding directory:", e);
     const partial =
@@ -77,7 +68,7 @@ export async function addDirectoriesFlow(deps: OperationDeps): Promise<void> {
 
 /** 登録済みディレクトリの包括スキャン（差分検出） */
 export async function scanDirectoriesFlow(deps: OperationDeps): Promise<void> {
-  const { notify, qc } = deps;
+  const { qc } = deps;
   try {
     const result = await ipc().scanDirectories();
     await invalidateLibraryData(qc);
@@ -88,46 +79,36 @@ export async function scanDirectoriesFlow(deps: OperationDeps): Promise<void> {
       await ipc().generateThumbnails();
       await invalidateLibraryData(qc);
     }
-
-    const details: string[] = [];
-    if (result.totalNew > 0) details.push(`新規: ${result.totalNew}件`);
-    if (result.totalUpdated > 0) details.push(`更新: ${result.totalUpdated}件`);
-    if (result.totalReprocessed > 0) details.push(`再処理: ${result.totalReprocessed}件`);
-    if ((result.totalDeleted ?? 0) > 0) details.push(`削除: ${result.totalDeleted}件`);
-
-    let message = "スキャンが完了しました";
-    if (details.length > 0) message += ` (${details.join(", ")})`;
-    if (shouldGenerateThumbnails) message += "。サムネイルも生成しました";
-    notify(message, "success");
+    // スキャン・サムネイル生成の完了トーストは main の進捗イベント側から出る
   } catch (e) {
     console.error("Error scanning directories:", e);
-    notify(`スキャンに失敗しました (${messageOf(e as Error)})`, "error");
+    deps.notify(`スキャンに失敗しました (${messageOf(e as Error)})`, "error");
   }
 }
 
 /** サムネイルが無い動画への生成 */
 export async function generateThumbnailsOp(deps: OperationDeps): Promise<void> {
-  const { notify, qc } = deps;
+  const { qc } = deps;
   try {
     await ipc().generateThumbnails();
     await invalidateLibraryData(qc);
-    notify("サムネイル生成が完了しました", "success");
+    // 完了トーストは main の進捗イベント側から出る
   } catch (e) {
     console.error("Error generating thumbnails:", e);
-    notify(`サムネイル生成に失敗しました (${messageOf(e as Error)})`, "error");
+    deps.notify(`サムネイル生成に失敗しました (${messageOf(e as Error)})`, "error");
   }
 }
 
 /** 全サムネイル再生成 */
 export async function regenerateAllThumbnailsOp(deps: OperationDeps): Promise<void> {
-  const { notify, qc } = deps;
+  const { qc } = deps;
   try {
     await ipc().regenerateAllThumbnails();
     await invalidateLibraryData(qc);
-    notify("サムネイル再生成が完了しました", "success");
+    // 完了トーストは main の進捗イベント側から出る
   } catch (e) {
     console.error("Error regenerating thumbnails:", e);
-    notify(`サムネイル再生成に失敗しました (${messageOf(e as Error)})`, "error");
+    deps.notify(`サムネイル再生成に失敗しました (${messageOf(e as Error)})`, "error");
   }
 }
 
@@ -152,37 +133,13 @@ export async function rescanAllFlow(deps: OperationDeps): Promise<void> {
   try {
     // main 側の rescan-all-videos ハンドラは、再スキャン本体だけでなく
     // その後の自動サムネイル生成まで完了してから resolve する。
-    // そのため、ここに到達した時点で両方とも完了済みであり、
-    // 「生成中...」という中間通知や、その完了を待つための追加の遅延は不要
-    // （以前はここで無意味な setTimeout を挟んでおり、実態と表示がずれていた）。
-    const result = await ipc().rescanAllVideos();
+    // 進捗と完了トーストは main の進捗イベント側から出るため、ここでは
+    // データの再取得だけを行う（以前は中間通知用の setTimeout を挟んでいた）。
+    await ipc().rescanAllVideos();
     await invalidateLibraryData(qc);
-
-    const details: string[] = [];
-    if ((result.totalProcessed ?? 0) > 0) details.push(`処理: ${result.totalProcessed}件`);
-    if (result.totalUpdated > 0) details.push(`更新: ${result.totalUpdated}件`);
-    if ((result.totalErrors ?? 0) > 0) details.push(`エラー: ${result.totalErrors}件`);
-
-    let message = "再スキャンとサムネイル生成が完了しました";
-    if (details.length > 0) message += ` (${details.join(", ")})`;
-    notify(message, (result.totalErrors ?? 0) > 0 ? "warning" : "success");
   } catch (e) {
     console.error("Error rescanning all videos:", e);
     notify(`全動画再スキャンに失敗しました (${messageOf(e as Error)})`, "error");
-  }
-}
-
-/** ディレクトリ削除 */
-export async function removeDirectoryFlow(deps: OperationDeps, path: string): Promise<boolean> {
-  try {
-    await ipc().removeDirectory(path);
-    await invalidateLibraryData(deps.qc);
-    deps.notify("ディレクトリを削除しました", "success");
-    return true;
-  } catch (e) {
-    console.error("Error removing directory:", e);
-    deps.notify(`ディレクトリの削除に失敗しました (${messageOf(e as Error)})`, "error");
-    return false;
   }
 }
 
