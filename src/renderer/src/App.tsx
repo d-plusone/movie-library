@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ipc, queryKeys } from "./api/ipc";
 import { addDirectoriesFlow } from "./api/operations";
-import { filterVideos, sortVideos, readStoredDirectoryCount } from "./lib/filters";
+import { filterVideoFacets, sortVideos } from "./lib/filters";
 import { useDebouncedValue } from "./lib/hooks";
 import { FilterProvider, useFilters } from "./state/FilterContext";
 import { NotifyProvider, useNotify } from "./state/NotificationContext";
@@ -15,12 +15,15 @@ import { ThemeProvider } from "./state/ThemeContext";
 import { UiProvider, useUi } from "./state/UiContext";
 import { BulkTagModal } from "./components/BulkTagModal";
 import { ChapterDialog } from "./components/ChapterDialog";
+import { CommandPalette } from "./components/CommandPalette";
+import { ContinueWatchingLane } from "./components/ContinueWatchingLane";
 import { CustomThumbnailDialog } from "./components/CustomThumbnailDialog";
 import { DetailsPanel } from "./components/DetailsPanel";
 import { DuplicatesModal } from "./components/DuplicatesModal";
 import { Header } from "./components/Header";
 import { PlayerModal } from "./components/PlayerModal";
 import { SettingsModal } from "./components/SettingsModal";
+import { ScanPreviewModal } from "./components/ScanPreviewModal";
 import { Sidebar } from "./components/Sidebar";
 import { TagEditDialog } from "./components/TagEditDialog";
 import { Toasts } from "./components/Toasts";
@@ -72,14 +75,23 @@ function Shell() {
   });
 
   const allVideos = videosQuery.data ?? [];
+  const availableDirectoryCount = filterState.availableDirectories.length;
 
-  // フィルタ + ソート済みの一覧（キーボードナビゲーションとも共有する）
-  const visibleVideos = useMemo(() => {
-    // availableDirectories が空ならディレクトリフィルタ自体が無効（旧 getFilterData 挙動）
-    const effectiveCount = readStoredDirectoryCount();
-    const filtered = filterVideos(allVideos, filters, effectiveCount, debouncedSearch);
-    return sortVideos(filtered, sort);
-  }, [allVideos, filters, debouncedSearch, sort]);
+  // フィルタ結果とサイドバーのファセットを同じ1回の走査で共有する。
+  const facets = useMemo(
+    () =>
+      filterVideoFacets(
+        allVideos,
+        filters,
+        availableDirectoryCount,
+        debouncedSearch,
+      ),
+    [allVideos, filters, availableDirectoryCount, debouncedSearch],
+  );
+  const visibleVideos = useMemo(
+    () => sortVideos(facets.visible, sort),
+    [facets.visible, sort],
+  );
 
   // ディレクトリ一覧と接続状態をフィルタ状態へ同期。
   // 接続エラー中のディレクトリは選択対象から外れ（復帰時に自動で戻る）、フィルタは非活性になる
@@ -112,12 +124,18 @@ function Shell() {
   // ウォッチャー由来の IPC イベントでキャッシュを更新する。
   // 追加・削除の完了トーストは main の進捗イベント（ProgressContext）側から出る
   useEffect(() => {
-    window.electronAPI.onVideoAdded(() => {
+    const onVideoAdded = (): void => {
       void qc.invalidateQueries({ queryKey: queryKeys.videos });
-    });
-    window.electronAPI.onVideoRemoved(() => {
+    };
+    const onVideoRemoved = (): void => {
       void qc.invalidateQueries({ queryKey: queryKeys.videos });
-    });
+    };
+    window.electronAPI.onVideoAdded(onVideoAdded);
+    window.electronAPI.onVideoRemoved(onVideoRemoved);
+    return () => {
+      window.electronAPI.offVideoAdded(onVideoAdded);
+      window.electronAPI.offVideoRemoved(onVideoRemoved);
+    };
   }, [qc]);
 
   // NAS（SMB 共有）の接続エラー / 再接続の通知。
@@ -149,14 +167,20 @@ function Shell() {
 
   // ネイティブメニュー（Cmd+, / Cmd+O）からの IPC イベント
   useEffect(() => {
-    window.electronAPI.onOpenSettings(() => {
+    const onOpenSettings = (): void => {
       ui.setSettingsOpen(true);
-    });
-    window.electronAPI.onOpenAddDirectory(() => {
+    };
+    const onOpenAddDirectory = (): void => {
       void ui.runScanExclusive(async () => {
         await addDirectoriesFlow({ qc, notify });
       });
-    });
+    };
+    window.electronAPI.onOpenSettings(onOpenSettings);
+    window.electronAPI.onOpenAddDirectory(onOpenAddDirectory);
+    return () => {
+      window.electronAPI.offOpenSettings(onOpenSettings);
+      window.electronAPI.offOpenAddDirectory(onOpenAddDirectory);
+    };
   }, [ui, qc, notify]);
 
   // 起動時処理: 接続できないフォルダの通知 + 不完全サムネイルの補完。
@@ -210,6 +234,11 @@ function Shell() {
   // グローバルキーボード操作（Esc / Enter / Space / 矢印）
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent): void => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        ui.setCommandPaletteOpen(true);
+        return;
+      }
       const target = e.target as HTMLElement | null;
       if (
         target !== null &&
@@ -222,6 +251,14 @@ function Shell() {
 
       // Esc: 開いている UI を優先度順に閉じる
       if (e.key === "Escape") {
+        if (ui.commandPaletteOpen) {
+          ui.setCommandPaletteOpen(false);
+          return;
+        }
+        if (ui.continueWatchingOpen) {
+          ui.setContinueWatchingOpen(false);
+          return;
+        }
         if (ui.playerVideoId !== null) {
           ui.closePlayer();
           return;
@@ -351,15 +388,18 @@ function Shell() {
   return (
     <div id="app">
       <Header />
+      <ContinueWatchingLane videos={allVideos} onPlay={playVideo} />
       <main className="main-content">
-        <Sidebar />
+        <Sidebar facets={facets} />
         <VideoArea videos={visibleVideos} listRef={listRef} />
         <DetailsPanel />
       </main>
 
       {/* モーダル群 */}
       <PlayerModal />
+      <CommandPalette />
       <SettingsModal />
+      <ScanPreviewModal />
       <BulkTagModal videos={visibleVideos} />
       <DuplicatesModal />
       <ChapterDialog />

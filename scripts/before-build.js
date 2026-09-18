@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const { execFileSync } = require("child_process");
 
 exports.default = async function (context) {
   const { electronPlatformName, arch } = context;
@@ -48,10 +49,10 @@ exports.default = async function (context) {
         "❌ @ffmpeg-installer/win32-x64/ffmpeg.exe not found in node_modules.",
       );
       console.error(
-        "   Windows 向けクロスビルドの前に、次のコマンドで明示的に取得してください:",
+        "   pnpm-workspace.yaml の supportedArchitectures を有効にしたうえで、次を実行してください:",
       );
       console.error(
-        "     pnpm add -D --no-save @ffmpeg-installer/win32-x64 --config.supportedArchitectures.os=win32 --config.supportedArchitectures.cpu=x64",
+        "     pnpm install --frozen-lockfile",
       );
       console.error(
         "   (pnpm が管理する node_modules を壊すため、ここで npm install は行いません)",
@@ -60,6 +61,48 @@ exports.default = async function (context) {
         "@ffmpeg-installer/win32-x64/ffmpeg.exe is missing — see instructions above before building for Windows",
       );
     }
+
+    // Prisma の CLI もアプリ起動時に migration を実行するため、
+    // クロスビルド時はホスト(macOS)用ではなく Windows 用の CLI engine を
+    // 明示的に取得する。Windows runner 上では通常の postinstall で既に
+    // 存在するが、同じ処理を再実行して成果物の前提を統一する。
+    const prismaPackageJson = require.resolve(
+      "prisma/package.json",
+      { paths: [path.join(__dirname, "..", "node_modules")] },
+    );
+    const prismaEnginesPostinstall = require.resolve(
+      "@prisma/engines/scripts/postinstall.js",
+      { paths: [path.dirname(prismaPackageJson)] },
+    );
+    if (!fs.existsSync(prismaEnginesPostinstall)) {
+      throw new Error(
+        "@prisma/engines postinstall.js is missing — cannot prepare Windows Prisma CLI engines",
+      );
+    }
+
+    console.log("Preparing Windows Prisma CLI engines...");
+    execFileSync(process.execPath, [prismaEnginesPostinstall], {
+      env: {
+        ...process.env,
+        PRISMA_CLI_BINARY_TARGETS: "windows",
+      },
+      stdio: "inherit",
+    });
+
+    const prismaEnginesDir = path.dirname(
+      path.dirname(prismaEnginesPostinstall),
+    );
+    for (const requiredEngine of [
+      "query_engine-windows.dll.node",
+      "schema-engine-windows.exe",
+    ]) {
+      if (!fs.existsSync(path.join(prismaEnginesDir, requiredEngine))) {
+        throw new Error(
+          `${requiredEngine} is missing — cannot create a Windows package with a working Prisma CLI`,
+        );
+      }
+    }
+    console.log("✅ Windows Prisma CLI engines ready");
   }
 
   return true;

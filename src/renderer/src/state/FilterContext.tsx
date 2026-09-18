@@ -16,7 +16,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { FilterState } from "../types";
+import type { FilterState, SavedFilter, TagMatchMode } from "../types";
 import type { SortSpec } from "../lib/filters";
 
 interface FilterContextValue {
@@ -24,6 +24,9 @@ interface FilterContextValue {
   search: string;
   setSearch: (value: string) => void;
   setRating: (rating: number) => void;
+  setTagMatchMode: (mode: TagMatchMode) => void;
+  setUnratedOnly: (enabled: boolean) => void;
+  setUntaggedOnly: (enabled: boolean) => void;
   toggleTag: (tag: string) => void;
   clearTags: () => void;
   toggleDirectory: (path: string) => void;
@@ -48,6 +51,13 @@ interface FilterContextValue {
 
   /** ディレクトリ一覧の同期（選択状態のプルーニングと初回全選択を含む） */
   syncAvailableDirectories: (paths: string[], unavailablePaths?: string[]) => void;
+  /** 現在登録されている利用可能ディレクトリ。描画中に localStorage を読まないための state */
+  availableDirectories: string[];
+
+  savedFilters: SavedFilter[];
+  saveCurrentFilter: (name: string) => boolean;
+  applySavedFilter: (id: string) => boolean;
+  deleteSavedFilter: (id: string) => void;
 }
 
 const FilterContext = createContext<FilterContextValue | null>(null);
@@ -57,6 +67,7 @@ const LS_SEARCH_QUERY = "searchQuery";
 const LS_AVAILABLE_DIRS = "availableDirectories";
 const LS_SAVE_ENABLED = "saveFilterState";
 const LS_VIEW_MODE = "viewMode";
+const LS_SAVED_FILTERS = "savedFilters";
 
 /** filterState の永続化フォーマット */
 interface PersistedFilters {
@@ -65,6 +76,9 @@ interface PersistedFilters {
   selectedDirectories?: string[];
   resolutions?: string[];
   codecs?: string[];
+  tagMatchMode?: TagMatchMode;
+  unratedOnly?: boolean;
+  untaggedOnly?: boolean;
 }
 
 function readSaveEnabled(): boolean {
@@ -78,7 +92,16 @@ function asStringArray(value: string[] | undefined): string[] {
 }
 
 function emptyFilters(): FilterState {
-  return { rating: 0, tags: [], directories: [], resolutions: [], codecs: [] };
+  return {
+    rating: 0,
+    tags: [],
+    directories: [],
+    resolutions: [],
+    codecs: [],
+    tagMatchMode: "OR",
+    unratedOnly: false,
+    untaggedOnly: false,
+  };
 }
 
 function readInitialFilters(): FilterState {
@@ -95,15 +118,73 @@ function readInitialFilters(): FilterState {
       directories: asStringArray(parsed.selectedDirectories),
       resolutions: asStringArray(parsed.resolutions),
       codecs: asStringArray(parsed.codecs),
+      tagMatchMode: parsed.tagMatchMode === "AND" ? "AND" : "OR",
+      unratedOnly: parsed.unratedOnly === true,
+      untaggedOnly: parsed.untaggedOnly === true,
     };
   } catch {
     return emptyFilters();
   }
 }
 
+function readInitialSavedFilters(): SavedFilter[] {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(LS_SAVED_FILTERS) ?? "[]");
+    if (!Array.isArray(parsed)) return [];
+    return parsed.flatMap((entry): SavedFilter[] => {
+      if (entry === null || typeof entry !== "object") return [];
+      const candidate = entry as Partial<SavedFilter>;
+      if (typeof candidate.id !== "string" || typeof candidate.name !== "string") return [];
+      if (typeof candidate.search !== "string" || candidate.filters === null || typeof candidate.filters !== "object") return [];
+      const raw = candidate.filters as Partial<FilterState>;
+      const filters: FilterState = {
+        rating: typeof raw.rating === "number" ? raw.rating : 0,
+        tags: asStringArray(raw.tags),
+        directories: asStringArray(raw.directories),
+        resolutions: asStringArray(raw.resolutions),
+        codecs: asStringArray(raw.codecs),
+        tagMatchMode: raw.tagMatchMode === "AND" ? "AND" : "OR",
+        unratedOnly: raw.unratedOnly === true,
+        untaggedOnly: raw.untaggedOnly === true,
+      };
+      const now = new Date().toISOString();
+      return [{
+        id: candidate.id,
+        name: candidate.name.trim(),
+        filters,
+        search: candidate.search,
+        createdAt: typeof candidate.createdAt === "string" ? candidate.createdAt : now,
+        updatedAt: typeof candidate.updatedAt === "string" ? candidate.updatedAt : now,
+      }];
+    }).filter((entry) => entry.name.length > 0);
+  } catch {
+    return [];
+  }
+}
+
+function createSavedFilterId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 function readInitialSearch(): string {
   if (!readSaveEnabled()) return "";
   return localStorage.getItem(LS_SEARCH_QUERY) ?? "";
+}
+
+function readInitialAvailableDirectories(): string[] {
+  try {
+    const parsed: unknown = JSON.parse(
+      localStorage.getItem(LS_AVAILABLE_DIRS) ?? "[]",
+    );
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === "string")
+      : [];
+  } catch {
+    return [];
+  }
 }
 
 /** リスト内での値のトグル（なければ追加、あれば除去） */
@@ -115,6 +196,9 @@ export function FilterProvider({ children }: { children: ReactNode }) {
   const [filters, setFilters] = useState<FilterState>(readInitialFilters);
   const [search, setSearch] = useState<string>(readInitialSearch);
   const [saveEnabled, setSaveEnabledState] = useState<boolean>(readSaveEnabled);
+  const [availableDirectories, setAvailableDirectories] = useState<string[]>(
+    readInitialAvailableDirectories,
+  );
   const [sort, setSort] = useState<SortSpec>(() => ({
     field: (localStorage.getItem("sortField") as SortSpec["field"] | null) ?? "addedAt",
     order: localStorage.getItem("sortOrder") === "ASC" ? "ASC" : "DESC",
@@ -122,6 +206,7 @@ export function FilterProvider({ children }: { children: ReactNode }) {
   const [view, setViewState] = useState<"grid" | "list">(() =>
     localStorage.getItem(LS_VIEW_MODE) === "list" ? "list" : "grid",
   );
+  const [savedFilters, setSavedFilters] = useState<SavedFilter[]>(readInitialSavedFilters);
 
   /** 接続エラーで選択から外れたディレクトリ（復帰時に自動で選択へ戻す） */
   const pendingSelectionRef = useRef<Set<string>>(new Set());
@@ -137,6 +222,11 @@ export function FilterProvider({ children }: { children: ReactNode }) {
   const syncAvailableDirectories = useCallback(
     (paths: string[], unavailablePaths: string[] = []): void => {
       localStorage.setItem(LS_AVAILABLE_DIRS, JSON.stringify(paths));
+      setAvailableDirectories((current) =>
+        current.length === paths.length && current.every((path, i) => path === paths[i])
+          ? current
+          : paths,
+      );
 
       const sameList = (a: string[], b: string[]): boolean =>
         a.length === b.length && a.every((item, i) => item === b[i]);
@@ -194,10 +284,17 @@ export function FilterProvider({ children }: { children: ReactNode }) {
         selectedDirectories: filters.directories,
         resolutions: filters.resolutions,
         codecs: filters.codecs,
+        tagMatchMode: filters.tagMatchMode,
+        unratedOnly: filters.unratedOnly,
+        untaggedOnly: filters.untaggedOnly,
       }),
     );
     localStorage.setItem(LS_SEARCH_QUERY, search);
   }, [filters, search, saveEnabled]);
+
+  useEffect(() => {
+    localStorage.setItem(LS_SAVED_FILTERS, JSON.stringify(savedFilters));
+  }, [savedFilters]);
 
   const toggleTag = useCallback(
     (tag: string) => setFilters((prev) => ({ ...prev, tags: toggled(prev.tags, tag) })),
@@ -235,6 +332,9 @@ export function FilterProvider({ children }: { children: ReactNode }) {
       search,
       setSearch,
       setRating: (rating) => setFilters((prev) => ({ ...prev, rating })),
+      setTagMatchMode: (tagMatchMode) => setFilters((prev) => ({ ...prev, tagMatchMode })),
+      setUnratedOnly: (unratedOnly) => setFilters((prev) => ({ ...prev, unratedOnly })),
+      setUntaggedOnly: (untaggedOnly) => setFilters((prev) => ({ ...prev, untaggedOnly })),
       toggleTag,
       clearTags: () => setFilters((prev) => ({ ...prev, tags: [] })),
       toggleDirectory,
@@ -270,6 +370,42 @@ export function FilterProvider({ children }: { children: ReactNode }) {
       setSaveEnabled,
 
       syncAvailableDirectories,
+      availableDirectories,
+      savedFilters,
+      saveCurrentFilter: (name) => {
+        const trimmed = name.trim();
+        if (!trimmed) return false;
+        const now = new Date().toISOString();
+        setSavedFilters((current) => {
+          const existing = current.find((entry) => entry.name === trimmed);
+          const next: SavedFilter = {
+            id: existing?.id ?? createSavedFilterId(),
+            name: trimmed,
+            filters: { ...filters, tags: [...filters.tags], directories: [...filters.directories], resolutions: [...filters.resolutions], codecs: [...filters.codecs] },
+            search,
+            createdAt: existing?.createdAt ?? now,
+            updatedAt: now,
+          };
+          return existing
+            ? current.map((entry) => (entry.id === existing.id ? next : entry))
+            : [...current, next];
+        });
+        return true;
+      },
+      applySavedFilter: (id) => {
+        const saved = savedFilters.find((entry) => entry.id === id);
+        if (!saved) return false;
+        setFilters({
+          ...saved.filters,
+          tags: [...saved.filters.tags],
+          directories: [...saved.filters.directories],
+          resolutions: [...saved.filters.resolutions],
+          codecs: [...saved.filters.codecs],
+        });
+        setSearch(saved.search);
+        return true;
+      },
+      deleteSavedFilter: (id) => setSavedFilters((current) => current.filter((entry) => entry.id !== id)),
     };
   }, [
     filters,
@@ -282,6 +418,8 @@ export function FilterProvider({ children }: { children: ReactNode }) {
     toggleResolution,
     toggleCodec,
     syncAvailableDirectories,
+    availableDirectories,
+    savedFilters,
   ]);
 
   return <FilterContext.Provider value={value}>{children}</FilterContext.Provider>;

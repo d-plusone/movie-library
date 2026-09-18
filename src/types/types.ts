@@ -149,19 +149,6 @@ export interface VideoStats {
   totalSize: number;
 }
 
-export interface ThumbnailSettings {
-  quality?: number;
-  scale?: string;
-  format?: string;
-  width?: number;
-  height?: number;
-  count?: number;
-  interval?: number;
-  enabled?: boolean;
-  maxCount?: number;
-  compression?: string;
-}
-
 // ========================================
 // 操作結果型
 // ========================================
@@ -173,6 +160,17 @@ export interface ScanResult {
   totalDeleted?: number;
   totalProcessed?: number;
   totalErrors?: number;
+}
+
+/** 実際のDB更新を行わずに算出したスキャン差分。 */
+export interface ScanPreviewResult {
+  totalNew: number;
+  totalUpdated: number;
+  totalDeleted: number;
+  totalReprocessed: number;
+  totalErrors: number;
+  errors: ScanError[];
+  scannedDirectories: number;
 }
 
 /**
@@ -205,6 +203,9 @@ export interface DuplicateSearchProgress {
   current: number;
   total: number;
   message: string;
+  /** 現在の工程内の進捗（部分ハッシュ更新時のみ設定） */
+  detailCurrent?: number;
+  detailTotal?: number;
 }
 
 /** 汎用の操作進捗（container-check-progress / container-convert-progress チャネル） */
@@ -262,6 +263,12 @@ export interface CleanupThumbnailsResult {
   totalSize: number;
 }
 
+export interface FileExportResult {
+  success: boolean;
+  path?: string;
+  error?: string;
+}
+
 /** 起動時サムネイル補完の結果 */
 export interface IncompleteThumbnailsResult {
   /** 走査した動画数 */
@@ -292,6 +299,10 @@ export interface BulkTagChange {
   action: "add" | "remove";
   videoId: number;
   tagName: string;
+}
+
+export interface BulkTagResult {
+  affected: number;
 }
 
 // ========================================

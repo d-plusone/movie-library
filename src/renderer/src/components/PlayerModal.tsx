@@ -5,7 +5,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ipc, queryKeys } from "../api/ipc";
+import { parseChapters } from "../lib/chapters";
 import { formatDuration, pathToFileUrl } from "../lib/format";
+import { thumbnailUrl } from "../lib/thumbnails";
 import { useFocusTrap } from "../lib/hooks";
 import { useNotify } from "../state/NotificationContext";
 import { useUi } from "../state/UiContext";
@@ -31,9 +33,37 @@ export function PlayerModal() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const lastSavedRef = useRef(0);
   const [progressText, setProgressText] = useState("");
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [playbackRate, setPlaybackRate] = useState(1);
+  const [loopA, setLoopA] = useState<number | null>(null);
+  const [loopB, setLoopB] = useState<number | null>(null);
+  const [seekPreview, setSeekPreview] = useState<{ time: number; left: number; path: string | null } | null>(null);
+  const playbackRateRef = useRef(1);
+  const loopARef = useRef<number | null>(null);
+  const loopBRef = useRef<number | null>(null);
   /** 外部プレーヤーへのフォールバックを 1 開始あたり 1 回だけ行うためのフラグ */
   const fallbackTriggeredRef = useRef(false);
   const modalRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (ui.playerVideoId === null) {
+      setLoopA(null);
+      setLoopB(null);
+      loopARef.current = null;
+      loopBRef.current = null;
+      return;
+    }
+    if (video?.id === undefined) return;
+    const stored = Number(localStorage.getItem("playbackRate") ?? "1");
+    const nextRate = [0.5, 0.75, 1, 1.25, 1.5, 2].includes(stored) ? stored : 1;
+    playbackRateRef.current = nextRate;
+    setPlaybackRate(nextRate);
+    setLoopA(null);
+    setLoopB(null);
+    loopARef.current = null;
+    loopBRef.current = null;
+  }, [ui.playerVideoId, video?.id]);
 
   const saveWatchEnabled = useCallback(
     (): boolean => localStorage.getItem("saveWatchProgress") !== "false",
@@ -83,19 +113,24 @@ export function PlayerModal() {
     lastSavedRef.current = 0;
     fallbackTriggeredRef.current = false;
     setProgressText(formatDuration(0));
+    setCurrentTime(0);
+    setDuration(video.duration ?? 0);
 
     element.src = pathToFileUrl(video.path);
+    element.playbackRate = playbackRateRef.current;
     element.load();
 
     const saved = video.watchPosition ?? 0;
-    if (saveWatchEnabled() && saved > 0) {
-      const onLoadedMetadata = (): void => {
-        if (element.duration > 0 && saved < element.duration * RESUME_SKIP_THRESHOLD) {
-          element.currentTime = saved;
-        }
-      };
-      element.addEventListener("loadedmetadata", onLoadedMetadata, { once: true });
-    }
+    const onLoadedMetadata = (): void => {
+      const loadedDuration = element.duration || video.duration || 0;
+      setDuration(loadedDuration);
+      element.playbackRate = playbackRateRef.current;
+      if (saveWatchEnabled() && saved > 0 && loadedDuration > 0 && saved < loadedDuration * RESUME_SKIP_THRESHOLD) {
+        element.currentTime = saved;
+      }
+      updateProgressText(element.currentTime || 0, loadedDuration);
+    };
+    element.addEventListener("loadedmetadata", onLoadedMetadata);
 
     if (saveWatchEnabled()) {
       void ipc()
@@ -106,7 +141,17 @@ export function PlayerModal() {
     const onTimeUpdate = (): void => {
       const position = Math.floor(element.currentTime) || 0;
       const duration = element.duration || video.duration || 0;
+      setCurrentTime(element.currentTime || 0);
+      setDuration(duration);
       updateProgressText(position, duration);
+
+      const end = loopBRef.current;
+      const start = loopARef.current ?? 0;
+      if (end !== null && end > start && element.currentTime >= end - 0.03) {
+        element.currentTime = start;
+        void element.play().catch(() => undefined);
+        return;
+      }
 
       if (!saveWatchEnabled()) return;
       if (Math.abs(position - lastSavedRef.current) >= WATCH_SAVE_INTERVAL_SEC) {
@@ -124,6 +169,7 @@ export function PlayerModal() {
           .catch((e: Error) => console.error("Failed to reset watch position:", e));
       }
       updateProgressText(0, 0);
+      setCurrentTime(0);
     };
 
     const onError = (): void => {
@@ -146,6 +192,7 @@ export function PlayerModal() {
       element.removeEventListener("timeupdate", onTimeUpdate);
       element.removeEventListener("ended", onEnded);
       element.removeEventListener("error", onError);
+      element.removeEventListener("loadedmetadata", onLoadedMetadata);
       // 最終視聴位置を保存してからソースを解放する
       const finalPosition = Math.floor(element.currentTime) || 0;
       if (saveWatchEnabled() && finalPosition > 0) {
@@ -159,9 +206,13 @@ export function PlayerModal() {
       element.pause();
       element.removeAttribute("src");
       element.load();
+      setSeekPreview(null);
     };
-    // video オブジェクトは ID 解決後の最新を使うため、ID のみ依存にする
-  }, [ui.playerVideoId]);
+    // video は videos クエリ解決後のため、ID 到着遅延に追従できるよう依存に含める。
+    // 初回実行時に video が null なら早期 return（クリーンアップなし）し、
+    // video 到着後の再実行で初期化される。ID が同一のまま video オブジェクトだけ
+    // 変わった場合は再初期化しないよう video.id（プリミティブ）で比較する。
+  }, [ui.playerVideoId, video?.id]);
 
   // video 要素へのフォーカスは上の effect が担うため、この trap は Tab 循環のみ担当する
   useFocusTrap(modalRef, ui.playerVideoId !== null);
@@ -175,7 +226,10 @@ export function PlayerModal() {
     if (!element || !video) return;
     const position = Math.floor(element.currentTime) || 0;
     const savedDir = localStorage.getItem("screenshotDir")?.trim();
-    const outputDir = savedDir && savedDir !== "" ? savedDir : "~/Pictures";
+    // 未設定時は空文字を送り、main 側で OS のピクチャフォルダにフォールバックさせる。
+    // 旧バージョンが保存した文字通りの "~/Pictures" も未設定扱いにする。
+    const outputDir =
+      savedDir && savedDir !== "" && savedDir !== "~/Pictures" ? savedDir : "";
     // 完了時に「保存中...」を消してから結果を出す（2 枚同時に残らないようにする）
     const progressId = notify(
       `スクリーンショットを保存中... (${formatDuration(position)})`,
@@ -220,6 +274,68 @@ export function PlayerModal() {
       );
     }
   }, [dismiss, notify, video]);
+
+  const setPlaybackRateValue = (value: number): void => {
+    const nextRate = [0.5, 0.75, 1, 1.25, 1.5, 2].includes(value) ? value : 1;
+    playbackRateRef.current = nextRate;
+    setPlaybackRate(nextRate);
+    localStorage.setItem("playbackRate", String(nextRate));
+    if (videoRef.current) videoRef.current.playbackRate = nextRate;
+  };
+
+  const seekTo = (time: number): void => {
+    const element = videoRef.current;
+    if (!element) return;
+    const nextTime = Math.max(0, Math.min(duration || element.duration || 0, time));
+    element.currentTime = nextTime;
+    setCurrentTime(nextTime);
+    updateProgressText(nextTime, duration || element.duration || 0);
+  };
+
+  const handleSeekPointer = (event: React.MouseEvent<HTMLDivElement>): void => {
+    const element = event.currentTarget;
+    const rect = element.getBoundingClientRect();
+    const totalDuration = duration || video?.duration || 0;
+    if (rect.width <= 0 || totalDuration <= 0) return;
+    const left = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+    const time = left * totalDuration;
+    const chapters = parseChapters(video?.chapterThumbnails).filter((chapter) => chapter.path);
+    const nearest = chapters.reduce<{ path: string; distance: number } | null>((best, chapter) => {
+      const distance = Math.abs(chapter.timestamp - time);
+      return best === null || distance < best.distance ? { path: chapter.path, distance } : best;
+    }, null);
+    setSeekPreview({ time, left: left * 100, path: nearest?.path ?? null });
+  };
+
+  const setLoopPoint = (point: "A" | "B"): void => {
+    const time = videoRef.current?.currentTime ?? currentTime;
+    if (point === "A") {
+      loopARef.current = time;
+      setLoopA(time);
+      if (loopBRef.current !== null && loopBRef.current <= time) {
+        loopBRef.current = null;
+        setLoopB(null);
+      }
+      return;
+    }
+    if (loopARef.current === null) {
+      notify("先にA地点を設定してください", "warning");
+      return;
+    }
+    if (time <= loopARef.current) {
+      notify("B地点はA地点より後に設定してください", "warning");
+      return;
+    }
+    loopBRef.current = time;
+    setLoopB(time);
+  };
+
+  const clearLoop = (): void => {
+    loopARef.current = null;
+    loopBRef.current = null;
+    setLoopA(null);
+    setLoopB(null);
+  };
 
   // プレーヤー表示中のキーボード操作（キャプチャフェーズで他ハンドラより優先）
   useEffect(() => {
@@ -317,6 +433,7 @@ export function PlayerModal() {
     const element = videoRef.current;
     if (!element) return;
     element.currentTime = 0;
+    setCurrentTime(0);
     lastSavedRef.current = 0;
     if (saveWatchEnabled()) {
       void ipc()
@@ -387,10 +504,55 @@ export function PlayerModal() {
         <div className="video-player-body">
           {/* tabindex=0: キーボードショートカットを受け取るフォーカス先 */}
           <video ref={videoRef} id="internalPlayer" controls playsInline preload="auto" tabIndex={0} />
+          <div
+            className="player-seek-preview-track"
+            role="slider"
+            aria-label="シーク"
+            aria-valuemin={0}
+            aria-valuemax={duration || video.duration || 0}
+            aria-valuenow={currentTime}
+            onMouseMove={handleSeekPointer}
+            onMouseLeave={() => setSeekPreview(null)}
+            onClick={(event) => {
+              handleSeekPointer(event);
+              const rect = event.currentTarget.getBoundingClientRect();
+              const totalDuration = duration || video.duration || 0;
+              if (rect.width > 0 && totalDuration > 0) {
+                seekTo(((event.clientX - rect.left) / rect.width) * totalDuration);
+              }
+            }}
+          >
+            <span className="player-seek-preview-progress" style={{ width: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }} />
+            {seekPreview && (
+              <span className="player-seek-preview" style={{ left: `${seekPreview.left}%` }}>
+                {seekPreview.path && video && <img src={thumbnailUrl(video, seekPreview.path)} alt="" />}
+                <span>{formatDuration(seekPreview.time)}</span>
+              </span>
+            )}
+          </div>
         </div>
 
         <div className="video-player-footer">
           <span id="playerProgressText" className="video-player-progress">{progressText}</span>
+          <label className="player-speed-control">
+            速度
+            <select value={playbackRate} onChange={(event) => setPlaybackRateValue(Number(event.target.value))}>
+              {[0.5, 0.75, 1, 1.25, 1.5, 2].map((rate) => (
+                <option key={rate} value={rate}>{rate}x</option>
+              ))}
+            </select>
+          </label>
+          <div className="player-loop-controls" role="group" aria-label="A-Bリピート">
+            <button type="button" className={`btn btn-small${loopA !== null ? " active" : ""}`} onClick={() => setLoopPoint("A")}>
+              A {loopA === null ? "" : formatDuration(loopA)}
+            </button>
+            <button type="button" className={`btn btn-small${loopB !== null ? " active" : ""}`} onClick={() => setLoopPoint("B")}>
+              B {loopB === null ? "" : formatDuration(loopB)}
+            </button>
+            <button type="button" className="btn btn-small" disabled={loopA === null && loopB === null} onClick={clearLoop}>
+              解除
+            </button>
+          </div>
           <button type="button" id="resetWatchProgressBtn" className="btn btn-small" title="視聴位置をリセット" onClick={resetWatchProgress}>
             視聴位置をリセット
           </button>

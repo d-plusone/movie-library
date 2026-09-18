@@ -52,14 +52,9 @@ export function VideoArea({ videos, listRef }: VideoAreaProps) {
 
     applyingRef.current = true;
     try {
-      let addedCount = 0;
-      for (const video of videos) {
-        for (const tagName of tagNames) {
-          if (video.tags?.includes(tagName)) continue;
-          await ipc().addTagToVideo(video.id, tagName);
-          addedCount++;
-        }
-      }
+      const targetVideoIds = videos.map((video) => video.id);
+      const result = await ipc().addTagsToVideos(targetVideoIds, tagNames);
+      const addedCount = result.affected;
       await Promise.all([
         qc.invalidateQueries({ queryKey: queryKeys.videos }),
         qc.invalidateQueries({ queryKey: queryKeys.tags }),
@@ -70,7 +65,7 @@ export function VideoArea({ videos, listRef }: VideoAreaProps) {
         tagNames.length === 1 ? `「${tagNames[0]}」` : `${tagNames.length}個のタグ`;
       notify(
         addedCount > 0
-          ? `${videos.length}本の動画に${tagLabel}を付与しました`
+          ? `${addedCount}件のタグ付与を反映しました（対象: ${videos.length}本、${tagLabel}）`
           : `対象動画は既に${tagLabel}を持っています`,
         addedCount > 0 ? "success" : "info",
       );

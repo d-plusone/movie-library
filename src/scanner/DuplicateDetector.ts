@@ -1,14 +1,39 @@
 import { createHash } from "crypto";
 import { promises as fs } from "fs";
 import { app } from "electron";
-import PrismaDatabaseManager from "../database/PrismaDatabaseManager.js";
+import PrismaDatabaseManager, {
+  type DuplicateDetectionRecord,
+} from "../database/PrismaDatabaseManager.js";
 import { createLogger } from "../utils/logger.js";
 
 // production ビルドではデバッグログを抑制
-const logger = createLogger(app.isPackaged);
+const logger = createLogger(app?.isPackaged ?? false);
 
 /** ファイル比較時に一度に読み込むバイト数 */
 const COMPARE_CHUNK_SIZE = 1024 * 1024; // 1MB
+
+/** chapterThumbnails JSON の安全なパース（DB 層と同等。壊れた行で落とさない） */
+function safeParseChapterThumbnailPaths(raw: string | null): string[] {
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    const paths: string[] = [];
+    for (const entry of parsed) {
+      if (
+        entry !== null &&
+        typeof entry === "object" &&
+        "path" in entry &&
+        typeof (entry as { path: unknown }).path === "string"
+      ) {
+        paths.push((entry as { path: string }).path);
+      }
+    }
+    return paths;
+  } catch {
+    return [];
+  }
+}
 
 /**
  * 2 つのファイルが完全に同一（バイト単位）かどうかを判定する。
@@ -68,9 +93,26 @@ export interface DuplicateGroup {
 export default class DuplicateDetector {
   private db: PrismaDatabaseManager;
   private readonly CHUNK_SIZE = 64 * 1024; // 64KB chunks for partial hash
+  private readonly HASH_CONCURRENCY = 4;
+  /** 検索ごとの世代。新しい検索開始・キャンセルで世代を進める。 */
+  private searchGeneration = 0;
 
   constructor(db: PrismaDatabaseManager) {
     this.db = db;
+  }
+
+  cancelSearch(): void {
+    this.searchGeneration++;
+  }
+
+  private throwIfCancelled(generation: number): void {
+    if (this.searchGeneration !== generation) {
+      throw new Error("DUPLICATE_SEARCH_CANCELLED");
+    }
+  }
+
+  private isCancelled(generation: number): boolean {
+    return this.searchGeneration !== generation;
   }
 
   /**
@@ -114,87 +156,107 @@ export default class DuplicateDetector {
    * Update partial hash for videos that don't have it yet
    */
   async updatePartialHashes(
+    generation: number,
     onProgress?: (current: number, total: number) => void,
   ): Promise<void> {
-    const videos = await this.db.prisma.video.findMany({
+    const PAGE_SIZE = 500;
+    const total = await this.db.prisma.video.count({
       where: { partialHash: null },
-      select: { id: true, path: true },
     });
-
-    logger.debug(`Calculating partial hashes for ${videos.length} videos...`);
-
-    for (let i = 0; i < videos.length; i++) {
-      const video = videos[i];
-      try {
-        // Check if file still exists
-        await fs.access(video.path);
-
-        const partialHash = await this.calculatePartialHash(video.path);
-        await this.db.prisma.video.update({
-          where: { id: video.id },
-          data: { partialHash },
-        });
-
-        if (onProgress) {
-          onProgress(i + 1, videos.length);
+    let completed = 0;
+    let afterId = 0;
+    onProgress?.(completed, total);
+    for (;;) {
+      const videos = await this.db.getVideosWithoutPartialHashPage(
+        PAGE_SIZE,
+        afterId,
+      );
+      if (videos.length === 0) break;
+      let nextIndex = 0;
+      const worker = async (): Promise<void> => {
+        while (true) {
+          this.throwIfCancelled(generation);
+          const index = nextIndex++;
+          if (index >= videos.length) return;
+          const video = videos[index]!;
+          try {
+            await fs.access(video.path);
+            const partialHash = await this.calculatePartialHash(video.path);
+            this.throwIfCancelled(generation);
+            await this.db.prisma.video.update({
+              where: { id: video.id },
+              data: { partialHash },
+            });
+          } catch (error) {
+            if (this.isCancelled(generation)) throw error;
+            console.error(`Failed to hash ${video.path}:`, error);
+          } finally {
+            completed++;
+            onProgress?.(completed, total);
+          }
         }
-      } catch (error) {
-        console.error(`Failed to hash ${video.path}:`, error);
-      }
+      };
+
+      await Promise.all(
+        Array.from(
+          { length: Math.min(this.HASH_CONCURRENCY, videos.length) },
+          () => worker(),
+        ),
+      );
+      afterId = videos[videos.length - 1]!.id;
+      if (videos.length < PAGE_SIZE) break;
     }
 
-    logger.debug(`✅ Updated ${videos.length} partial hashes`);
+    logger.debug(`Calculated partial hashes for ${completed}/${total} videos`);
   }
 
   /**
    * Find duplicate videos based on size, duration, and partial hash
    */
   async findDuplicates(
-    onProgress?: (current: number, total: number, message: string) => void,
+    onProgress?: (
+      current: number,
+      total: number,
+      message: string,
+      detailCurrent?: number,
+      detailTotal?: number,
+    ) => void,
   ): Promise<DuplicateGroup[]> {
+    // 新しい検索を開始した時点で、前の検索はキャンセル扱いにする。
+    // boolean フラグだと「閉じる→すぐ再度開く」で古い検索が復活してしまう。
+    const generation = ++this.searchGeneration;
+    this.throwIfCancelled(generation);
     // First, ensure all videos have partial hashes
     onProgress?.(0, 3, "部分ハッシュを更新中...");
-    await this.updatePartialHashes();
-
-    // Get all videos
-    onProgress?.(1, 3, "動画情報を取得中...");
-    const videos = await this.db.prisma.video.findMany({
-      where: {
-        partialHash: { not: null },
-      },
-      select: {
-        id: true,
-        path: true,
-        filename: true,
-        size: true,
-        width: true,
-        height: true,
-        duration: true,
-        partialHash: true,
-        thumbnailPath: true,
-      },
+    await this.updatePartialHashes(generation, (current, total) => {
+      onProgress?.(0, 3, "部分ハッシュを更新中...", current, total);
     });
+    this.throwIfCancelled(generation);
 
-    // partialHash が null の動画は重複判定できないため除外（型ガード付き）
-    const videosWithHash = videos.filter(
-      (video): video is (typeof videos)[number] & { partialHash: string } =>
-        video.partialHash !== null,
-    );
+    // 動画情報をページ単位で取得し、グループMapだけを保持する
+    onProgress?.(1, 3, "動画情報を取得中...");
+    const PAGE_SIZE = 500;
+    const groups = new Map<string, DuplicateDetectionRecord[]>();
+    let afterId = 0;
+    for (;;) {
+      const videos = await this.db.getVideosForDuplicatePage(PAGE_SIZE, afterId);
+      if (videos.length === 0) break;
+      this.throwIfCancelled(generation);
+
+      for (const video of videos) {
+        this.throwIfCancelled(generation);
+        if (!video.partialHash) continue;
+        const key = `${video.size}_${video.duration}_${video.partialHash}`;
+        const group = groups.get(key) ?? [];
+        group.push(video);
+        groups.set(key, group);
+      }
+      afterId = videos[videos.length - 1]!.id;
+      if (videos.length < PAGE_SIZE) break;
+    }
 
     // Group by: size + duration + partialHash
     onProgress?.(2, 3, "重複を検索中...");
-    const groups = new Map<string, typeof videosWithHash>();
-
-    for (const video of videosWithHash) {
-      if (!video.partialHash) continue;
-
-      // Create composite key
-      const key = `${video.size}_${video.duration}_${video.partialHash}`;
-
-      const group = groups.get(key) || [];
-      group.push(video);
-      groups.set(key, group);
-    }
 
     // Filter to only groups with 2+ videos
     const duplicateGroups: DuplicateGroup[] = [];
@@ -229,7 +291,7 @@ export default class DuplicateDetector {
     const [video, referenceVideo] = await Promise.all([
       this.db.prisma.video.findUnique({
         where: { id: videoId },
-        select: { path: true, thumbnailPath: true },
+        select: { path: true, thumbnailPath: true, chapterThumbnails: true },
       }),
       this.db.prisma.video.findUnique({
         where: { id: verifyAgainstVideoId },
@@ -268,12 +330,22 @@ export default class DuplicateDetector {
       await fs.unlink(video.path);
     }
 
-    // Delete thumbnail if exists
+    // アプリが生成した副産物（メイン＋チャプターサムネイル）をベストエフォートで削除する。
+    // removeDirectory と同じ範囲を消さないとチャプター画像（最大5枚）がゴミとして残る。
     if (video.thumbnailPath) {
       try {
         await fs.unlink(video.thumbnailPath);
       } catch (error) {
         console.warn(`Failed to delete thumbnail: ${error}`);
+      }
+    }
+    for (const chapterPath of safeParseChapterThumbnailPaths(
+      video.chapterThumbnails,
+    )) {
+      try {
+        await fs.unlink(chapterPath);
+      } catch (error) {
+        console.warn(`Failed to delete chapter thumbnail: ${error}`);
       }
     }
 

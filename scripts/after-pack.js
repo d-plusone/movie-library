@@ -1,5 +1,207 @@
 const fs = require("fs");
 const path = require("path");
+const { execFileSync } = require("child_process");
+
+function removeWrongPlatformPrismaEngines(
+  unpackedPath,
+  electronPlatformName,
+) {
+  const engineLocations = [
+    path.join(unpackedPath, "node_modules", "prisma"),
+    path.join(unpackedPath, "node_modules", "prisma", "node_modules", "@prisma", "engines"),
+    path.join(unpackedPath, "node_modules", "@prisma", "engines"),
+    path.join(unpackedPath, "node_modules", ".prisma", "client"),
+    path.join(unpackedPath, "generated", "prisma"),
+  ];
+  const wrongPlatformFiles =
+    electronPlatformName === "win32"
+      ? [
+          "libquery_engine-darwin.dylib.node",
+          "libquery_engine-darwin-arm64.dylib.node",
+          "query_engine-darwin",
+          "query_engine-darwin-arm64",
+          "schema-engine-darwin",
+          "schema-engine-darwin-arm64",
+        ]
+      : [
+          "query_engine-windows.dll.node",
+          "schema-engine-windows.exe",
+        ];
+
+  for (const location of engineLocations) {
+    for (const fileName of wrongPlatformFiles) {
+      const targetPath = path.join(location, fileName);
+      if (!fs.existsSync(targetPath)) continue;
+      fs.rmSync(targetPath, { recursive: true, force: true });
+      console.log(`🗑️  Deleted: ${path.relative(unpackedPath, targetPath)}`);
+    }
+  }
+}
+
+/**
+ * afterPack で Prisma CLI の依存ツリーをコピーした後に、実行時に読まれない
+ * source map を取り除く。electron-builder の files フィルターは後処理の fs.cpSync
+ * には適用されないため、ここで明示的に除外する。
+ */
+function removeSourceMaps(directory) {
+  if (!fs.existsSync(directory)) return;
+
+  let removed = 0;
+  const visit = (currentPath) => {
+    for (const entry of fs.readdirSync(currentPath, { withFileTypes: true })) {
+      const entryPath = path.join(currentPath, entry.name);
+      if (entry.isDirectory()) {
+        visit(entryPath);
+      } else if (entry.isFile() && entry.name.endsWith(".map")) {
+        fs.unlinkSync(entryPath);
+        removed += 1;
+      }
+    }
+  };
+
+  visit(directory);
+  if (removed > 0) {
+    console.log(`🗑️  Deleted ${removed} source map files`);
+  }
+}
+
+function prepareWindowsPrismaCliEngines() {
+  const projectRoot = path.join(__dirname, "..");
+  const prismaSourcePath = resolvePackageRoot(
+    "prisma",
+    path.join(projectRoot, "node_modules"),
+  );
+  const prismaEnginesDir = resolvePackageRoot(
+    "@prisma/engines",
+    prismaSourcePath,
+  );
+  const prismaEnginesPostinstall = path.join(
+    prismaEnginesDir,
+    "scripts",
+    "postinstall.js",
+  );
+  const requiredEngines = [
+    "query_engine-windows.dll.node",
+    "schema-engine-windows.exe",
+  ];
+
+  if (!fs.existsSync(prismaEnginesPostinstall)) {
+    throw new Error(
+      "@prisma/engines postinstall.js is missing — cannot prepare Windows Prisma CLI engines",
+    );
+  }
+
+  if (
+    requiredEngines.some(
+      (engine) => !fs.existsSync(path.join(prismaEnginesDir, engine)),
+    )
+  ) {
+    console.log("Preparing Windows Prisma CLI engines in afterPack...");
+    execFileSync(process.execPath, [prismaEnginesPostinstall], {
+      env: {
+        ...process.env,
+        PRISMA_CLI_BINARY_TARGETS: "windows",
+      },
+      stdio: "inherit",
+    });
+  }
+
+  for (const requiredEngine of requiredEngines) {
+    if (!fs.existsSync(path.join(prismaEnginesDir, requiredEngine))) {
+      throw new Error(
+        `${requiredEngine} is missing — cannot create a Windows package with a working Prisma CLI`,
+      );
+    }
+  }
+  console.log("✅ Windows Prisma CLI engines ready for packaging");
+}
+
+function resolvePackageRoot(packageName, fromPackageRoot) {
+  let current = fromPackageRoot;
+  while (current !== path.dirname(current)) {
+    const candidates = [
+      path.join(current, "node_modules", packageName),
+      path.join(current, packageName),
+    ];
+    for (const candidate of candidates) {
+      if (fs.existsSync(path.join(candidate, "package.json"))) {
+        return fs.realpathSync(candidate);
+      }
+    }
+    current = path.dirname(current);
+  }
+
+  const resolved = require.resolve(packageName, { paths: [fromPackageRoot] });
+  let packageRoot = path.dirname(resolved);
+  while (
+    packageRoot !== path.dirname(packageRoot) &&
+    !fs.existsSync(path.join(packageRoot, "package.json"))
+  ) {
+    packageRoot = path.dirname(packageRoot);
+  }
+  return packageRoot;
+}
+
+/**
+ * Prisma CLI は devDependency として明示的に梱包しているため、electron-builder
+ * の通常の production dependency 収集だけでは pnpm の推移依存を拾えない。
+ * npm 互換の node_modules ツリーを app.asar.unpacked に再構成する。
+ */
+function copyPrismaCliDependencyTree(
+  packageName,
+  fromPackageRoot,
+  targetNodeModules,
+  copiedTargets,
+) {
+  const sourceRoot = resolvePackageRoot(packageName, fromPackageRoot);
+  const targetRoot = path.join(
+    targetNodeModules,
+    ...packageName.split("/"),
+  );
+  const targetKey = path.resolve(targetRoot);
+
+  if (!copiedTargets.has(targetKey)) {
+    copiedTargets.add(targetKey);
+    fs.mkdirSync(path.dirname(targetRoot), { recursive: true });
+    if (!fs.existsSync(targetRoot)) {
+      fs.cpSync(sourceRoot, targetRoot, {
+        recursive: true,
+        dereference: true,
+      });
+      console.log(`✓ Bundled Prisma dependency: ${packageName}`);
+    }
+  }
+
+  const packageJson = JSON.parse(
+    fs.readFileSync(path.join(sourceRoot, "package.json"), "utf8"),
+  );
+  const dependencies = Object.keys({
+    ...(packageJson.dependencies || {}),
+    ...(packageJson.optionalDependencies || {}),
+  });
+  const nestedNodeModules = path.join(targetRoot, "node_modules");
+
+  for (const dependency of dependencies) {
+    try {
+      copyPrismaCliDependencyTree(
+        dependency,
+        sourceRoot,
+        nestedNodeModules,
+        copiedTargets,
+      );
+    } catch (error) {
+      if (packageJson.optionalDependencies?.[dependency] !== undefined) {
+        console.log(
+          `- Skipping unavailable optional Prisma dependency: ${dependency}`,
+        );
+        continue;
+      }
+      throw new Error(
+        `Unable to bundle Prisma dependency ${dependency} required by ${packageName}: ${error.message}`,
+      );
+    }
+  }
+}
 
 exports.default = async function (context) {
   const { electronPlatformName, arch, appOutDir } = context;
@@ -160,6 +362,14 @@ exports.default = async function (context) {
     ];
 
     if (electronPlatformName === "darwin") {
+      if (archString === "arm64") {
+        // macOS arm64 は extraResources の静的リンク ffprobe を使用するため、
+        // ffprobe-static は実行時に参照されない。
+        deleteIfExists(
+          path.join(unpackedPath, "node_modules", "ffprobe-static"),
+        );
+      }
+
       // Remove non-darwin ffprobe binaries
       deleteIfExists(
         path.join(
@@ -236,6 +446,17 @@ exports.default = async function (context) {
           "darwin",
         ),
       );
+      // Windows x64 のみを配布するため ia32 版は不要。
+      deleteIfExists(
+        path.join(
+          unpackedPath,
+          "node_modules",
+          "ffprobe-static",
+          "bin",
+          "win32",
+          "ia32",
+        ),
+      );
 
       // Remove non-windows Prisma engines
       const prismaToDelete = [
@@ -257,6 +478,10 @@ exports.default = async function (context) {
 
   // Copy Prisma build directory to ensure CLI works
   try {
+    if (electronPlatformName === "win32") {
+      prepareWindowsPrismaCliEngines();
+    }
+
     const prismaSourcePath = path.join(
       __dirname,
       "..",
@@ -312,8 +537,30 @@ exports.default = async function (context) {
       fs.copyFileSync(prismaPackageSource, prismaPackageTarget);
       console.log("✓ Copied Prisma package.json");
     }
+
+    const bundledNodeModules = path.join(
+      resourcesPath,
+      "app.asar.unpacked",
+      "node_modules",
+    );
+    copyPrismaCliDependencyTree(
+      "prisma",
+      prismaSourcePath,
+      bundledNodeModules,
+      new Set(),
+    );
+    console.log("✓ Bundled Prisma CLI dependency tree");
+
+    // copyPrismaCliDependencyTree は pnpm の nested node_modules も再構成する
+    // ため、先ほどの通常 cleanup の後に、そこへコピーされたホストOS用
+    // engine が残っていないことを再確認する。
+    removeWrongPlatformPrismaEngines(
+      path.join(resourcesPath, "app.asar.unpacked"),
+      electronPlatformName,
+    );
+    removeSourceMaps(path.join(resourcesPath, "app.asar.unpacked"));
   } catch (error) {
-    console.error("Error copying Prisma files:", error.message);
+    throw new Error(`Error copying Prisma files: ${error.message}`);
   }
 
   return true;

@@ -59,22 +59,8 @@ export function BulkTagModal({ videos }: BulkTagModalProps) {
 
   const applyMutation = useMutation({
     mutationFn: async (changes: Array<{ videoId: number; tagName: string; action: "add" | "remove" }>) => {
-      let successCount = 0;
-      let errorCount = 0;
-      for (const change of changes) {
-        try {
-          if (change.action === "add") {
-            await ipc().addTagToVideo(change.videoId, change.tagName);
-          } else {
-            await ipc().removeTagFromVideo(change.videoId, change.tagName);
-          }
-          successCount++;
-        } catch (e) {
-          console.error(`Error applying change (${change.action}) for video ${change.videoId}:`, e);
-          errorCount++;
-        }
-      }
-      return { successCount, errorCount };
+      const result = await ipc().applyBulkTagChanges(changes);
+      return { successCount: result.affected, errorCount: 0 };
     },
     onSuccess: async ({ successCount, errorCount }) => {
       await Promise.all([

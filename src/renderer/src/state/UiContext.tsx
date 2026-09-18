@@ -52,6 +52,15 @@ interface UiContextValue {
   containerCheckOpen: boolean;
   setContainerCheckOpen: (open: boolean) => void;
 
+  commandPaletteOpen: boolean;
+  setCommandPaletteOpen: (open: boolean) => void;
+
+  scanPreviewOpen: boolean;
+  setScanPreviewOpen: (open: boolean) => void;
+
+  continueWatchingOpen: boolean;
+  setContinueWatchingOpen: (open: boolean) => void;
+
   /** キーボードナビゲーション用の選択インデックス */
   selectedIndex: number;
   setSelectedIndex: (index: number) => void;
@@ -84,6 +93,9 @@ export function UiProvider({ children }: { children: ReactNode }) {
   const [customThumbVideoId, setCustomThumbVideoId] = useState<number | null>(null);
   const [tagEditName, setTagEditName] = useState<string | null>(null);
   const [containerCheckOpen, setContainerCheckOpen] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [scanPreviewOpen, setScanPreviewOpen] = useState(false);
+  const [continueWatchingOpen, setContinueWatchingOpen] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const [scanLocked, setScanLocked] = useState(false);
   const scanLockRef = useRef(false);
@@ -127,7 +139,10 @@ export function UiProvider({ children }: { children: ReactNode }) {
       chapterRequest !== null ||
       customThumbVideoId !== null ||
       tagEditName !== null ||
-      containerCheckOpen;
+      containerCheckOpen ||
+      commandPaletteOpen ||
+      scanPreviewOpen ||
+      continueWatchingOpen;
 
     return {
       detailsVideoId,
@@ -159,6 +174,12 @@ export function UiProvider({ children }: { children: ReactNode }) {
 
       containerCheckOpen,
       setContainerCheckOpen,
+      commandPaletteOpen,
+      setCommandPaletteOpen,
+      scanPreviewOpen,
+      setScanPreviewOpen,
+      continueWatchingOpen,
+      setContinueWatchingOpen,
 
       selectedIndex,
       setSelectedIndex,
@@ -184,6 +205,9 @@ export function UiProvider({ children }: { children: ReactNode }) {
     customThumbVideoId,
     tagEditName,
     containerCheckOpen,
+    commandPaletteOpen,
+    scanPreviewOpen,
+    continueWatchingOpen,
     selectedIndex,
     scanLocked,
     sidebarCollapsed,

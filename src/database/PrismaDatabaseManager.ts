@@ -11,13 +11,32 @@ import type {
   Directory as AppDirectory,
   Tag as AppTag,
   ChapterThumbnail,
+  BulkTagResult,
+  BulkTagChange,
   VideoCreateData,
   VideoUpdateData,
 } from "../types/types";
 import { createLogger } from "../utils/logger.js";
+import {
+  LEGACY_BASELINE_MIGRATIONS,
+  databasePathFromUrl,
+  ensureDatabaseMigrated,
+} from "./migration-manager.js";
 
 // production ビルドではデバッグログを抑制
-const logger = createLogger(app.isPackaged);
+const logger = createLogger(app?.isPackaged ?? false);
+
+// SQLite の bind parameter 上限を超えないよう、bulk 操作の SQL 条件を分割する。
+// videoId/tagId の組み合わせは1組あたり2パラメータを使うため、余裕を持たせる。
+const BULK_TAG_CHUNK_SIZE = 400;
+
+function chunkArray<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
+}
 
 // データベース操作用の型定義（Prismaの型とアプリの型を橋渡し）
 export interface VideoRecord extends AppVideo {
@@ -29,6 +48,68 @@ export interface VideoRecord extends AppVideo {
 export interface DirectoryRecord extends AppDirectory {}
 
 export interface TagRecord extends AppTag {}
+
+export interface ContainerCheckRecord {
+  id: number;
+  path: string;
+  filename: string;
+  size: bigint;
+}
+
+export interface VideoScanRecord {
+  id: number;
+  path: string;
+  filename: string;
+  title: string;
+  duration: number;
+  size: bigint;
+  width: number;
+  height: number;
+  fps: number;
+  codec: string;
+  modifiedAt: Date;
+  thumbnailPath?: string;
+  chapterThumbnails: ChapterThumbnail[];
+}
+
+/** スキャンの差分判定に必要な最小限の既存動画情報。 */
+export interface VideoScanComparisonRecord {
+  id: number;
+  path: string;
+  title: string;
+  duration: number;
+  size: bigint;
+  width: number;
+  height: number;
+  fps: number;
+  codec: string;
+  modifiedAt: Date;
+}
+
+export interface ThumbnailGenerationRecord {
+  id: number;
+  path: string;
+  filename: string;
+  duration: number;
+}
+
+export interface ThumbnailReferenceRecord {
+  thumbnailPath: string | null;
+  chapterThumbnails: string;
+  id: number;
+}
+
+export interface DuplicateDetectionRecord {
+  id: number;
+  path: string;
+  filename: string;
+  size: bigint;
+  width: number;
+  height: number;
+  duration: number;
+  partialHash: string;
+  thumbnailPath: string | null;
+}
 
 // Prisma の video 取得結果（videoTags 込み）の型
 type VideoWithTags = Prisma.VideoGetPayload<{
@@ -122,26 +203,26 @@ type SortableField = (typeof SORTABLE_FIELDS)[number];
 function resolveOrderBy(
   sortBy: SortableField,
   order: Prisma.SortOrder,
-): Prisma.VideoOrderByWithRelationInput {
+): Prisma.VideoOrderByWithRelationInput[] {
   switch (sortBy) {
     case "title":
-      return { title: order };
+      return [{ title: order }, { id: order }];
     case "addedAt":
-      return { addedAt: order };
+      return [{ addedAt: order }, { id: order }];
     case "updatedAt":
-      return { updatedAt: order };
+      return [{ updatedAt: order }, { id: order }];
     case "rating":
-      return { rating: order };
+      return [{ rating: order }, { id: order }];
     case "duration":
-      return { duration: order };
+      return [{ duration: order }, { id: order }];
     case "size":
-      return { size: order };
+      return [{ size: order }, { id: order }];
     case "createdAt":
-      return { createdAt: order };
+      return [{ createdAt: order }, { id: order }];
     case "modifiedAt":
-      return { modifiedAt: order };
+      return [{ modifiedAt: order }, { id: order }];
     default:
-      return { filename: order };
+      return [{ filename: order }, { id: order }];
   }
 }
 
@@ -177,57 +258,63 @@ class PrismaDatabaseManager {
     }
   }
 
-  private async ensureDatabaseExists(): Promise<void> {
-    try {
-      // データベーステーブルの存在をチェック
-      await this._prisma.video.findFirst();
-    } catch (error) {
-      // テーブルまたはカラムが存在しない場合（Prisma エラーコード P2021/P2022）、
-      // 旧バージョンのスキーマの DB とみなして自動でマイグレーションを実行
-      // （P2022 は古いバージョンのアプリで作られた DB に新カラムが無いケース）
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        (error.code === "P2021" || error.code === "P2022")
-      ) {
-        // findFirst() の失敗により this._prisma は既にこの DB ファイルへ
-        // 遅延接続してしまっている。切断せずに migrate/db push を別プロセスで
-        // 起動すると、同一 SQLite ファイルへの接続が競合してロックし、
-        // 特に Windows でフォールバック自体が失敗する。マイグレーション完了後は
-        // initialize() が $connect() を呼び直すため、ここで一旦切断してよい。
-        await this._prisma.$disconnect();
-        await this.runDatabaseMigration();
-      } else {
-        throw error;
-      }
+  /** SQLite の WAL をチェックポイントしてから、利用者が選んだ場所へDBを複製する。 */
+  async backupDatabase(destinationPath: string): Promise<void> {
+    const databaseUrl = process.env.DATABASE_URL;
+    if (!databaseUrl) throw new Error("DATABASE_URL が設定されていません");
+    const sourcePath = databasePathFromUrl(databaseUrl);
+    const targetPath = path.resolve(destinationPath);
+    if (sourcePath === targetPath) {
+      throw new Error("現在使用中のDBファイルと同じ場所には保存できません");
     }
+    await this._prisma.$queryRawUnsafe("PRAGMA wal_checkpoint(TRUNCATE)");
+    await fs.copyFile(sourcePath, targetPath);
   }
 
-  private async runDatabaseMigration(): Promise<void> {
-    // Prismaの正しいアプローチ：prisma migrate deploy を使用
-    logger.log("Running Prisma migration...");
-
-    try {
-      await this.runPrismaMigrateDeploy();
-    } catch (error) {
-      console.error("Prisma migrate deploy failed:", error);
-
-      // マイグレーション履歴が無い/食い違っている DB
-      // （旧バージョンで db push により作られた DB など）では migrate deploy が
-      // 失敗するため、db push でスキーマを同期する
-      const message = error instanceof Error ? error.message : String(error);
-      if (
-        message.includes("P3005") ||
-        message.includes("database schema is not empty") ||
-        message.includes("P3006") ||
-        message.includes("failed to apply") ||
-        process.platform === "win32"
-      ) {
-        logger.log("Database not empty, attempting db push to sync schema...");
-        await this.runPrismaDbPush();
-      } else {
-        throw error;
-      }
+  private async ensureDatabaseExists(): Promise<void> {
+    const databaseUrl = process.env.DATABASE_URL;
+    if (!databaseUrl) {
+      throw new Error("DATABASE_URL が設定されていません");
     }
+
+    const migrationNames = await this.getMigrationNames();
+    const result = await ensureDatabaseMigrated({
+      databasePath: databasePathFromUrl(databaseUrl),
+      migrationNames,
+      legacyBaselineMigrations: LEGACY_BASELINE_MIGRATIONS,
+      sql: {
+        query: <T>(sql: string) => this._prisma.$queryRawUnsafe<T[]>(sql),
+        connect: () => this._prisma.$connect(),
+        disconnect: () => this._prisma.$disconnect(),
+      },
+      runner: {
+        deploy: () => this.runPrismaMigrateDeploy(),
+        resolveApplied: (migrationName) =>
+          this.runPrismaMigrateResolve(migrationName),
+      },
+    });
+
+    if (result.backupPath) {
+      logger.log(`Database backup created before migration: ${result.backupPath}`);
+    }
+    logger.log(`Database migration state: ${result.kind}`);
+  }
+
+  private getPrismaBaseDir(): string {
+    return app.isPackaged
+      ? path.join(process.resourcesPath, "app.asar.unpacked")
+      : process.cwd();
+  }
+
+  private async getMigrationNames(): Promise<string[]> {
+    const migrationsDir = path.join(this.getPrismaBaseDir(), "prisma", "migrations");
+    const entries = await fs.readdir(migrationsDir, { withFileTypes: true });
+    return entries
+      .filter(
+        (entry) => entry.isDirectory() && /^\d+_.+/.test(entry.name),
+      )
+      .map((entry) => entry.name)
+      .sort();
   }
 
   /**
@@ -241,9 +328,7 @@ class PrismaDatabaseManager {
   private runPrismaCli(args: string[], successMessage: string): Promise<void> {
     return new Promise((resolve, reject) => {
       // 開発中: プロジェクト直下、リリース時: ASAR unpackedからバイナリ参照
-      const baseDir = app.isPackaged
-        ? path.join(process.resourcesPath, "app.asar.unpacked")
-        : process.cwd();
+      const baseDir = this.getPrismaBaseDir();
 
       // Prismaの実際のスクリプトパスを直接指定
       const prismaScript = path.join(
@@ -306,8 +391,8 @@ class PrismaDatabaseManager {
             console.error("Error output:", stderr);
           }
 
-          // エラーメッセージに stderr を含める
-          // （呼び出し側が P3005 / P3006 / "failed to apply" 等を検出できるように）
+          // エラーメッセージに stderr を含めて、migration失敗の理由を
+          // 起動側へそのまま伝える。失敗時のschema自動変更は行わない。
           reject(
             new Error(
               `prisma ${args.join(" ")} failed with code ${code}${
@@ -325,20 +410,6 @@ class PrismaDatabaseManager {
     });
   }
 
-  /**
-   * マイグレーション履歴が無い/食い違っている DB 向けにスキーマを同期する。
-   * --accept-data-loss を付けない場合、破壊的な変更が必要なスキーマ差分では
-   * db push が対話的な確認を待ってハングしてしまう（非対話環境のため誰も応答できない）。
-   * この経路は既に migrate deploy が失敗した後の最終フォールバックであり、
-   * ここで止まるとアプリ自体が起動できなくなるため確認プロンプトを無効化する。
-   */
-  private async runPrismaDbPush(): Promise<void> {
-    await this.runPrismaCli(
-      ["db", "push", "--skip-generate", "--accept-data-loss"],
-      "Prisma db push completed successfully",
-    );
-  }
-
   private async runPrismaMigrateDeploy(): Promise<void> {
     await this.runPrismaCli(
       ["migrate", "deploy"],
@@ -346,11 +417,20 @@ class PrismaDatabaseManager {
     );
   }
 
+  private async runPrismaMigrateResolve(migrationName: string): Promise<void> {
+    await this.runPrismaCli(
+      ["migrate", "resolve", "--applied", migrationName],
+      `Prisma migration baseline recorded: ${migrationName}`,
+    );
+  }
+
   async addVideo(videoData: VideoCreateData): Promise<number> {
-    // 日付の型変換（DateオブジェクトはISO文字列に変換）
+    // Prisma DateTime へ変換（スキャナからは ISO 文字列で渡される）
     // Prisma スキーマでは必須のため、新規作成時に未指定なら現在時刻を使用
-    const createdAtString = videoData.createdAt ?? new Date().toISOString();
-    const modifiedAtString = videoData.modifiedAt ?? new Date().toISOString();
+    const createdAt = new Date(videoData.createdAt ?? new Date().toISOString());
+    const modifiedAt = new Date(
+      videoData.modifiedAt ?? new Date().toISOString(),
+    );
 
     // update 側は明示的に渡されたフィールドのみ更新する。
     // createdAt/modifiedAt を常に「今」でフォールバックして書き込むと、
@@ -371,8 +451,12 @@ class PrismaDatabaseManager {
       chapterThumbnails: JSON.stringify(videoData.chapterThumbnails || []),
       updatedAt: new Date(),
     };
-    if (videoData.createdAt !== undefined) updateData.createdAt = videoData.createdAt;
-    if (videoData.modifiedAt !== undefined) updateData.modifiedAt = videoData.modifiedAt;
+    if (videoData.createdAt !== undefined) {
+      updateData.createdAt = new Date(videoData.createdAt);
+    }
+    if (videoData.modifiedAt !== undefined) {
+      updateData.modifiedAt = new Date(videoData.modifiedAt);
+    }
 
     const video = await this._prisma.video.upsert({
       where: { path: videoData.path },
@@ -388,8 +472,8 @@ class PrismaDatabaseManager {
         fps: videoData.fps,
         codec: videoData.codec,
         bitrate: videoData.bitrate,
-        createdAt: createdAtString,
-        modifiedAt: modifiedAtString,
+        createdAt,
+        modifiedAt,
         thumbnailPath: videoData.thumbnailPath,
         chapterThumbnails: JSON.stringify(videoData.chapterThumbnails || []),
       },
@@ -429,6 +513,141 @@ class PrismaDatabaseManager {
     });
 
     return videos.map(mapVideoRecord);
+  }
+
+  /** スキャン用の軽量取得。IDカーソルでページングし、同時更新で行を飛ばさない。 */
+  async getVideosForScanPage(
+    limit: number,
+    afterId: number = 0,
+  ): Promise<VideoScanRecord[]> {
+    const videos = await this._prisma.video.findMany({
+      where: afterId > 0 ? { id: { gt: afterId } } : undefined,
+      select: {
+        id: true,
+        path: true,
+        filename: true,
+        title: true,
+        duration: true,
+        size: true,
+        width: true,
+        height: true,
+        fps: true,
+        codec: true,
+        modifiedAt: true,
+        thumbnailPath: true,
+        chapterThumbnails: true,
+      },
+      orderBy: { id: "asc" },
+      take: limit,
+    });
+    return videos.map((video) => ({
+      ...video,
+      modifiedAt: new Date(video.modifiedAt),
+      thumbnailPath: video.thumbnailPath ?? undefined,
+      chapterThumbnails: safeParseChapterThumbnails(video.chapterThumbnails),
+    }));
+  }
+
+  /**
+   * スキャン比較用の最小 DTO。
+   * サムネイル JSON やタグを含めず、ページ単位で読み込むことで大規模 DB でも
+   * 不要なレコードをメモリへ展開しない。
+   */
+  async getVideosForScanComparisonPage(
+    limit: number,
+    afterId: number = 0,
+  ): Promise<VideoScanComparisonRecord[]> {
+    const videos = await this._prisma.video.findMany({
+      where: afterId > 0 ? { id: { gt: afterId } } : undefined,
+      select: {
+        id: true,
+        path: true,
+        title: true,
+        duration: true,
+        size: true,
+        width: true,
+        height: true,
+        fps: true,
+        codec: true,
+        modifiedAt: true,
+      },
+      orderBy: { id: "asc" },
+      take: limit,
+    });
+    return videos.map((video) => ({
+      ...video,
+      modifiedAt: new Date(video.modifiedAt),
+    }));
+  }
+
+  /** コンテナ判定用の最小 DTO。動画本体やタグをメモリへ展開しない。 */
+  async getVideosForContainerCheck(
+    limit: number,
+    afterId: number = 0,
+  ): Promise<ContainerCheckRecord[]> {
+    return this._prisma.video.findMany({
+      select: { id: true, path: true, filename: true, size: true },
+      where: afterId > 0 ? { id: { gt: afterId } } : undefined,
+      orderBy: { id: "asc" },
+      take: limit,
+    });
+  }
+
+  async getVideosWithoutPartialHashPage(
+    limit: number,
+    afterId: number = 0,
+  ): Promise<Array<{ id: number; path: string }>> {
+    const videos = await this._prisma.video.findMany({
+      where: {
+        partialHash: null,
+        ...(afterId > 0 ? { id: { gt: afterId } } : {}),
+      },
+      select: { id: true, path: true },
+      orderBy: { id: "asc" },
+      take: limit,
+    });
+    return videos;
+  }
+
+  async getVideosForDuplicatePage(
+    limit: number,
+    afterId: number = 0,
+  ): Promise<DuplicateDetectionRecord[]> {
+    const videos = await this._prisma.video.findMany({
+      where: {
+        partialHash: { not: null },
+        ...(afterId > 0 ? { id: { gt: afterId } } : {}),
+      },
+      select: {
+        id: true,
+        path: true,
+        filename: true,
+        size: true,
+        width: true,
+        height: true,
+        duration: true,
+        partialHash: true,
+        thumbnailPath: true,
+      },
+      orderBy: { id: "asc" },
+      take: limit,
+    });
+    return videos.filter(
+      (video): video is DuplicateDetectionRecord => video.partialHash !== null,
+    );
+  }
+
+  /** サムネイル掃除用の最小 DTO。タグや動画メタデータは取得しない。 */
+  async getThumbnailReferences(
+    limit: number,
+    afterId: number = 0,
+  ): Promise<ThumbnailReferenceRecord[]> {
+    return this._prisma.video.findMany({
+      select: { id: true, thumbnailPath: true, chapterThumbnails: true },
+      where: afterId > 0 ? { id: { gt: afterId } } : undefined,
+      orderBy: { id: "asc" },
+      take: limit,
+    });
   }
 
   async getVideo(id: number): Promise<VideoRecord | null> {
@@ -532,38 +751,6 @@ class PrismaDatabaseManager {
     }
   }
 
-  async searchVideos(query: string): Promise<VideoRecord[]> {
-    // Prisma の contains は SQLite 上で LIKE に変換され、クエリ中の "%"/"_" が
-    // エスケープなしでワイルドカードとして解釈されてしまう
-    // （例: "100%" で検索すると "100" + 任意の1文字にマッチしてしまう）。
-    // ここでは全件取得してから JS のリテラル部分文字列一致でフィルタすることで、
-    // ワイルドカード解釈を避け、常に「入力した文字列そのもの」で検索する。
-    const normalizedQuery = query.trim().toLowerCase();
-    if (!normalizedQuery) return [];
-
-    const videos = await this._prisma.video.findMany({
-      include: {
-        videoTags: {
-          include: {
-            tag: true,
-          },
-        },
-      },
-      orderBy: { title: "asc" },
-    });
-
-    const matched = videos.filter((video) => {
-      if (video.title.toLowerCase().includes(normalizedQuery)) return true;
-      if (video.filename.toLowerCase().includes(normalizedQuery)) return true;
-      if (video.description?.toLowerCase().includes(normalizedQuery)) return true;
-      return video.videoTags.some((vt) =>
-        vt.tag.name.toLowerCase().includes(normalizedQuery),
-      );
-    });
-
-    return matched.map(mapVideoRecord);
-  }
-
   async getVideoCount(): Promise<number> {
     return this._prisma.video.count();
   }
@@ -579,7 +766,7 @@ class PrismaDatabaseManager {
   async getVideosWithoutThumbnails(
     limit: number | null = null,
     offset: number = 0,
-  ): Promise<VideoRecord[]> {
+  ): Promise<ThumbnailGenerationRecord[]> {
     try {
       logger.debug("getVideosWithoutThumbnails: Starting Prisma query");
 
@@ -587,13 +774,8 @@ class PrismaDatabaseManager {
         where: {
           OR: [{ thumbnailPath: null }, { thumbnailPath: "" }],
         },
-        include: {
-          videoTags: {
-            include: {
-              tag: true,
-            },
-          },
-        },
+        select: { id: true, path: true, filename: true, duration: true },
+        orderBy: [{ filename: "asc" }, { id: "asc" }],
         take: limit ?? undefined,
         skip: offset,
       });
@@ -607,12 +789,11 @@ class PrismaDatabaseManager {
           videos.slice(0, 3).map((v) => ({
             id: v.id,
             filename: v.filename,
-            thumbnailPath: v.thumbnailPath,
           })),
         );
       }
 
-      return videos.map(mapVideoRecord);
+      return videos;
     } catch (error) {
       console.error("Error in getVideosWithoutThumbnails:", error);
       throw error;
@@ -644,12 +825,35 @@ class PrismaDatabaseManager {
    */
   async removeDirectory(directoryPath: string): Promise<boolean> {
     try {
-      const allVideos = await this._prisma.video.findMany({
-        select: { id: true, path: true, thumbnailPath: true, chapterThumbnails: true },
-      });
-      const videosUnderDir = allVideos.filter((video) =>
-        isPathUnderDirectory(video.path, directoryPath),
-      );
+      const videosUnderDir: Array<{
+        id: number;
+        path: string;
+        thumbnailPath: string | null;
+        chapterThumbnails: string;
+      }> = [];
+      const PAGE_SIZE = 500;
+      let afterId = 0;
+      for (;;) {
+        const page = await this._prisma.video.findMany({
+          select: {
+            id: true,
+            path: true,
+            thumbnailPath: true,
+            chapterThumbnails: true,
+          },
+          where: afterId > 0 ? { id: { gt: afterId } } : undefined,
+          orderBy: { id: "asc" },
+          take: PAGE_SIZE,
+        });
+        if (page.length === 0) break;
+        videosUnderDir.push(
+          ...page.filter((video) =>
+            isPathUnderDirectory(video.path, directoryPath),
+          ),
+        );
+        afterId = page[page.length - 1]!.id;
+        if (page.length < PAGE_SIZE) break;
+      }
 
       // アプリが生成した副産物（サムネイル）のみベストエフォートで削除する。
       // 元動画ファイルには一切触れない。
@@ -688,9 +892,14 @@ class PrismaDatabaseManager {
 
   // Tag management
   async getTags(): Promise<TagRecord[]> {
-    return await this._prisma.tag.findMany({
+    const tags = await this._prisma.tag.findMany({
+      include: { _count: { select: { videoTags: true } } },
       orderBy: { name: "asc" },
     });
+    return tags.map(({ _count, ...tag }) => ({
+      ...tag,
+      count: _count.videoTags,
+    }));
   }
 
   async addTag(name: string, color: string = "#007AFF"): Promise<number> {
@@ -742,6 +951,66 @@ class PrismaDatabaseManager {
     }
   }
 
+  async addTagsToVideos(
+    videoIds: number[],
+    tagNames: string[],
+  ): Promise<BulkTagResult> {
+    if (
+      !Array.isArray(videoIds) ||
+      !videoIds.every((id) => Number.isInteger(id)) ||
+      !Array.isArray(tagNames) ||
+      !tagNames.every((name) => typeof name === "string")
+    ) {
+      throw new Error("Invalid bulk tag arguments");
+    }
+    const ids = [...new Set(videoIds.filter((id) => Number.isInteger(id)))];
+    const names = [...new Set(tagNames.map((name) => name.trim()).filter(Boolean))];
+    if (ids.length === 0 || names.length === 0) return { affected: 0 };
+
+    try {
+      const affected = await this._prisma.$transaction(async (tx) => {
+        const tagIds: number[] = [];
+        for (const name of names) {
+          const tag = await tx.tag.upsert({
+            where: { name },
+            update: {},
+            create: { name, color: "#007AFF" },
+          });
+          tagIds.push(tag.id);
+        }
+        let affected = 0;
+        for (const videoChunk of chunkArray(ids, BULK_TAG_CHUNK_SIZE)) {
+          for (const tagChunk of chunkArray(tagIds, BULK_TAG_CHUNK_SIZE)) {
+            const pairs = videoChunk.flatMap((videoId) =>
+              tagChunk.map((tagId) => ({ videoId, tagId })),
+            );
+            for (const pairChunk of chunkArray(pairs, BULK_TAG_CHUNK_SIZE)) {
+              const existing = await tx.videoTag.findMany({
+                where: { OR: pairChunk },
+                select: { videoId: true, tagId: true },
+              });
+              const existingKeys = new Set(
+                existing.map((pair) => `${pair.videoId}:${pair.tagId}`),
+              );
+              const pendingPairs = pairChunk.filter(
+                (pair) => !existingKeys.has(`${pair.videoId}:${pair.tagId}`),
+              );
+              if (pendingPairs.length > 0) {
+                const result = await tx.videoTag.createMany({ data: pendingPairs });
+                affected += result.count;
+              }
+            }
+          }
+        }
+        return affected;
+      });
+      return { affected };
+    } catch (error) {
+      console.error("Error adding tags to videos:", error);
+      throw error;
+    }
+  }
+
   async removeTagFromVideo(videoId: number, tagName: string): Promise<boolean> {
     try {
       const tag = await this._prisma.tag.findUnique({
@@ -763,6 +1032,164 @@ class PrismaDatabaseManager {
     } catch (error) {
       console.error("Error removing tag from video:", error);
       return false;
+    }
+  }
+
+  async removeTagsFromVideos(
+    videoIds: number[],
+    tagNames: string[],
+  ): Promise<BulkTagResult> {
+    if (
+      !Array.isArray(videoIds) ||
+      !videoIds.every((id) => Number.isInteger(id)) ||
+      !Array.isArray(tagNames) ||
+      !tagNames.every((name) => typeof name === "string")
+    ) {
+      throw new Error("Invalid bulk tag arguments");
+    }
+    const ids = [...new Set(videoIds.filter((id) => Number.isInteger(id)))];
+    const names = [...new Set(tagNames.map((name) => name.trim()).filter(Boolean))];
+    if (ids.length === 0 || names.length === 0) return { affected: 0 };
+
+    try {
+      const affected = await this._prisma.$transaction(async (tx) => {
+        const tags = (
+          await Promise.all(
+            chunkArray(names, BULK_TAG_CHUNK_SIZE).map((nameChunk) =>
+              tx.tag.findMany({
+                where: { name: { in: nameChunk } },
+                select: { id: true },
+              }),
+            ),
+          )
+        ).flat();
+        if (tags.length === 0) return 0;
+        let affected = 0;
+        for (const videoChunk of chunkArray(ids, BULK_TAG_CHUNK_SIZE)) {
+          for (const tagChunk of chunkArray(
+            tags.map((tag) => tag.id),
+            BULK_TAG_CHUNK_SIZE,
+          )) {
+            const result = await tx.videoTag.deleteMany({
+              where: {
+                videoId: { in: videoChunk },
+                tagId: { in: tagChunk },
+              },
+            });
+            affected += result.count;
+          }
+        }
+        return affected;
+      });
+      return { affected };
+    } catch (error) {
+      console.error("Error removing tags from videos:", error);
+      throw error;
+    }
+  }
+
+  async applyBulkTagChanges(
+    changes: BulkTagChange[],
+  ): Promise<BulkTagResult> {
+    if (!Array.isArray(changes)) {
+      throw new Error("Invalid bulk tag changes");
+    }
+    const normalized = changes.filter(
+      (change) =>
+        change !== null &&
+        typeof change === "object" &&
+        Number.isInteger(change.videoId) &&
+        typeof change.tagName === "string" &&
+        change.tagName.trim().length > 0 &&
+        (change.action === "add" || change.action === "remove"),
+    );
+    if (normalized.length === 0) return { affected: 0 };
+
+    try {
+      const affected = await this._prisma.$transaction(async (tx) => {
+        const addChanges = normalized.filter((change) => change.action === "add");
+        const removeChanges = normalized.filter(
+          (change) => change.action === "remove",
+        );
+        const tagNames = [
+          ...new Set(normalized.map((change) => change.tagName.trim())),
+        ];
+        const tags = (
+          await Promise.all(
+            chunkArray(tagNames, BULK_TAG_CHUNK_SIZE).map((tagNameChunk) =>
+              tx.tag.findMany({
+                where: { name: { in: tagNameChunk } },
+                select: { id: true, name: true },
+              }),
+            ),
+          )
+        ).flat();
+        const tagIds = new Map(tags.map((tag) => [tag.name, tag.id]));
+
+        for (const change of addChanges) {
+          const name = change.tagName.trim();
+          if (tagIds.has(name)) continue;
+          const tag = await tx.tag.upsert({
+            where: { name },
+            update: {},
+            create: { name, color: "#007AFF" },
+          });
+          tagIds.set(name, tag.id);
+        }
+
+        const addPairs = addChanges.map((change) => ({
+          videoId: change.videoId,
+          tagId: tagIds.get(change.tagName.trim())!,
+        }));
+        const uniqueAddPairs = [
+          ...new Map(
+            addPairs.map((pair) => [`${pair.videoId}:${pair.tagId}`, pair]),
+          ).values(),
+        ];
+        let addAffected = 0;
+        for (const pairChunk of chunkArray(
+          uniqueAddPairs,
+          BULK_TAG_CHUNK_SIZE,
+        )) {
+          if (pairChunk.length === 0) continue;
+          const existingAddPairs = await tx.videoTag.findMany({
+            where: { OR: pairChunk },
+            select: { videoId: true, tagId: true },
+          });
+          const existingAddKeys = new Set(
+            existingAddPairs.map((pair) => `${pair.videoId}:${pair.tagId}`),
+          );
+          const pendingPairs = pairChunk.filter(
+            (pair) => !existingAddKeys.has(`${pair.videoId}:${pair.tagId}`),
+          );
+          if (pendingPairs.length > 0) {
+            const addResult = await tx.videoTag.createMany({ data: pendingPairs });
+            addAffected += addResult.count;
+          }
+        }
+        const removePairs = removeChanges.flatMap((change) => {
+          const tagId = tagIds.get(change.tagName.trim());
+          return tagId === undefined
+            ? []
+            : [{ videoId: change.videoId, tagId }];
+        });
+        let removeAffected = 0;
+        for (const pairChunk of chunkArray(
+          removePairs,
+          BULK_TAG_CHUNK_SIZE,
+        )) {
+          if (pairChunk.length === 0) continue;
+          const removeResult = await tx.videoTag.deleteMany({
+            where: { OR: pairChunk },
+          });
+          removeAffected += removeResult.count;
+        }
+        return addAffected + removeAffected;
+      });
+      return { affected };
+    } catch (error) {
+      console.error("Error applying bulk tag changes:", error);
+      throw error;
     }
   }
 

@@ -4,7 +4,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import {
   addDirectoriesFlow,
-  scanDirectoriesFlow,
   generateThumbnailsOp,
 } from "../api/operations";
 import { useFilters } from "../state/FilterContext";
@@ -33,9 +32,7 @@ export function Header() {
       notify("他のスキャン処理が実行中です。完了までお待ちください", "warning");
       return;
     }
-    void ui.runScanExclusive(async () => {
-      await scanDirectoriesFlow(deps);
-    });
+    ui.setScanPreviewOpen(true);
   };
 
   const onGenerateThumbnails = (): void => {

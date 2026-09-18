@@ -6,12 +6,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ipc, queryKeys } from "../api/ipc";
 import {
   codecOptions,
-  filterVideos,
-  readStoredDirectoryCount,
   resolutionOptions,
+  type FilterFacets,
   type SortField,
 } from "../lib/filters";
-import { useDebouncedValue } from "../lib/hooks";
 import { useFilters } from "../state/FilterContext";
 import { useNotify } from "../state/NotificationContext";
 import { useUi } from "../state/UiContext";
@@ -30,20 +28,16 @@ function basename(path: string): string {
   return path.split(/[/\\]/).pop() || path;
 }
 
-export function Sidebar() {
+export function Sidebar({ facets }: { facets: FilterFacets }) {
   const qc = useQueryClient();
   const { notify } = useNotify();
   const ui = useUi();
   const filtersState = useFilters();
-  const { filters, sort, search } = filtersState;
+  const { filters, sort } = filtersState;
 
   const [tagKeyword, setTagKeyword] = useState("");
+  const [savedFilterName, setSavedFilterName] = useState("");
 
-  const videosQuery = useQuery({
-    queryKey: queryKeys.videos,
-    queryFn: () => ipc().getVideos(),
-    staleTime: Infinity,
-  });
   const tagsQuery = useQuery({
     queryKey: queryKeys.tags,
     queryFn: () => ipc().getTags(),
@@ -60,39 +54,25 @@ export function Sidebar() {
     staleTime: Infinity,
   });
 
-  const videos = videosQuery.data ?? [];
   const tags = tagsQuery.data ?? [];
   const directories = directoriesQuery.data ?? [];
   const directoryStatuses = directoryStatusesQuery.data ?? {};
 
   // ファセット件数: 各軸の件数は「その軸以外のフィルタを反映した結果」で集計する
   // （例: 解像度の件数は、フォルダ/タグ/検索などの選択状態を反映する）
-  const debouncedSearch = useDebouncedValue(search, 200);
-  const directoryCount = readStoredDirectoryCount();
-
-  const facetBase = useMemo(
-    () =>
-      ({
-        tags: filterVideos(videos, filters, directoryCount, debouncedSearch, { skip: ["tags"] }),
-        resolutions: filterVideos(videos, filters, directoryCount, debouncedSearch, {
-          skip: ["resolutions"],
-        }),
-        codecs: filterVideos(videos, filters, directoryCount, debouncedSearch, { skip: ["codecs"] }),
-      }) as const,
-    [videos, filters, directoryCount, debouncedSearch],
-  );
-
-  // タグの件数は動画データから集計する（旧 get-tags の count:0 固定を解消）
-  const tagCounts = new Map<string, number>();
-  for (const video of facetBase.tags) {
-    for (const tag of video.tags ?? []) {
-      tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + 1);
-    }
-  }
 
   const filteredTags = tagKeyword
     ? tags.filter((tag) => tag.name.toLowerCase().includes(tagKeyword.toLowerCase()))
     : tags;
+  const tagCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const video of facets.tags) {
+      for (const tag of video.tags ?? []) {
+        counts.set(tag, (counts.get(tag) ?? 0) + 1);
+      }
+    }
+    return counts;
+  }, [facets.tags]);
 
   const deleteTag = useMutation({
     mutationFn: (name: string) => ipc().deleteTag(name),
@@ -133,11 +113,20 @@ export function Sidebar() {
     void removeDirectory.mutateAsync(path);
   };
 
+  const saveNamedFilter = (): void => {
+    if (!filtersState.saveCurrentFilter(savedFilterName)) {
+      notify("保存済みフィルタ名を入力してください", "warning");
+      return;
+    }
+    setSavedFilterName("");
+    notify("フィルタを保存しました", "success");
+  };
+
   const resOptions = useMemo(
-    () => resolutionOptions(facetBase.resolutions),
-    [facetBase.resolutions],
+    () => resolutionOptions(facets.resolutions),
+    [facets.resolutions],
   );
-  const codecOpts = useMemo(() => codecOptions(facetBase.codecs), [facetBase.codecs]);
+  const codecOpts = useMemo(() => codecOptions(facets.codecs), [facets.codecs]);
   const directoryPaths = directories.map((d) => d.path);
   // 接続エラー中のディレクトリはフィルタとして選択できない
   const selectableDirectoryPaths = directoryPaths.filter(
@@ -204,6 +193,26 @@ export function Sidebar() {
               <option value="DESC">降順</option>
             </select>
           </div>
+
+          <div className="filter-group filter-special-options">
+            <label>追加条件</label>
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={filters.unratedOnly}
+                onChange={(e) => filtersState.setUnratedOnly(e.target.checked)}
+              />
+              未評価のみ
+            </label>
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={filters.untaggedOnly}
+                onChange={(e) => filtersState.setUntaggedOnly(e.target.checked)}
+              />
+              タグ未割り当てのみ
+            </label>
+          </div>
         </div>
 
         <div className="sidebar-section">
@@ -240,6 +249,27 @@ export function Sidebar() {
               全て解除
             </button>
           </div>
+          {filters.tags.length > 1 && (
+            <div className="tag-match-controls" role="group" aria-label="タグの一致条件">
+              <span>一致条件</span>
+              <button
+                type="button"
+                className={`btn btn-small${filters.tagMatchMode === "OR" ? " active" : ""}`}
+                aria-pressed={filters.tagMatchMode === "OR"}
+                onClick={() => filtersState.setTagMatchMode("OR")}
+              >
+                OR
+              </button>
+              <button
+                type="button"
+                className={`btn btn-small${filters.tagMatchMode === "AND" ? " active" : ""}`}
+                aria-pressed={filters.tagMatchMode === "AND"}
+                onClick={() => filtersState.setTagMatchMode("AND")}
+              >
+                AND
+              </button>
+            </div>
+          )}
           <div id="tagsList" className="tags-list">
             {filteredTags.map((tag) => (
               <div
@@ -254,7 +284,7 @@ export function Sidebar() {
                 }}
               >
                 <span className="tag-name">{tag.name}</span>
-                <span className="tag-count">{tagCounts.get(tag.name) ?? 0}</span>
+                <span className="tag-count">{tagCounts.get(tag.name) ?? tag.count ?? 0}</span>
                 <div className="tag-actions">
                   <button
                     type="button"
@@ -286,6 +316,55 @@ export function Sidebar() {
             {filteredTags.length === 0 && tagKeyword !== "" && (
               <div className="no-results-message">一致するタグがありません</div>
             )}
+          </div>
+        </div>
+
+        <div className="sidebar-section saved-filters-section">
+          <h3>保存済みフィルタ</h3>
+          <div className="saved-filter-create">
+            <input
+              type="text"
+              className="saved-filter-input"
+              placeholder="名前を付けて保存"
+              aria-label="保存済みフィルタ名"
+              value={savedFilterName}
+              onChange={(e) => setSavedFilterName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key !== "Enter") return;
+                saveNamedFilter();
+              }}
+            />
+            <button
+              type="button"
+              className="btn btn-small"
+              onClick={() => {
+                saveNamedFilter();
+              }}
+            >
+              保存
+            </button>
+          </div>
+          <div className="saved-filter-list">
+            {filtersState.savedFilters.map((saved) => (
+              <div className="saved-filter-item" key={saved.id}>
+                <button
+                  type="button"
+                  className="saved-filter-apply"
+                  onClick={() => filtersState.applySavedFilter(saved.id)}
+                  title={`${saved.name}を適用`}
+                >
+                  {saved.name}
+                </button>
+                <button
+                  type="button"
+                  className="saved-filter-delete"
+                  aria-label={`保存済みフィルタ「${saved.name}」を削除`}
+                  onClick={() => filtersState.deleteSavedFilter(saved.id)}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
           </div>
         </div>
 

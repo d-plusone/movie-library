@@ -42,9 +42,8 @@ Mac/Windows 対応の Electron 製動画管理アプリケーション。React �
 
 ### パフォーマンス最適化
 
-- **Windows 特化最適化**: 並列処理制限と ffmpeg スレッド制御で CPU 使用率 40%削減
+- **FFmpeg リソース制御**: サムネイル生成は FFmpeg 同時実行数を Windows 2 本、その他 4 本に制限（Windows は 2 スレッドも指定）
 - **スマートサムネイル生成**: バッチ処理で大量の動画もスムーズに処理
-- **プロセス優先度調整**: バックグラウンド処理中も UI レスポンスを維持
 - **クロスプラットフォームビルド**: macOS から Windows バイナリを正しく生成
 
 ## 🛡️ 開発規約・コーディング規約
@@ -183,29 +182,29 @@ pnpm type-check
 # ユニットテスト
 pnpm test
 
-# パッケージビルド
+# パッケージビルド（electron-builder の before-build フックが対象バイナリを検証）
 pnpm build:mac    # macOS用
-pnpm build:win    # Windows用 (注: macOSからのクロスビルドの場合は下記参照)
+pnpm build:win    # Windows用（macOSからのクロスビルドの場合は下記参照）
 pnpm build:all    # 全プラットフォーム
 ```
 
 ### Windows ビルド（macOS からのクロスビルド）
 
-Windows 版を macOS からビルドする場合、ffmpeg バイナリの前処理が必要です:
+Windows 版を macOS からビルドする場合は、Windows 用 optional dependency を先に取得します。
+その後は通常の `pnpm build:win` を実行してください。
 
 ```bash
-# Windows用ffmpegバイナリを準備
-node scripts/prepare-windows-ffmpeg.js
+# Windows用 ffmpeg.exe を取得（pnpm-workspace.yaml の supportedArchitectures を利用）
+pnpm install --frozen-lockfile
 
 # Windowsビルドを実行
-npm run build:win
+pnpm build:win
 ```
 
-**重要**: このスクリプトは以下を実行します:
+`electron-builder` の `scripts/before-build.js` が次を確認します:
 
-- macOS 用 ffmpeg を削除
-- Windows PE 形式の ffmpeg をダウンロード
-- バイナリ形式を検証（MZ ヘッダーチェック）
+- `node_modules/@ffmpeg-installer/win32-x64/ffmpeg.exe` の存在
+- 不足している場合は、パッケージ作成を中断して取得コマンドを案内
 
 ### プロジェクト構造
 
@@ -259,9 +258,9 @@ git push origin --tags
 
 アプリには以下の最適化が組み込まれています:
 
-- サムネイル生成: 2 並列に制限（macOS は 4 並列）
-- ffmpeg スレッド: 2 スレッドに制限
-- プロセス優先度: BELOW_NORMAL に設定
+- FFmpeg プロセス: 同時 2 本に制限（Windows）
+- FFmpeg スレッド: 2 スレッドに制限（Windows）
+- macOS / Linux: FFmpeg 同時実行数は 4 本
 
 それでも重い場合:
 

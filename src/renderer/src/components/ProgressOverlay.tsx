@@ -25,6 +25,9 @@ export function ProgressOverlay() {
               className={`progress-item${entry.completed ? " completed" : ""}`}
             >
               <div className="progress-message">
+                {!entry.completed && (
+                  <span className="progress-spinner" aria-hidden="true" />
+                )}
                 {entry.completed ? `${entry.label} - 完了` : entry.message}
               </div>
               <div className="progress-bar-wrapper">

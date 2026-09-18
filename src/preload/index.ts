@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { ElectronAPI } from "../types/electron-api";
 import type {
+  BulkTagChange,
   DeleteProgress,
   DeleteVideoRequest,
   DirectoryStatus,
@@ -49,6 +50,28 @@ function createListenerPair<T>(
   };
 }
 
+function createEventListenerPair(
+  channel: string,
+): { on: (callback: () => void) => void; off: (callback: () => void) => void } {
+  const listenerMap = new Map<() => void, () => void>();
+  return {
+    on: (callback) => {
+      const existing = listenerMap.get(callback);
+      if (existing !== undefined) ipcRenderer.removeListener(channel, existing);
+      const listener = (): void => callback();
+      listenerMap.set(callback, listener);
+      ipcRenderer.on(channel, listener);
+    },
+    off: (callback) => {
+      const listener = listenerMap.get(callback);
+      if (listener !== undefined) {
+        ipcRenderer.removeListener(channel, listener);
+        listenerMap.delete(callback);
+      }
+    },
+  };
+}
+
 const duplicateSearchListeners = createListenerPair<DuplicateSearchProgress>(
   "duplicate-search-progress",
 );
@@ -71,6 +94,10 @@ const thumbnailProgressListeners = createListenerPair<ProgressEvent>(
 const directoryStatusListeners = createListenerPair<DirectoryStatus>(
   "directory-status-changed",
 );
+const videoAddedListeners = createListenerPair<string>("video-added");
+const videoRemovedListeners = createListenerPair<string>("video-removed");
+const openSettingsListeners = createEventListenerPair("open-settings");
+const openAddDirectoryListeners = createEventListenerPair("open-add-directory");
 
 // main プロセスから追加引数で渡される production フラグ
 // （sandbox 化された preload でも process.argv は利用可能）
@@ -92,6 +119,8 @@ const electronAPI: ElectronAPI = {
   captureFrame: (videoPath: string, timestamp: number, outputDir: string) =>
     ipcRenderer.invoke("capture-frame", videoPath, timestamp, outputDir),
   selectScreenshotDir: () => ipcRenderer.invoke("select-screenshot-dir"),
+  backupDatabase: () => ipcRenderer.invoke("backup-database"),
+  exportTags: (format: "json" | "csv") => ipcRenderer.invoke("export-tags", format),
 
   // Directory operations
   getDirectories: () => ipcRenderer.invoke("get-directories"),
@@ -100,6 +129,7 @@ const electronAPI: ElectronAPI = {
     ipcRenderer.invoke("remove-directory", path),
   chooseDirectory: () => ipcRenderer.invoke("choose-directory"),
   scanDirectories: () => ipcRenderer.invoke("scan-directories"),
+  previewScan: () => ipcRenderer.invoke("preview-scan"),
   rescanAllVideos: () => ipcRenderer.invoke("rescan-all-videos"),
   getDirectoryStatuses: () => ipcRenderer.invoke("get-directory-statuses"),
 
@@ -117,6 +147,8 @@ const electronAPI: ElectronAPI = {
   getThumbnailsDir: () => ipcRenderer.invoke("get-thumbnails-dir"),
   generatePreviewThumbnail: (videoPath: string, timestamp: number) =>
     ipcRenderer.invoke("generate-preview-thumbnail", videoPath, timestamp),
+  deletePreviewThumbnail: (previewPath: string) =>
+    ipcRenderer.invoke("delete-preview-thumbnail", previewPath),
   regenerateMainThumbnailWithTimestamp: (videoId: number, timestamp: number) =>
     ipcRenderer.invoke(
       "regenerate-main-thumbnail-with-timestamp",
@@ -130,6 +162,12 @@ const electronAPI: ElectronAPI = {
     ipcRenderer.invoke("add-tag-to-video", videoId, tagName),
   removeTagFromVideo: (videoId: number, tagName: string) =>
     ipcRenderer.invoke("remove-tag-from-video", videoId, tagName),
+  addTagsToVideos: (videoIds: number[], tagNames: string[]) =>
+    ipcRenderer.invoke("add-tags-to-videos", videoIds, tagNames),
+  removeTagsFromVideos: (videoIds: number[], tagNames: string[]) =>
+    ipcRenderer.invoke("remove-tags-from-videos", videoIds, tagNames),
+  applyBulkTagChanges: (changes: BulkTagChange[]) =>
+    ipcRenderer.invoke("apply-bulk-tag-changes", changes),
   deleteTag: (tagName: string) => ipcRenderer.invoke("delete-tag", tagName),
   updateTag: (oldName: string, newName: string) =>
     ipcRenderer.invoke("update-tag", oldName, newName),
@@ -140,6 +178,7 @@ const electronAPI: ElectronAPI = {
 
   // Duplicate detection
   findDuplicates: () => ipcRenderer.invoke("find-duplicates"),
+  cancelDuplicateSearch: () => ipcRenderer.invoke("cancel-duplicate-search"),
   deleteVideos: (requests: DeleteVideoRequest[], moveToTrash: boolean = true) =>
     ipcRenderer.invoke("delete-videos", requests, moveToTrash),
 
@@ -196,10 +235,16 @@ const electronAPI: ElectronAPI = {
     thumbnailProgressListeners.off(callback);
   },
   onVideoAdded: (callback: (filePath: string) => void) => {
-    ipcRenderer.on("video-added", (_event, filePath) => callback(filePath));
+    videoAddedListeners.on(callback);
+  },
+  offVideoAdded: (callback: (filePath: string) => void) => {
+    videoAddedListeners.off(callback);
   },
   onVideoRemoved: (callback: (filePath: string) => void) => {
-    ipcRenderer.on("video-removed", (_event, filePath) => callback(filePath));
+    videoRemovedListeners.on(callback);
+  },
+  offVideoRemoved: (callback: (filePath: string) => void) => {
+    videoRemovedListeners.off(callback);
   },
   onDirectoryStatusChanged: (callback: (data: DirectoryStatus) => void) => {
     directoryStatusListeners.on(callback);
@@ -214,10 +259,16 @@ const electronAPI: ElectronAPI = {
     deleteProgressListeners.off(callback);
   },
   onOpenSettings: (callback: () => void) => {
-    ipcRenderer.on("open-settings", () => callback());
+    openSettingsListeners.on(callback);
+  },
+  offOpenSettings: (callback: () => void) => {
+    openSettingsListeners.off(callback);
   },
   onOpenAddDirectory: (callback: () => void) => {
-    ipcRenderer.on("open-add-directory", () => callback());
+    openAddDirectoryListeners.on(callback);
+  },
+  offOpenAddDirectory: (callback: () => void) => {
+    openAddDirectoryListeners.off(callback);
   },
 
   // Remove listeners

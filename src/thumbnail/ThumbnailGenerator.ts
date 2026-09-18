@@ -4,6 +4,7 @@ import { app } from "electron";
 import { promisify } from "util";
 import { execFile } from "child_process";
 import PrismaDatabaseManager, {
+  type VideoScanRecord,
   type VideoRecord,
 } from "../database/PrismaDatabaseManager";
 import {
@@ -33,6 +34,11 @@ class ThumbnailGenerator {
   private db: PrismaDatabaseManager;
   private thumbnailsDir: string;
   private settings: ThumbnailSettings;
+  /** 1 動画あたり最大6本（メイン+チャプター）の ffmpeg を起動するため、
+   * アプリ全体では同時実行数をここで制限する。 */
+  private readonly maxFfmpegConcurrency = process.platform === "win32" ? 2 : 4;
+  private runningFfmpeg = 0;
+  private readonly ffmpegWaiters: Array<() => void> = [];
 
   constructor(database: PrismaDatabaseManager) {
     this.db = database;
@@ -71,7 +77,21 @@ class ThumbnailGenerator {
     }
   }
 
-  async generateThumbnails(video: VideoRecord): Promise<ThumbnailResult> {
+  private async withFfmpegSlot<T>(operation: () => Promise<T>): Promise<T> {
+    if (this.runningFfmpeg >= this.maxFfmpegConcurrency) {
+      await new Promise<void>((resolve) => this.ffmpegWaiters.push(resolve));
+    }
+
+    this.runningFfmpeg++;
+    try {
+      return await operation();
+    } finally {
+      this.runningFfmpeg--;
+      this.ffmpegWaiters.shift()?.();
+    }
+  }
+
+  async generateThumbnails(video: Pick<VideoScanRecord, "id" | "path" | "duration">): Promise<ThumbnailResult> {
     try {
       const videoId = video.id ?? video.path.replace(/[^a-zA-Z0-9]/g, "_");
       const mainThumbnailPath = path.join(
@@ -181,6 +201,8 @@ class ThumbnailGenerator {
         formattedTimestamp,
         "-i",
         videoPath,
+        "-threads",
+        process.platform === "win32" ? "2" : "0",
         "-vframes",
         "1",
         "-q:v",
@@ -196,9 +218,11 @@ class ThumbnailGenerator {
       logger.debug("📝 FFmpeg command:", this.ffmpegPath, args.join(" "));
 
       // Use execFile instead of spawn for better error handling
-      const { stderr } = await execFileAsync(this.ffmpegPath, args, {
-        maxBuffer: 1024 * 1024 * 10, // 10MB buffer
-      });
+      const { stderr } = await this.withFfmpegSlot(() =>
+        execFileAsync(this.ffmpegPath!, args, {
+          maxBuffer: 1024 * 1024 * 10, // 10MB buffer
+        }),
+      );
 
       if (stderr) {
         logger.debug("📋 FFmpeg output:", stderr);
@@ -337,41 +361,38 @@ class ThumbnailGenerator {
     logger.log("Starting thumbnail cleanup...");
 
     try {
-      // データベースから全動画を取得
-      const videos = await this.db.getVideos();
       const validThumbnailPaths = new Set<string>();
+      const REFERENCE_PAGE_SIZE = 500;
 
-      // 有効なサムネイルパスを収集
-      for (const video of videos) {
-        if (
-          video.thumbnailPath &&
-          (await this.fileExists(video.thumbnailPath))
-        ) {
-          validThumbnailPaths.add(video.thumbnailPath);
-        }
+      // 有効なサムネイルパスを軽量 DTO でページング収集する。
+      let afterId = 0;
+      for (;;) {
+        const videos = await this.db.getThumbnailReferences(REFERENCE_PAGE_SIZE, afterId);
+        if (videos.length === 0) break;
 
-        // チャプターサムネイルも収集
-        if (video.chapterThumbnails) {
+        for (const video of videos) {
+          if (video.thumbnailPath) validThumbnailPaths.add(video.thumbnailPath);
+
+          if (!video.chapterThumbnails) continue;
           try {
-            const chapters = Array.isArray(video.chapterThumbnails)
-              ? video.chapterThumbnails
-              : JSON.parse(video.chapterThumbnails as string);
-
-            if (Array.isArray(chapters)) {
-              for (const chapter of chapters) {
-                const chapterPath = chapter.path;
-                if (chapterPath && (await this.fileExists(chapterPath))) {
-                  validThumbnailPaths.add(chapterPath);
-                }
+            const parsed: unknown = JSON.parse(video.chapterThumbnails);
+            if (!Array.isArray(parsed)) continue;
+            for (const chapter of parsed) {
+              if (
+                chapter !== null &&
+                typeof chapter === "object" &&
+                "path" in chapter &&
+                typeof chapter.path === "string"
+              ) {
+                validThumbnailPaths.add(chapter.path);
               }
             }
           } catch (_error) {
-            console.warn(
-              "Failed to parse chapter thumbnails for video:",
-              video.id,
-            );
+            logger.warn("Failed to parse chapter thumbnails during cleanup");
           }
         }
+        afterId = videos[videos.length - 1]!.id;
+        if (videos.length < REFERENCE_PAGE_SIZE) break;
       }
 
       // サムネイルディレクトリ内の全ファイルを取得
@@ -433,15 +454,6 @@ class ThumbnailGenerator {
     } catch (error) {
       console.error("Error during thumbnail cleanup:", error);
       throw error;
-    }
-  }
-
-  private async fileExists(filePath: string): Promise<boolean> {
-    try {
-      await fs.access(filePath);
-      return true;
-    } catch {
-      return false;
     }
   }
 

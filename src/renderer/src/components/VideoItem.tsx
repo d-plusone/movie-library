@@ -1,26 +1,18 @@
 /**
- * 動画アイテム（グリッドカード / リスト行）
- * ホバーでチャプターサムネイルを自動巡回する。
+ * 動画アイテム（グリッドカード / リスト行）。
+ * グリッドではポインターの横位置をチャプター画像へ直接対応させる。
  */
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import {
   formatDate,
   formatDuration,
   formatFileSize,
   getFileExtension,
   getResolutionLabel,
-  pathToFileUrl,
 } from "../lib/format";
 import { parseChapters } from "../lib/chapters";
+import { PLACEHOLDER_THUMBNAIL, thumbnailUrl } from "../lib/thumbnails";
 import type { Video } from "../types";
-
-const CYCLE_INTERVAL_MS = 800;
-
-/** サムネイル URL（updatedAt をキャッシュバスターに使う） */
-function thumbUrl(video: Video, path: string): string {
-  const version = video.updatedAt instanceof Date ? video.updatedAt.getTime() : 0;
-  return `${pathToFileUrl(path)}?t=${version}`;
-}
 
 export interface VideoItemProps {
   video: Video;
@@ -31,46 +23,37 @@ export interface VideoItemProps {
   onPlay: (video: Video) => void;
 }
 
-export function VideoItem({
-  video,
-  index,
-  view,
-  selected,
-  onSelect,
-  onPlay,
-}: VideoItemProps) {
+export function VideoItem({ video, index, view, selected, onSelect, onPlay }: VideoItemProps) {
   const isGrid = view === "grid";
   const chapters = parseChapters(video.chapterThumbnails).slice(0, 5);
   const [activeIndex, setActiveIndex] = useState(0);
-  const cycleTimer = useRef<number | null>(null);
-
-  const startCycle = (): void => {
-    if (chapters.length <= 1) return;
-    stopCycle();
-    cycleTimer.current = window.setInterval(() => {
-      setActiveIndex((current) => (current + 1) % (chapters.length + 1));
-    }, CYCLE_INTERVAL_MS);
-  };
-  const stopCycle = (): void => {
-    if (cycleTimer.current !== null) {
-      window.clearInterval(cycleTimer.current);
-      cycleTimer.current = null;
-    }
-  };
-
-  useEffect(() => stopCycle, []);
-
   const resolutionLabel = getResolutionLabel(video.width ?? 0, video.height ?? 0);
   const ratingText = "⭐".repeat(video.rating || 0);
 
-  // 表示する画像リスト（0 番はメイン、以降がチャプター）
-  const images: Array<{ src: string; label: string }> = [];
-  if (video.thumbnailPath) {
-    images.push({ src: thumbUrl(video, video.thumbnailPath), label: "メイン" });
-  }
-  chapters.forEach((chapter, i) => {
-    images.push({ src: thumbUrl(video, chapter.path), label: `チャプター ${i + 1}` });
-  });
+  const images: Array<{ src: string; label: string }> = [
+    {
+      src: video.thumbnailPath ? thumbnailUrl(video, video.thumbnailPath) : PLACEHOLDER_THUMBNAIL,
+      label: video.thumbnailPath ? "メイン" : "サムネイル生成中",
+    },
+    ...chapters.map((chapter, chapterIndex) => ({
+      src: thumbnailUrl(video, chapter.path),
+      label: `チャプター ${chapterIndex + 1}`,
+    })),
+  ];
+
+  const updateActiveFromPointer = (event: React.MouseEvent<HTMLDivElement>): void => {
+    if (!isGrid || images.length <= 1) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    const ratio = Math.min(0.999999, Math.max(0, (event.clientX - rect.left) / rect.width));
+    setActiveIndex(Math.floor(ratio * images.length));
+  };
+
+  const loadedIndices = new Set<number>([
+    activeIndex,
+    (activeIndex + 1) % images.length,
+    (activeIndex - 1 + images.length) % images.length,
+  ]);
 
   return (
     <div
@@ -87,36 +70,36 @@ export function VideoItem({
       tabIndex={-1}
     >
       <div
-        className="video-thumbnail"
-        onMouseEnter={startCycle}
-        onMouseLeave={() => {
-          stopCycle();
-          setActiveIndex(0);
-        }}
+        className={`video-thumbnail${!video.thumbnailPath ? " thumbnail-skeleton" : ""}`}
+        onMouseEnter={updateActiveFromPointer}
+        onMouseMove={updateActiveFromPointer}
+        onMouseLeave={() => setActiveIndex(0)}
       >
         {isGrid ? (
           <>
             <div className="thumbnail-cycle">
-              {images.map((image, i) => (
-                <img
-                  key={`${image.label}-${i}`}
-                  src={image.src}
-                  alt={`${video.title} - ${image.label}`}
-                  loading="lazy"
-                  className={`thumbnail-image${i === activeIndex ? " active" : ""}`}
-                />
-              ))}
+              {images.map((image, imageIndex) =>
+                loadedIndices.has(imageIndex) ? (
+                  <img
+                    key={`${image.label}-${imageIndex}`}
+                    src={image.src}
+                    alt={`${video.title} - ${image.label}`}
+                    loading="lazy"
+                    className={`thumbnail-image${imageIndex === activeIndex ? " active" : ""}`}
+                  />
+                ) : null,
+              )}
             </div>
             {images.length > 1 && (
-              <div className="thumbnail-indicator">
-                {images.map((_, i) => (
+              <div className="thumbnail-indicator" aria-label="チャプター位置">
+                {images.map((image, imageIndex) => (
                   <div
-                    key={i}
-                    className={`indicator-dot${i === activeIndex ? " active" : ""}`}
+                    key={imageIndex}
+                    className={`indicator-dot${imageIndex === activeIndex ? " active" : ""}`}
+                    title={image.label}
                     onClick={(e) => {
                       e.stopPropagation();
-                      setActiveIndex(i);
-                      startCycle();
+                      setActiveIndex(imageIndex);
                     }}
                   />
                 ))}
@@ -124,17 +107,19 @@ export function VideoItem({
             )}
           </>
         ) : (
-          video.thumbnailPath && (
-            <img src={thumbUrl(video, video.thumbnailPath)} alt={video.title} loading="lazy" />
-          )
+          <img src={images[0]!.src} alt={video.title} loading="lazy" />
         )}
 
         <div className="video-duration">{formatDuration(video.duration ?? 0)}</div>
-
-        {isGrid && ratingText !== "" && (
-          <div className="video-rating-overlay">{ratingText}</div>
-        )}
+        {isGrid && ratingText !== "" && <div className="video-rating-overlay">{ratingText}</div>}
         {resolutionLabel && <div className="video-resolution-badge">{resolutionLabel}</div>}
+        {(video.watchPosition ?? 0) > 0 && (video.duration ?? 0) > 0 && (
+          <div
+            className="video-watch-progress"
+            style={{ width: `${Math.min(100, ((video.watchPosition ?? 0) / video.duration) * 100)}%` }}
+            aria-label="視聴済み進捗"
+          />
+        )}
       </div>
 
       <div className="video-info">
@@ -150,9 +135,7 @@ export function VideoItem({
           </div>
           <div className="video-tags">
             {(video.tags ?? []).slice(0, isGrid ? 3 : undefined).map((tag) => (
-              <span key={tag} className="video-tag">
-                {tag}
-              </span>
+              <span key={tag} className="video-tag">{tag}</span>
             ))}
             {isGrid && (video.tags?.length ?? 0) > 3 && (
               <span className="video-tag-overflow" title={`他のタグ: ${(video.tags ?? []).slice(3).join(", ")}`}>

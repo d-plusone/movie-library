@@ -15,3 +15,13 @@ allowBuilds:
   prisma: true
 
 blockExoticSubdeps: false
+
+# macOS/Linux から Windows 向けパッケージを作る場合も、
+# Windows 用 optional dependency (ffmpeg) を取得できるようにする。
+supportedArchitectures:
+  os:
+    - current
+    - win32
+  cpu:
+    - current
+    - x64

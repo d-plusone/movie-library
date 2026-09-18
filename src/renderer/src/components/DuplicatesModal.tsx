@@ -9,13 +9,11 @@ import { formatDuration, formatFileSize, pathToFileUrl } from "../lib/format";
 import { useFocusTrap } from "../lib/hooks";
 import { useNotify } from "../state/NotificationContext";
 import { useUi } from "../state/UiContext";
-import type { DeleteProgress, DuplicateGroup } from "../../../types/types";
-
-interface ProgressMessage {
-  current: number;
-  total: number;
-  message: string;
-}
+import type {
+  DeleteProgress,
+  DuplicateGroup,
+  DuplicateSearchProgress,
+} from "../../../types/types";
 
 /** グループ内を解像度の高い順に並べ替える */
 function sortByQuality(group: DuplicateGroup): DuplicateGroup {
@@ -31,7 +29,8 @@ export function DuplicatesModal() {
   const ui = useUi();
 
   const [phase, setPhase] = useState<"idle" | "searching" | "done">("idle");
-  const [searchProgress, setSearchProgress] = useState<ProgressMessage | null>(null);
+  const [searchProgress, setSearchProgress] =
+    useState<DuplicateSearchProgress | null>(null);
   const [deleteProgress, setDeleteProgress] = useState<DeleteProgress | null>(null);
   const [groups, setGroups] = useState<DuplicateGroup[]>([]);
   /** 削除対象として選択された videoId の集合 */
@@ -51,7 +50,7 @@ export function DuplicatesModal() {
     setSearchProgress(null);
     setDeleteProgress(null);
 
-    const onProgress = (data: ProgressMessage): void => {
+    const onProgress = (data: DuplicateSearchProgress): void => {
       setSearchProgress(data);
     };
     ipc().onDuplicateSearchProgress(onProgress);
@@ -91,6 +90,7 @@ export function DuplicatesModal() {
 
     return () => {
       cancelled = true;
+      void ipc().cancelDuplicateSearch();
       ipc().offDuplicateSearchProgress(onProgress);
       ipc().offDeleteProgress(onDelete);
     };
@@ -186,11 +186,48 @@ export function DuplicatesModal() {
           {phase === "searching" && (
             <div className="duplicate-searching">
               <div className="spinner" />
-              <p>
-                重複動画を検索中...
-                {searchProgress !== null &&
-                  ` (${searchProgress.current}/${searchProgress.total} ${searchProgress.message})`}
-              </p>
+              <p>重複動画を検索中...</p>
+              {searchProgress !== null && (
+                <div className="duplicate-search-progress">
+                  <p className="duplicate-search-progress-message">
+                    {searchProgress.message}
+                  </p>
+                  {searchProgress.detailTotal !== undefined &&
+                  searchProgress.detailTotal > 0 ? (
+                    <>
+                      <div
+                        className="duplicate-search-progress-track"
+                        role="progressbar"
+                        aria-label="部分ハッシュの更新状況"
+                        aria-valuemin={0}
+                        aria-valuemax={searchProgress.detailTotal}
+                        aria-valuenow={searchProgress.detailCurrent ?? 0}
+                      >
+                        <div
+                          className="duplicate-search-progress-fill"
+                          style={{
+                            width: `${Math.min(
+                              100,
+                              ((searchProgress.detailCurrent ?? 0) /
+                                searchProgress.detailTotal) *
+                                100,
+                            )}%`,
+                          }}
+                        />
+                      </div>
+                      <span className="duplicate-search-progress-count">
+                        部分ハッシュ: {searchProgress.detailCurrent ?? 0}/
+                        {searchProgress.detailTotal}
+                      </span>
+                    </>
+                  ) : (
+                    <span className="duplicate-search-progress-step">
+                      ステップ {Math.min(searchProgress.current + 1, searchProgress.total)}/
+                      {searchProgress.total}
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
           )}
 

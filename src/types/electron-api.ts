@@ -10,6 +10,8 @@
 import type {
   CleanupThumbnailsResult,
   CaptureFrameResult,
+  BulkTagChange,
+  BulkTagResult,
   ContainerMismatchItem,
   ConvertVideosResult,
   DeleteProgress,
@@ -23,7 +25,9 @@ import type {
   IncompleteThumbnailsResult,
   OperationProgress,
   ProgressEvent,
+  FileExportResult,
   ScanResult,
+  ScanPreviewResult,
   Tag,
   ThumbnailResult,
   ThumbnailSettings,
@@ -47,6 +51,8 @@ export interface ElectronAPI {
     outputDir: string,
   ): Promise<CaptureFrameResult>;
   selectScreenshotDir(): Promise<string | null>;
+  backupDatabase(): Promise<FileExportResult>;
+  exportTags(format: "json" | "csv"): Promise<FileExportResult>;
 
   // ---- Directory operations ----
   getDirectories(): Promise<Directory[]>;
@@ -55,6 +61,7 @@ export interface ElectronAPI {
   removeDirectory(path: string): Promise<boolean>;
   chooseDirectory(): Promise<string[]>;
   scanDirectories(): Promise<ScanResult>;
+  previewScan(): Promise<ScanPreviewResult>;
   rescanAllVideos(): Promise<ScanResult>;
   /**
    * 登録ディレクトリの接続状態（path -> "online" | "offline"）。
@@ -79,11 +86,15 @@ export interface ElectronAPI {
     videoPath: string,
     timestamp: number,
   ): Promise<string>;
+  deletePreviewThumbnail(previewPath: string): Promise<boolean>;
 
   // ---- Tag operations ----
   getTags(): Promise<Tag[]>;
   addTagToVideo(videoId: number, tagName: string): Promise<boolean>;
   removeTagFromVideo(videoId: number, tagName: string): Promise<boolean>;
+  addTagsToVideos(videoIds: number[], tagNames: string[]): Promise<BulkTagResult>;
+  removeTagsFromVideos(videoIds: number[], tagNames: string[]): Promise<BulkTagResult>;
+  applyBulkTagChanges(changes: BulkTagChange[]): Promise<BulkTagResult>;
   deleteTag(tagName: string): Promise<boolean>;
   updateTag(oldName: string, newName: string): Promise<boolean>;
 
@@ -92,6 +103,7 @@ export interface ElectronAPI {
 
   // ---- Duplicate detection ----
   findDuplicates(): Promise<DuplicateGroup[]>;
+  cancelDuplicateSearch(): Promise<void>;
   /**
    * 重複動画を削除する。各リクエストの verifyAgainstVideoId で指定した
    * 「保持する」動画とバイト単位で内容が一致することを、main 側が削除前に確認する。
@@ -133,14 +145,18 @@ export interface ElectronAPI {
     callback: (data: DuplicateSearchProgress) => void,
   ): void;
   onVideoAdded(callback: (filePath: string) => void): void;
+  offVideoAdded(callback: (filePath: string) => void): void;
   onVideoRemoved(callback: (filePath: string) => void): void;
+  offVideoRemoved(callback: (filePath: string) => void): void;
   /** ディレクトリの接続状態が変化した（NAS 切断 / 再接続） */
   onDirectoryStatusChanged(callback: (data: DirectoryStatus) => void): void;
   offDirectoryStatusChanged(callback: (data: DirectoryStatus) => void): void;
   onDeleteProgress(callback: (data: DeleteProgress) => void): void;
   offDeleteProgress(callback: (data: DeleteProgress) => void): void;
   onOpenSettings(callback: () => void): void;
+  offOpenSettings(callback: () => void): void;
   onOpenAddDirectory(callback: () => void): void;
+  offOpenAddDirectory(callback: () => void): void;
 
   // ---- Listener cleanup ----
   removeAllListeners(channel: string): void;

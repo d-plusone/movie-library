@@ -25,8 +25,8 @@ model Video {
   thumbnailPath     String?    @map("thumbnail_path")
   chapterThumbnails String     @default("[]") @map("chapter_thumbnails")
   description       String?
-  createdAt         String     @map("created_at")
-  modifiedAt        String     @map("modified_at")
+  createdAt         DateTime   @map("created_at")
+  modifiedAt        DateTime   @map("modified_at")
   addedAt           DateTime   @default(now()) @map("added_at")
   updatedAt         DateTime   @updatedAt @map("updated_at")
   fileHash          String?    @map("file_hash")
@@ -38,6 +38,13 @@ model Video {
   @@index([updatedAt])
   @@index([addedAt])
   @@index([thumbnailPath])
+  @@index([createdAt])
+  @@index([modifiedAt])
+  @@index([fileHash])
+  @@index([partialHash])
+  @@index([rating])
+  @@index([duration])
+  @@index([size])
   @@map("videos")
 }
 

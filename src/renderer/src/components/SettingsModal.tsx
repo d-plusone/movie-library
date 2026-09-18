@@ -32,6 +32,10 @@ export function SettingsModal() {
   const [thumbnailQuality, setThumbnailQuality] = useState("1");
   const [thumbnailSize, setThumbnailSize] = useState<string>("1280x720");
   const [screenshotDir, setScreenshotDir] = useState("");
+  // テーマは「保存」確定までは Context に書き込まない編集中ドラフト。
+  // 従来は select が setTheme を直接呼んで即時反映＋localStorage 書き込みされ、
+  // キャンセル/×で閉じてもテーマだけ戻らない不整合があった。
+  const [draftTheme, setDraftTheme] = useState<Theme>("dark");
 
   const modalRef = useRef<HTMLDivElement | null>(null);
   useFocusTrap(modalRef, ui.settingsOpen);
@@ -53,12 +57,13 @@ export function SettingsModal() {
   // 開くたびに現在の設定を読み込む
   useEffect(() => {
     if (!ui.settingsOpen) return;
+    setDraftTheme(theme);
     setPlaybackMode(localStorage.getItem("playbackMode") === "external" ? "external" : "internal");
     setSaveWatchProgress(localStorage.getItem("saveWatchProgress") !== "false");
     setThumbnailQuality(localStorage.getItem("thumbnailQuality") ?? "1");
     setThumbnailSize(localStorage.getItem("thumbnailSize") ?? "1280x720");
     const storedDir = localStorage.getItem("screenshotDir")?.trim() ?? "";
-    setScreenshotDir(storedDir !== "" ? storedDir : "~/Pictures");
+    setScreenshotDir(storedDir !== "" && storedDir !== "~/Pictures" ? storedDir : "");
   }, [ui.settingsOpen]);
 
   // オーナープログレスが進行中はモーダルを閉じられない（旧挙動）。
@@ -132,6 +137,26 @@ export function SettingsModal() {
     }
   };
 
+  const backupDatabase = async (): Promise<void> => {
+    try {
+      const result = await ipc().backupDatabase();
+      if (result.success) notify(`データベースをバックアップしました: ${result.path}`, "success");
+      else if (result.error !== "キャンセルしました") notify(`バックアップに失敗しました (${result.error ?? "不明なエラー"})`, "error");
+    } catch (e) {
+      notify(`バックアップに失敗しました (${e instanceof Error ? e.message : String(e)})`, "error");
+    }
+  };
+
+  const exportTags = async (format: "json" | "csv"): Promise<void> => {
+    try {
+      const result = await ipc().exportTags(format);
+      if (result.success) notify(`タグを${format.toUpperCase()}で保存しました: ${result.path}`, "success");
+      else if (result.error !== "キャンセルしました") notify(`タグのエクスポートに失敗しました (${result.error ?? "不明なエラー"})`, "error");
+    } catch (e) {
+      notify(`タグのエクスポートに失敗しました (${e instanceof Error ? e.message : String(e)})`, "error");
+    }
+  };
+
   const saveSettings = (): void => {
     if (closeBlocked) return;
     localStorage.setItem("playbackMode", playbackMode);
@@ -152,7 +177,7 @@ export function SettingsModal() {
         );
     }
 
-    setTheme(theme); // 選択されたテーマを確定
+    setTheme(draftTheme); // 選択されたテーマを確定（編集中は Context に触らない）
     notify("設定を保存しました", "success");
     ui.setSettingsOpen(false);
   };
@@ -224,8 +249,8 @@ export function SettingsModal() {
               <select
                 id="themeSelect"
                 className="setting-select"
-                value={theme}
-                onChange={(e) => setTheme(e.target.value as Theme)}
+                value={draftTheme}
+                onChange={(e) => setDraftTheme(e.target.value as Theme)}
               >
                 <option value="system">システム設定に従う</option>
                 <option value="light">ライトモード</option>
@@ -288,7 +313,7 @@ export function SettingsModal() {
             <div className="setting-item">
               <label>スクリーンショット保存先</label>
               <div className="screenshot-dir-row">
-                <span id="screenshotDirPath" className="screenshot-dir-path">{screenshotDir}</span>
+                <span id="screenshotDirPath" className="screenshot-dir-path">{screenshotDir !== "" ? screenshotDir : "未設定（ピクチャフォルダ）"}</span>
                 <button
                   type="button"
                   id="selectScreenshotDirBtn"
@@ -379,6 +404,21 @@ export function SettingsModal() {
                   onClick={() => void cleanupMutation.mutateAsync()}
                 >
                   <span className="icon">🗑️</span> 不要な画像を削除
+                </button>
+              </div>
+            </div>
+            <div className="setting-item">
+              <label>バックアップ／エクスポート</label>
+              <div className="setting-description">DB本体またはタグ一覧をファイルに保存します</div>
+              <div className="setting-button-group">
+                <button type="button" className="btn btn-secondary" onClick={() => void backupDatabase()}>
+                  💾 DBをバックアップ
+                </button>
+                <button type="button" className="btn btn-secondary" onClick={() => void exportTags("json")}>
+                  タグ JSON
+                </button>
+                <button type="button" className="btn btn-secondary" onClick={() => void exportTags("csv")}>
+                  タグ CSV
                 </button>
               </div>
             </div>

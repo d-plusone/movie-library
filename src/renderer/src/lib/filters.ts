@@ -69,6 +69,90 @@ export interface FilterVideosOptions {
   skip?: FilterDimension[];
 }
 
+function matchesCommonFilters(
+  video: Video,
+  state: FilterState,
+  availableDirectoryCount: number,
+  search: string,
+): boolean {
+  if (state.rating > 0 && (video.rating || 0) < state.rating) return false;
+  if (state.unratedOnly && (video.rating || 0) > 0) return false;
+  if (state.untaggedOnly && (video.tags?.length ?? 0) > 0) return false;
+
+  if (availableDirectoryCount > 0) {
+    if (state.directories.length === 0) return false;
+    const normalizedVideoPath = video.path.replace(/\\/g, "/");
+    const matched = state.directories.some((dir) => {
+      const normalizedDir = dir.replace(/\\/g, "/");
+      const dirWithSlash = normalizedDir.endsWith("/")
+        ? normalizedDir
+        : `${normalizedDir}/`;
+      const videoDir = normalizedVideoPath.substring(
+        0,
+        normalizedVideoPath.lastIndexOf("/") + 1,
+      );
+      return videoDir === dirWithSlash || normalizedVideoPath.startsWith(dirWithSlash);
+    });
+    if (!matched) return false;
+  }
+
+  const query = search.trim().toLowerCase();
+  if (
+    query &&
+    !(
+      video.title.toLowerCase().includes(query) ||
+      video.filename.toLowerCase().includes(query) ||
+      video.description?.toLowerCase().includes(query) ||
+      video.tags?.some((tag) => tag.toLowerCase().includes(query))
+    )
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+function matchesDimension(
+  video: Video,
+  state: FilterState,
+  dimension: FilterDimension,
+): boolean {
+  if (dimension === "tags" && state.tags.length > 0) {
+    const videoTags = video.tags || [];
+    const matches = state.tagMatchMode === "AND"
+      ? state.tags.every((tag) => videoTags.includes(tag))
+      : state.tags.some((tag) => videoTags.includes(tag));
+    if (!matches) return false;
+  }
+
+  if (dimension === "resolutions" && state.resolutions.length > 0) {
+    const label = getResolutionLabel(video.width ?? 0, video.height ?? 0);
+    if (label === null || !state.resolutions.includes(label)) return false;
+  }
+
+  if (dimension === "codecs" && state.codecs.length > 0) {
+    const codec = (video.codec || "").trim();
+    if (!codec || !state.codecs.includes(codec)) return false;
+  }
+
+  return true;
+}
+
+function matchesVideo(
+  video: Video,
+  state: FilterState,
+  availableDirectoryCount: number,
+  search: string,
+  skip: ReadonlySet<FilterDimension> = new Set(),
+): boolean {
+  if (!matchesCommonFilters(video, state, availableDirectoryCount, search)) {
+    return false;
+  }
+  return (skip.has("tags") || matchesDimension(video, state, "tags")) &&
+    (skip.has("resolutions") || matchesDimension(video, state, "resolutions")) &&
+    (skip.has("codecs") || matchesDimension(video, state, "codecs"));
+}
+
 /**
  * フィルタ状態と検索語で動画を絞り込む。
  * ディレクトリフィルタは利用可能ディレクトリが存在する限り常に適用され、
@@ -81,78 +165,53 @@ export function filterVideos(
   search: string,
   options: FilterVideosOptions = {},
 ): Video[] {
-  const query = search.trim().toLowerCase();
-  const skip = options.skip ?? [];
+  const skip = new Set(options.skip ?? []);
+  return videos.filter((video) =>
+    matchesVideo(
+      video,
+      state,
+      availableDirectoryCount,
+      search,
+      skip,
+    ),
+  );
+}
 
-  return videos.filter((video) => {
-    if (state.rating > 0 && (video.rating || 0) < state.rating) {
-      return false;
+export interface FilterFacets {
+  visible: Video[];
+  tags: Video[];
+  resolutions: Video[];
+  codecs: Video[];
+}
+
+/** 共通条件を一度だけ評価し、一覧と3つのファセットを1パスで作る。 */
+export function filterVideoFacets(
+  videos: Video[],
+  state: FilterState,
+  availableDirectoryCount: number,
+  search: string,
+): FilterFacets {
+  const visible: Video[] = [];
+  const tags: Video[] = [];
+  const resolutions: Video[] = [];
+  const codecs: Video[] = [];
+
+  for (const video of videos) {
+    if (!matchesCommonFilters(video, state, availableDirectoryCount, search)) {
+      continue;
     }
+    const tagMatches = matchesDimension(video, state, "tags");
+    const resolutionMatches = matchesDimension(video, state, "resolutions");
+    const codecMatches = matchesDimension(video, state, "codecs");
 
-    if (!skip.includes("tags")) {
-      if (state.tags.length > 0) {
-        const videoTags = video.tags || [];
-        if (!state.tags.some((tag) => videoTags.includes(tag))) {
-          return false;
-        }
-      }
+    if (tagMatches && resolutionMatches && codecMatches) {
+      visible.push(video);
     }
-
-    if (availableDirectoryCount > 0) {
-      if (state.directories.length === 0) {
-        return false;
-      }
-      const normalizedVideoPath = video.path.replace(/\\/g, "/");
-      const matched = state.directories.some((dir) => {
-        const normalizedDir = dir.replace(/\\/g, "/");
-        const dirWithSlash = normalizedDir.endsWith("/")
-          ? normalizedDir
-          : `${normalizedDir}/`;
-        const videoDir = normalizedVideoPath.substring(
-          0,
-          normalizedVideoPath.lastIndexOf("/") + 1,
-        );
-        // 完全一致（直下ファイル）またはサブディレクトリ配下
-        return videoDir === dirWithSlash || normalizedVideoPath.startsWith(dirWithSlash);
-      });
-      if (!matched) {
-        return false;
-      }
-    }
-
-    if (!skip.includes("resolutions")) {
-      if (state.resolutions.length > 0) {
-        const label = getResolutionLabel(video.width ?? 0, video.height ?? 0);
-        if (label === null || !state.resolutions.includes(label)) {
-          return false;
-        }
-      }
-    }
-
-    if (!skip.includes("codecs")) {
-      if (state.codecs.length > 0) {
-        const codec = (video.codec || "").trim();
-        if (!codec || !state.codecs.includes(codec)) {
-          return false;
-        }
-      }
-    }
-
-    if (query) {
-      const matches =
-        video.title.toLowerCase().includes(query) ||
-        video.filename.toLowerCase().includes(query) ||
-        (video.description !== undefined &&
-          video.description.toLowerCase().includes(query)) ||
-        (video.tags !== undefined &&
-          video.tags.some((tag) => tag.toLowerCase().includes(query)));
-      if (!matches) {
-        return false;
-      }
-    }
-
-    return true;
-  });
+    if (resolutionMatches && codecMatches) tags.push(video);
+    if (tagMatches && codecMatches) resolutions.push(video);
+    if (tagMatches && resolutionMatches) codecs.push(video);
+  }
+  return { visible, tags, resolutions, codecs };
 }
 
 export interface FilterOptionCount {
@@ -176,18 +235,6 @@ export function resolutionOptions(videos: Video[]): FilterOptionCount[] {
 }
 
 const RESOLUTION_ORDER: ResolutionLabel[] = ["4K", "1440p", "1080p", "720p", "SD"];
-
-/** 保存済みの利用可能ディレクトリ数を取得する（ディレクトリフィルタの有効判定用） */
-export function readStoredDirectoryCount(): number {
-  try {
-    const parsed: string[] = JSON.parse(
-      localStorage.getItem("availableDirectories") ?? "[]",
-    );
-    return Array.isArray(parsed) ? parsed.length : 0;
-  } catch {
-    return 0;
-  }
-}
 
 /** コーデックごとの件数（件数降順 → 名前昇順） */
 export function codecOptions(videos: Video[]): FilterOptionCount[] {

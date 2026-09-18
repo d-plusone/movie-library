@@ -96,9 +96,7 @@ export function DetailsPanel() {
   const addTagsMutation = useMutation({
     mutationFn: async (tagNames: string[]) => {
       if (!video) return;
-      for (const tagName of tagNames) {
-        await ipc().addTagToVideo(video.id, tagName);
-      }
+      return ipc().addTagsToVideos([video.id], tagNames);
     },
     onSuccess: async () => {
       await Promise.all([

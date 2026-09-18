@@ -3,6 +3,7 @@ import path from "path";
 import { spawn } from "child_process";
 import { app } from "electron";
 import PrismaDatabaseManager, {
+  type VideoScanComparisonRecord,
   type VideoRecord,
 } from "../database/PrismaDatabaseManager";
 import {
@@ -10,6 +11,7 @@ import {
   ProgressCallback,
   ProcessedVideo,
   ScanError,
+  ScanPreviewResult,
 } from "../types/types.js";
 import { getFfprobePath } from "../utils/ffmpeg-utils.js";
 import {
@@ -116,14 +118,12 @@ class VideoScanner {
     errors: ScanError[],
     contextLabel: string,
   ): Promise<{
-    existingVideos: VideoRecord[];
+    existingVideos: Map<string, VideoScanComparisonRecord>;
+    problematicPaths: Set<string>;
     allCurrentFiles: string[];
     currentFilePaths: Set<string>;
     deletedPaths: string[];
   }> {
-    // 現在のデータベース内の全動画を取得
-    const existingVideos = await this.getAllExistingVideos();
-
     // 現在のファイルシステムから全動画ファイルを取得
     const allCurrentFiles: string[] = [];
     const scannedDirs = new Set<string>();
@@ -166,9 +166,29 @@ class VideoScanner {
 
     const currentFilePaths = new Set(allCurrentFiles);
     const deletedPaths: string[] = [];
+    const existingVideos = new Map<string, VideoScanComparisonRecord>();
+    const problematicPaths = new Set<string>();
 
-    for (const existingVideo of existingVideos) {
-      if (!currentFilePaths.has(existingVideo.path)) {
+    // DB は軽量 DTO をページ単位で取得する。全件を含む VideoRecord やタグを
+    // 一括ロードせず、比較・削除判定に必要な情報だけを保持する。
+    const PAGE_SIZE = 500;
+    let afterId = 0;
+    for (;;) {
+      const page = await this.db.getVideosForScanComparisonPage(
+        PAGE_SIZE,
+        afterId,
+      );
+      if (page.length === 0) break;
+
+      for (const existingVideo of page) {
+        if (currentFilePaths.has(existingVideo.path)) {
+          existingVideos.set(existingVideo.path, existingVideo);
+          if (this.isVideoProblematic(existingVideo)) {
+            problematicPaths.add(existingVideo.path);
+          }
+          continue;
+        }
+
         const underFailedSubdir = [...failedSubdirs].some((dir) =>
           isPathUnderDirectory(existingVideo.path, dir),
         );
@@ -187,12 +207,80 @@ class VideoScanner {
           logger.debug(`Detected deleted video: ${existingVideo.path}`);
         }
       }
+
+      afterId = page[page.length - 1]!.id;
+      if (page.length < PAGE_SIZE) break;
     }
 
-    return { existingVideos, allCurrentFiles, currentFilePaths, deletedPaths };
+    return {
+      existingVideos,
+      problematicPaths,
+      allCurrentFiles,
+      currentFilePaths,
+      deletedPaths,
+    };
   }
 
   // 改良されたディレクトリスキャン（包括的チェック）
+  /**
+   * DB / ファイルシステムの状態収集だけを行い、差分件数を返す。
+   * processFile や DB 更新は実行しないため、スキャン前の確認に利用できる。
+   */
+  async previewScan(directories: string[]): Promise<ScanPreviewResult> {
+    const errors: ScanError[] = [];
+    const {
+      existingVideos,
+      problematicPaths,
+      allCurrentFiles,
+      deletedPaths,
+    } = await this.collectScanState(directories, errors, "preview");
+    const alreadyCounted = new Set<string>();
+    let totalNew = 0;
+    let totalUpdated = 0;
+
+    for (const filePath of allCurrentFiles) {
+      try {
+        const existingVideo = existingVideos.get(filePath);
+        if (!existingVideo) {
+          totalNew++;
+          alreadyCounted.add(filePath);
+          continue;
+        }
+
+        const stats = await fs.stat(filePath);
+        if (existingVideo.modifiedAt.getTime() !== stats.mtime.getTime()) {
+          totalUpdated++;
+          alreadyCounted.add(filePath);
+        }
+      } catch (error) {
+        errors.push({
+          filePath,
+          error: error instanceof Error ? error.message : String(error),
+          errorCode:
+            error instanceof Error && "code" in error
+              ? String(error.code)
+              : undefined,
+          timestamp: new Date(),
+        });
+      }
+    }
+
+    let totalReprocessed = 0;
+    for (const problematicPath of problematicPaths) {
+      if (!alreadyCounted.has(problematicPath)) totalReprocessed++;
+    }
+
+    return {
+      totalNew,
+      totalUpdated,
+      totalDeleted: deletedPaths.length,
+      totalReprocessed,
+      totalErrors: errors.length,
+      errors,
+      scannedDirectories: directories.length,
+    };
+  }
+
   async comprehensiveScan(
     directories: string[],
     progressCallback?: ProgressCallback | null,
@@ -212,18 +300,14 @@ class VideoScanner {
     };
 
     // 1-3. DB / FS の状態収集と削除検出（forceRescanAllVideos と共通の前処理）
-    const { existingVideos, allCurrentFiles, currentFilePaths, deletedPaths } =
+    const { existingVideos, problematicPaths, allCurrentFiles, deletedPaths } =
       await this.collectScanState(directories, result.errors, "scan");
     result.deletedVideos.push(...deletedPaths);
 
     // 4. 問題のある動画を検出（メタデータが不完全）
-    const problematicVideos = existingVideos.filter(
-      (video) =>
-        currentFilePaths.has(video.path) && this.isVideoProblematic(video),
-    );
+    const problematicVideos = [...problematicPaths];
 
     // 5. 新規・更新・問題動画の処理
-    const existingVideoMap = new Map(existingVideos.map((v) => [v.path, v]));
     const totalFiles = allCurrentFiles.length + problematicVideos.length;
     let processedCount = 0;
     // このスキャンで新規/更新として既に再処理したパス
@@ -241,7 +325,7 @@ class VideoScanner {
           });
         }
 
-        const existingVideo = existingVideoMap.get(filePath);
+        const existingVideo = existingVideos.get(filePath);
         const stats = await fs.stat(filePath);
 
         if (!existingVideo) {
@@ -281,35 +365,35 @@ class VideoScanner {
     // （上のループで新規/更新として既に再処理済みのものは対象から除外し、
     //   同一動画への ffprobe 二重実行と結果の二重カウントを防ぐ）
     const remainingProblematicVideos = problematicVideos.filter(
-      (video) => !alreadyProcessedPaths.has(video.path),
+      (filePath) => !alreadyProcessedPaths.has(filePath),
     );
-    for (const problematicVideo of remainingProblematicVideos) {
+    for (const problematicPath of remainingProblematicVideos) {
       try {
         processedCount++;
         if (progressCallback) {
           progressCallback({
             current: processedCount,
             total: totalFiles,
-            file: `再処理: ${path.basename(problematicVideo.path)}`,
+            file: `再処理: ${path.basename(problematicPath)}`,
           });
         }
 
         logger.debug(
-          `Reprocessing problematic video: ${problematicVideo.path}`,
+          `Reprocessing problematic video: ${problematicPath}`,
         );
-        const video = await this.processFile(problematicVideo.path, true); // 強制再処理
+        const video = await this.processFile(problematicPath, true); // 強制再処理
         if (video) {
           result.reprocessedVideos.push(video);
-          logger.debug(`Reprocessed video: ${problematicVideo.path}`);
+          logger.debug(`Reprocessed video: ${problematicPath}`);
         }
       } catch (error) {
         console.error(
           "Error reprocessing problematic video:",
-          problematicVideo.path,
+          problematicPath,
           error,
         );
         result.errors.push({
-          filePath: problematicVideo.path,
+          filePath: problematicPath,
           error: error instanceof Error ? error.message : String(error),
           errorCode:
             error instanceof Error && "code" in error
@@ -324,7 +408,7 @@ class VideoScanner {
   }
 
   // 動画に問題があるかチェック
-  private isVideoProblematic(video: VideoRecord): boolean {
+  private isVideoProblematic(video: VideoScanComparisonRecord): boolean {
     return (
       !video.width ||
       video.width === 0 ||
@@ -337,17 +421,6 @@ class VideoScanner {
       !video.fps ||
       video.fps === 0
     );
-  }
-
-  // データベース内の全動画を取得
-  private async getAllExistingVideos(): Promise<VideoRecord[]> {
-    try {
-      // DatabaseManagerのgetVideosメソッドを使用
-      return await this.db.getVideos();
-    } catch (error) {
-      console.error("Error getting existing videos:", error);
-      throw error;
-    }
   }
 
   /**
@@ -691,7 +764,6 @@ class VideoScanner {
     result.deletedVideos.push(...deletedPaths);
 
     // 4. 存在する全ての動画ファイルを強制的に再処理
-    const existingVideoMap = new Map(existingVideos.map((v) => [v.path, v]));
     const totalFiles = allCurrentFiles.length;
     let processedCount = 0;
 
@@ -714,7 +786,7 @@ class VideoScanner {
         );
 
         // 既存の動画データがあるかチェック
-        const existingVideo = existingVideoMap.get(filePath);
+        const existingVideo = existingVideos.get(filePath);
 
         // ファイルを強制的に再処理（既存データがあっても無視）
         const video = await this.processFile(filePath, true); // 強制処理フラグを追加

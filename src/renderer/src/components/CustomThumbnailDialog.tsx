@@ -42,6 +42,10 @@ export function CustomThumbnailDialog() {
   const [tooltipLoading, setTooltipLoading] = useState(false);
 
   const cacheRef = useRef(new Map<number, string>());
+  const previewPathsRef = useRef(new Set<string>());
+  const previewGenerationActiveRef = useRef(false);
+  const previewRequestIdRef = useRef(0);
+  const tooltipRequestIdRef = useRef(0);
   const changeTimerRef = useRef<number | null>(null);
   const tooltipTimerRef = useRef<number | null>(null);
   const seekbarRef = useRef<HTMLInputElement | null>(null);
@@ -49,6 +53,18 @@ export function CustomThumbnailDialog() {
   useFocusTrap(modalRef, ui.customThumbVideoId !== null);
 
   // 開くたびに初期化（5% の位置）
+  useEffect(() => {
+    previewGenerationActiveRef.current = ui.customThumbVideoId !== null;
+    return () => {
+      previewGenerationActiveRef.current = false;
+      const paths = [...previewPathsRef.current];
+      previewPathsRef.current.clear();
+      void Promise.allSettled(
+        paths.map((previewPath) => ipc().deletePreviewThumbnail(previewPath)),
+      );
+    };
+  }, [ui.customThumbVideoId]);
+
   useEffect(() => {
     if (ui.customThumbVideoId === null) return;
     cacheRef.current.clear();
@@ -68,6 +84,11 @@ export function CustomThumbnailDialog() {
       if (cached !== undefined) return cached;
       try {
         const previewPath = await ipc().generatePreviewThumbnail(video.path, timestamp);
+        if (!previewGenerationActiveRef.current) {
+          void ipc().deletePreviewThumbnail(previewPath);
+          return null;
+        }
+        previewPathsRef.current.add(previewPath);
         const url = `${pathToFileUrl(previewPath)}?t=${Date.now()}`;
         cacheRef.current.set(key, url);
         return url;
@@ -83,16 +104,19 @@ export function CustomThumbnailDialog() {
   // メインプレビューの遅延更新
   useEffect(() => {
     if (ui.customThumbVideoId === null) return;
+    const requestId = ++previewRequestIdRef.current;
     if (changeTimerRef.current !== null) window.clearTimeout(changeTimerRef.current);
     changeTimerRef.current = window.setTimeout(() => {
       void (async () => {
         setPreviewLoading(true);
         const url = await fetchPreview(position);
+        if (requestId !== previewRequestIdRef.current) return;
         setPreviewLoading(false);
         setPreviewSrc(url);
       })();
     }, CHANGE_DEBOUNCE_MS);
     return () => {
+      previewRequestIdRef.current++;
       if (changeTimerRef.current !== null) window.clearTimeout(changeTimerRef.current);
     };
   }, [position, ui.customThumbVideoId, fetchPreview]);
@@ -120,12 +144,14 @@ export function CustomThumbnailDialog() {
     setTooltipVisible(true);
     setTooltipLeft(event.clientX - rect.left);
     setTooltipPosition(rounded);
+    const requestId = ++tooltipRequestIdRef.current;
 
     if (tooltipTimerRef.current !== null) window.clearTimeout(tooltipTimerRef.current);
     tooltipTimerRef.current = window.setTimeout(() => {
       void (async () => {
         setTooltipLoading(true);
         const url = await fetchPreview(rounded);
+        if (requestId !== tooltipRequestIdRef.current) return;
         setTooltipLoading(false);
         setTooltipSrc(url);
       })();
@@ -133,6 +159,7 @@ export function CustomThumbnailDialog() {
   };
 
   const onSeekbarMouseLeave = (): void => {
+    tooltipRequestIdRef.current++;
     setTooltipVisible(false);
     if (tooltipTimerRef.current !== null) window.clearTimeout(tooltipTimerRef.current);
   };
