@@ -162,13 +162,14 @@ export function DetailsPanel() {
               alt={video.title}
               onClick={() => ui.openChapter({ videoId: video.id, startIndex: 0 })}
             />
-            <div className="thumbnail-actions">
+            <div className={`thumbnail-actions${regenerateThumbMutation.isPending ? " thumbnail-actions-busy" : ""}`}>
               <button
                 type="button"
                 id="refreshMainThumbnailBtn"
-                className="refresh-thumbnail-btn"
-                title="メインサムネイルを更新"
+                className={`refresh-thumbnail-btn${regenerateThumbMutation.isPending ? " loading" : ""}`}
+                title={regenerateThumbMutation.isPending ? "メインサムネイルを生成中..." : "メインサムネイルを更新"}
                 aria-label="メインサムネイルを更新"
+                aria-busy={regenerateThumbMutation.isPending}
                 disabled={regenerateThumbMutation.isPending}
                 onClick={() => void regenerateThumbMutation.mutateAsync(video.id)}
               >
@@ -185,6 +186,12 @@ export function DetailsPanel() {
                 <span className="icon">🎯</span>
               </button>
             </div>
+            {regenerateThumbMutation.isPending && (
+              <div className="thumbnail-regeneration-status" role="status" aria-live="polite">
+                <span className="progress-spinner" aria-hidden="true" />
+                メインサムネイルを生成中...
+              </div>
+            )}
           </div>
           <div className="chapter-thumbnails">
             <div id="detailsChapterThumbnails" className="chapter-grid">

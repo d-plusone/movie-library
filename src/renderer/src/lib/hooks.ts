@@ -90,7 +90,7 @@ interface IncrementalRenderResult {
  */
 export function useIncrementalRender(
   total: number,
-  batchSize = 50,
+  batchSize = 18,
   rootMargin = "300px",
 ): IncrementalRenderResult {
   const [count, setCount] = useState(() => Math.min(batchSize, total));

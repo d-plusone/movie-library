@@ -367,6 +367,62 @@ export default class DuplicateDetector {
   }
 
   /**
+   * Delete videos selected from the library.
+   * Unlike duplicate deletion, this intentionally has no duplicate-content
+   * verification because the user explicitly selected the files to remove.
+   */
+  async deleteLibraryVideos(
+    videoIds: number[],
+    moveToTrash: boolean = true,
+    onProgress?: (current: number, total: number) => void,
+  ): Promise<{ success: number; failed: number }> {
+    let success = 0;
+    let failed = 0;
+
+    for (let i = 0; i < videoIds.length; i++) {
+      const videoId = videoIds[i]!;
+      try {
+        const video = await this.db.prisma.video.findUnique({
+          where: { id: videoId },
+          select: { path: true, thumbnailPath: true, chapterThumbnails: true },
+        });
+        if (!video) throw new Error(`Video ${videoId} not found`);
+
+        if (moveToTrash) {
+          const { shell } = await import("electron");
+          await shell.trashItem(video.path);
+        } else {
+          await fs.unlink(video.path);
+        }
+
+        if (video.thumbnailPath) {
+          await fs.unlink(video.thumbnailPath).catch((error) =>
+            console.warn(`Failed to delete thumbnail: ${error}`),
+          );
+        }
+        for (const chapterPath of safeParseChapterThumbnailPaths(video.chapterThumbnails)) {
+          await fs.unlink(chapterPath).catch((error) =>
+            console.warn(`Failed to delete chapter thumbnail: ${error}`),
+          );
+        }
+
+        // ファイル監視側が先にDB行を消していても、ファイル削除自体は成功として扱う。
+        await this.db.prisma.video.delete({ where: { id: videoId } }).catch((error) => {
+          console.error(`Deleted file but failed to remove DB record for video ${videoId}:`, error);
+        });
+        logger.log(`✅ Deleted selected video ${videoId}: ${video.path}`);
+        success++;
+      } catch (error) {
+        console.error(`Failed to delete selected video ${videoId}:`, error);
+        failed++;
+      }
+      onProgress?.(i + 1, videoIds.length);
+    }
+
+    return { success, failed };
+  }
+
+  /**
    * Delete multiple videos at once
    */
   async deleteVideos(

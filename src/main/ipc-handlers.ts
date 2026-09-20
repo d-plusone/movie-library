@@ -70,6 +70,7 @@ export interface IpcHandlerContext {
   generateThumbnailsForSingleVideo: (video: ProcessedVideo) => Promise<boolean>;
   getPreviewTempDir: () => string;
   clearVideoHashes: (videoId: number) => Promise<void>;
+  onRendererReady: () => void;
 }
 
 async function runConcurrent<T>(
@@ -121,6 +122,16 @@ export function registerIpcHandlers(context: IpcHandlerContext): void {
     sendProgress,
     sendOperationProgress,
   } = context;
+  // 複数の <img> が同じ動画の欠損を検知しても、ffmpeg を一度だけ起動する。
+  const pendingThumbnailRepairs = new Map<number, Promise<boolean>>();
+  let rendererReadyReceived = false;
+
+  ipcMain.handle("renderer-ready", () => {
+    if (!rendererReadyReceived) {
+      rendererReadyReceived = true;
+      context.onRendererReady();
+    }
+  });
 
   ipcMain.handle("get-videos", async () => db.getVideos());
   ipcMain.handle("get-tags", async () => db.getTags());
@@ -409,79 +420,86 @@ export function registerIpcHandlers(context: IpcHandlerContext): void {
     return results;
   });
 
+  ipcMain.handle("regenerate-thumbnails-for-videos", async (_event, videoIds: number[]) => {
+    const ids = Array.isArray(videoIds)
+      ? [...new Set(videoIds.filter((id) => Number.isInteger(id)))]
+      : [];
+    const videos = (await Promise.all(ids.map((id) => db.getVideo(id)))).filter(
+      (video) => video !== null,
+    );
+    const results: Awaited<ReturnType<typeof thumbnailGenerator.generateThumbnails>>[] = [];
+    let processed = 0;
+
+    await runConcurrent(videos, 3, async (video) => {
+      sendProgress("thumbnail-progress", {
+        kind: "progress",
+        current: processed,
+        total: videos.length,
+        message: `選択動画のサムネイル再生成中: ${video.filename}`,
+        file: video.filename,
+      });
+      try {
+        results.push(await thumbnailGenerator.generateThumbnails(video));
+      } catch (error) {
+        logger.error(`Error regenerating selected thumbnail: ${video.path}`, error);
+      } finally {
+        processed++;
+        sendProgress("thumbnail-progress", {
+          kind: "progress",
+          current: processed,
+          total: videos.length,
+          message: `選択動画のサムネイル再生成完了: ${video.filename}`,
+          file: video.filename,
+        });
+      }
+    });
+
+    sendProgress("thumbnail-progress", {
+      kind: "done",
+      message:
+        videos.length === 0
+          ? "サムネイル再生成の対象はありませんでした"
+          : `選択動画のサムネイル再生成が完了しました (${results.length}/${videos.length}件)`,
+      type: results.length === videos.length ? "success" : "warning",
+    });
+    return results;
+  });
+
   ipcMain.handle("generate-incomplete-thumbnails", async () => {
     const batchSize = 50;
-    const totalCount = await db.getVideoCount();
+    const totalCount = await db.getVideosWithIncompleteThumbnailsCount();
     let generatedVideos = 0;
-    let scannedVideos = 0;
     let processedVideos = 0;
     let afterId = 0;
 
-    // 起動時は「補完対象が見つかった時」までイベントが発生しないと、
-    // 大量の既存サムネイルを確認している間ずっと画面が無表示になる。
-    // 最初に確認開始を通知し、確認済み件数を後続イベントで更新する。
+    // DB 上で欠損が分かる候補だけを補完する。生成済みファイルの実在確認を
+    // ライブラリ全件に対して行わず、個別の実ファイル欠損は画像 load error 時に
+    // repair-thumbnail で補修する。
     if (totalCount > 0) {
       sendProgress("thumbnail-progress", {
         kind: "progress",
         current: 0,
         total: totalCount,
-        message: `サムネイルを確認中 (0/${totalCount})`,
+        message: `不完全なサムネイルを補完中 (0/${totalCount})`,
         silent: true,
       });
     }
 
     for (;;) {
-      const videos = await db.getVideosForScanPage(batchSize, afterId);
+      const videos = await db.getVideosWithIncompleteThumbnailsPage(
+        batchSize,
+        afterId,
+      );
       if (videos.length === 0) break;
       await runConcurrent(videos, 3, async (video) => {
-        scannedVideos++;
-        let message = `サムネイルを確認中: ${video.filename}`;
+        let message = `サムネイル補完中: ${video.filename}`;
         try {
-          await fs.access(video.path);
-          let incomplete = !video.thumbnailPath;
-          if (!incomplete) {
-            try {
-              await fs.access(video.thumbnailPath!);
-            } catch {
-              incomplete = true;
-            }
-          }
-          if (!incomplete) {
-            const chapters = video.chapterThumbnails ?? [];
-            if (chapters.length === 0) {
-              incomplete = true;
-            } else {
-              let anyExists = false;
-              for (const chapter of chapters) {
-                try {
-                  await fs.access(chapter.path);
-                  anyExists = true;
-                  break;
-                } catch {
-                  // 次のチャプターを確認する
-                }
-              }
-              incomplete = !anyExists;
-            }
-          }
-          if (incomplete) {
-            sendProgress("thumbnail-progress", {
-              kind: "progress",
-              current: processedVideos,
-              total: totalCount,
-              message: `サムネイル補完中: ${video.filename}`,
-              file: video.filename,
-              silent: true,
-            });
-            await thumbnailGenerator.generateThumbnails(video);
-            generatedVideos++;
-            message = `サムネイル補完完了: ${video.filename}`;
-          } else {
-            message = `サムネイル確認済み: ${video.filename}`;
-          }
+          await thumbnailGenerator.generateThumbnails(video);
+          generatedVideos++;
+          message = `サムネイル補完完了: ${video.filename}`;
         } catch (error) {
-          logger.error(`Error checking thumbnail completeness for: ${video.path}`, error);
-          message = `サムネイル確認エラー: ${video.filename}`;
+          logger.error(`Error generating incomplete thumbnail for: ${video.path}`, error);
+          message = `サムネイル補完エラー: ${video.filename}`;
         } finally {
           processedVideos++;
           sendProgress("thumbnail-progress", {
@@ -499,11 +517,58 @@ export function registerIpcHandlers(context: IpcHandlerContext): void {
     }
     sendProgress("thumbnail-progress", {
       kind: "done",
-      message: `不完全なサムネイルを補完しました (${generatedVideos}/${scannedVideos})`,
+      message: `不完全なサムネイルを補完しました (${generatedVideos}/${totalCount})`,
       type: "info",
       silent: generatedVideos === 0,
     });
-    return { total: scannedVideos, generated: generatedVideos };
+    return { total: totalCount, generated: generatedVideos };
+  });
+
+  ipcMain.handle("repair-thumbnail", async (_event, videoId: number) => {
+    if (!Number.isInteger(videoId) || videoId <= 0) {
+      throw new Error("Invalid video ID");
+    }
+
+    const pending = pendingThumbnailRepairs.get(videoId);
+    if (pending !== undefined) return pending;
+
+    const repair = (async (): Promise<boolean> => {
+      const video = await db.getVideo(videoId);
+      if (video === null) return false;
+
+      sendProgress("thumbnail-progress", {
+        kind: "progress",
+        current: 0,
+        total: 1,
+        message: `サムネイルを補修中: ${video.filename}`,
+        file: video.filename,
+        silent: true,
+      });
+      try {
+        await thumbnailGenerator.generateThumbnails(video);
+        sendProgress("thumbnail-progress", {
+          kind: "done",
+          message: `サムネイルを補修しました: ${video.filename}`,
+          type: "success",
+          silent: true,
+        });
+        return true;
+      } catch (error) {
+        logger.error(`Error repairing thumbnail for: ${video.path}`, error);
+        sendProgress("thumbnail-progress", {
+          kind: "done",
+          message: `サムネイルの補修に失敗しました: ${video.filename}`,
+          type: "error",
+        });
+        return false;
+      }
+    })();
+    pendingThumbnailRepairs.set(videoId, repair);
+    try {
+      return await repair;
+    } finally {
+      pendingThumbnailRepairs.delete(videoId);
+    }
   });
 
   ipcMain.handle("update-thumbnail-settings", async (_event, settings) => {
@@ -607,12 +672,75 @@ export function registerIpcHandlers(context: IpcHandlerContext): void {
     const video = await db.getVideo(videoId);
     if (!video) throw new Error("Video not found");
     const timestamp = video.duration * (0.1 + Math.random() * 0.8);
-    return context.regenerateMainThumbnailAt(videoId, timestamp);
+    sendProgress("thumbnail-progress", {
+      kind: "progress",
+      current: 0,
+      total: 1,
+      message: "メインサムネイルを生成中...",
+      silent: true,
+    });
+    try {
+      const result = await context.regenerateMainThumbnailAt(videoId, timestamp);
+      sendProgress("thumbnail-progress", {
+        kind: "progress",
+        current: 1,
+        total: 1,
+        message: "メインサムネイルの生成が完了しました",
+        silent: true,
+      });
+      sendProgress("thumbnail-progress", {
+        kind: "done",
+        message: "メインサムネイルの生成が完了しました",
+        type: "success",
+        silent: true,
+      });
+      return result;
+    } catch (error) {
+      sendProgress("thumbnail-progress", {
+        kind: "done",
+        message: "メインサムネイルの生成に失敗しました",
+        type: "error",
+        silent: true,
+      });
+      throw error;
+    }
   });
   ipcMain.handle(
     "regenerate-main-thumbnail-with-timestamp",
-    async (_event, videoId: number, timestamp: number) =>
-      context.regenerateMainThumbnailAt(videoId, timestamp),
+    async (_event, videoId: number, timestamp: number) => {
+      sendProgress("thumbnail-progress", {
+        kind: "progress",
+        current: 0,
+        total: 1,
+        message: "指定位置のサムネイルを生成中...",
+        silent: true,
+      });
+      try {
+        const result = await context.regenerateMainThumbnailAt(videoId, timestamp);
+        sendProgress("thumbnail-progress", {
+          kind: "progress",
+          current: 1,
+          total: 1,
+          message: "指定位置のサムネイル生成が完了しました",
+          silent: true,
+        });
+        sendProgress("thumbnail-progress", {
+          kind: "done",
+          message: "指定位置のサムネイル生成が完了しました",
+          type: "success",
+          silent: true,
+        });
+        return result;
+      } catch (error) {
+        sendProgress("thumbnail-progress", {
+          kind: "done",
+          message: "指定位置のサムネイル生成に失敗しました",
+          type: "error",
+          silent: true,
+        });
+        throw error;
+      }
+    },
   );
 
   ipcMain.handle("check-container-mismatches", async () => {
@@ -729,10 +857,49 @@ export function registerIpcHandlers(context: IpcHandlerContext): void {
   });
   ipcMain.handle(
     "delete-videos",
-    async (_event, requests: DeleteVideoRequest[], moveToTrash: boolean = true) =>
-      duplicateDetector.deleteVideos(requests, moveToTrash, (current, total) => {
-        getMainWindow()?.webContents.send("delete-progress", { current, total });
-      }),
+    async (_event, requests: DeleteVideoRequest[], moveToTrash: boolean = true) => {
+      getMainWindow()?.webContents.send("delete-progress", {
+        current: 0,
+        total: requests.length,
+      });
+      const result = await duplicateDetector.deleteVideos(
+        requests,
+        moveToTrash,
+        (current, total) => {
+          getMainWindow()?.webContents.send("delete-progress", { current, total });
+        },
+      );
+      getMainWindow()?.webContents.send("delete-progress", {
+        current: requests.length,
+        total: requests.length,
+        completed: true,
+        message: `動画の削除が完了しました（${result.success}件成功、${result.failed}件失敗）`,
+      });
+      return result;
+    },
+  );
+  ipcMain.handle(
+    "delete-library-videos",
+    async (_event, videoIds: number[], moveToTrash: boolean = true) => {
+      getMainWindow()?.webContents.send("delete-progress", {
+        current: 0,
+        total: videoIds.length,
+      });
+      const result = await duplicateDetector.deleteLibraryVideos(
+        videoIds,
+        moveToTrash,
+        (current, total) => {
+          getMainWindow()?.webContents.send("delete-progress", { current, total });
+        },
+      );
+      getMainWindow()?.webContents.send("delete-progress", {
+        current: videoIds.length,
+        total: videoIds.length,
+        completed: true,
+        message: `動画の削除が完了しました（${result.success}件成功、${result.failed}件失敗）`,
+      });
+      return result;
+    },
   );
 
   ipcMain.handle("open-video", async (_event, videoPath: string) => {

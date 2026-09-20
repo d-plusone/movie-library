@@ -26,6 +26,10 @@ interface UiContextValue {
   playerVideoId: number | null;
   openPlayer: (videoId: number) => void;
   closePlayer: () => void;
+  playlistVideoIds: readonly number[];
+  openPlaylist: (videoIds: number[]) => void;
+  playPlaylistVideo: (videoId: number) => void;
+  clearPlaylist: () => void;
 
   settingsOpen: boolean;
   setSettingsOpen: (open: boolean) => void;
@@ -65,6 +69,16 @@ interface UiContextValue {
   selectedIndex: number;
   setSelectedIndex: (index: number) => void;
 
+  /** 一括操作の対象として選択中の動画 ID */
+  selectedVideoIds: ReadonlySet<number>;
+  /** 選択された動画の順序（プレイリスト再生順） */
+  selectedVideoOrder: readonly number[];
+  toggleVideoSelection: (videoId: number) => void;
+  setVideoSelection: (videoIds: number[]) => void;
+  reorderVideoSelection: (videoId: number, targetVideoId: number) => void;
+  clearVideoSelection: () => void;
+  retainVideoSelection: (videoIds: readonly number[]) => void;
+
   /** 段階描画リストの未描画範囲を描画させる（VideoArea が実装を登録する） */
   ensureRendered: (index: number) => void;
   registerEnsure: (fn: ((index: number) => void) | null) => void;
@@ -86,6 +100,7 @@ const UiContext = createContext<UiContextValue | null>(null);
 export function UiProvider({ children }: { children: ReactNode }) {
   const [detailsVideoId, setDetailsVideoId] = useState<number | null>(null);
   const [playerVideoId, setPlayerVideoId] = useState<number | null>(null);
+  const [playlistVideoIds, setPlaylistVideoIds] = useState<number[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [duplicatesOpen, setDuplicatesOpen] = useState(false);
   const [bulkTagOpen, setBulkTagOpen] = useState(false);
@@ -97,6 +112,7 @@ export function UiProvider({ children }: { children: ReactNode }) {
   const [scanPreviewOpen, setScanPreviewOpen] = useState(false);
   const [continueWatchingOpen, setContinueWatchingOpen] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(-1);
+  const [selectedVideoOrder, setSelectedVideoOrder] = useState<number[]>([]);
   const [scanLocked, setScanLocked] = useState(false);
   const scanLockRef = useRef(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(
@@ -109,6 +125,74 @@ export function UiProvider({ children }: { children: ReactNode }) {
   }, []);
   const ensureRendered = useCallback((index: number) => {
     ensureRef.current?.(index);
+  }, []);
+
+  const selectedVideoIds = useMemo(
+    () => new Set(selectedVideoOrder),
+    [selectedVideoOrder],
+  );
+
+  const openPlayer = useCallback((videoId: number): void => {
+    setPlaylistVideoIds([]);
+    setPlayerVideoId(videoId);
+  }, []);
+
+  const closePlayer = useCallback((): void => {
+    setPlaylistVideoIds([]);
+    setPlayerVideoId(null);
+  }, []);
+
+  const openPlaylist = useCallback((videoIds: number[]): void => {
+    const uniqueIds = [...new Set(videoIds)];
+    const firstVideoId = uniqueIds[0];
+    if (firstVideoId === undefined) return;
+    setPlaylistVideoIds(uniqueIds);
+    setPlayerVideoId(firstVideoId);
+  }, []);
+
+  const playPlaylistVideo = useCallback((videoId: number): void => {
+    setPlayerVideoId(videoId);
+  }, []);
+
+  const clearPlaylist = useCallback((): void => {
+    setPlaylistVideoIds([]);
+  }, []);
+
+  const toggleVideoSelection = useCallback((videoId: number): void => {
+    setSelectedVideoOrder((current) => {
+      if (current.includes(videoId)) {
+        return current.filter((id) => id !== videoId);
+      }
+      return [...current, videoId];
+    });
+  }, []);
+
+  const setVideoSelection = useCallback((videoIds: number[]): void => {
+    setSelectedVideoOrder([...new Set(videoIds)]);
+  }, []);
+
+  const reorderVideoSelection = useCallback((videoId: number, targetVideoId: number): void => {
+    setSelectedVideoOrder((current) => {
+      const fromIndex = current.indexOf(videoId);
+      const targetIndex = current.indexOf(targetVideoId);
+      if (fromIndex < 0 || targetIndex < 0 || fromIndex === targetIndex) return current;
+      const next = [...current];
+      next.splice(fromIndex, 1);
+      next.splice(fromIndex < targetIndex ? targetIndex - 1 : targetIndex, 0, videoId);
+      return next;
+    });
+  }, []);
+
+  const clearVideoSelection = useCallback((): void => {
+    setSelectedVideoOrder((current) => (current.length === 0 ? current : []));
+  }, []);
+
+  const retainVideoSelection = useCallback((videoIds: readonly number[]): void => {
+    const allowed = new Set(videoIds);
+    setSelectedVideoOrder((current) => {
+      const next = current.filter((id) => allowed.has(id));
+      return next.length === current.length ? current : next;
+    });
   }, []);
 
   const toggleSidebarCollapsed = useCallback(() => {
@@ -150,8 +234,12 @@ export function UiProvider({ children }: { children: ReactNode }) {
       closeDetails: () => setDetailsVideoId(null),
 
       playerVideoId,
-      openPlayer: (videoId) => setPlayerVideoId(videoId),
-      closePlayer: () => setPlayerVideoId(null),
+      openPlayer,
+      closePlayer,
+      playlistVideoIds,
+      openPlaylist,
+      playPlaylistVideo,
+      clearPlaylist,
 
       settingsOpen,
       setSettingsOpen,
@@ -184,6 +272,14 @@ export function UiProvider({ children }: { children: ReactNode }) {
       selectedIndex,
       setSelectedIndex,
 
+      selectedVideoIds,
+      selectedVideoOrder,
+      toggleVideoSelection,
+      setVideoSelection,
+      reorderVideoSelection,
+      clearVideoSelection,
+      retainVideoSelection,
+
       ensureRendered,
       registerEnsure,
 
@@ -198,6 +294,12 @@ export function UiProvider({ children }: { children: ReactNode }) {
   }, [
     detailsVideoId,
     playerVideoId,
+    playlistVideoIds,
+    openPlayer,
+    closePlayer,
+    openPlaylist,
+    playPlaylistVideo,
+    clearPlaylist,
     settingsOpen,
     duplicatesOpen,
     bulkTagOpen,
@@ -209,12 +311,19 @@ export function UiProvider({ children }: { children: ReactNode }) {
     scanPreviewOpen,
     continueWatchingOpen,
     selectedIndex,
+    selectedVideoIds,
+    selectedVideoOrder,
     scanLocked,
     sidebarCollapsed,
     runScanExclusive,
     toggleSidebarCollapsed,
     registerEnsure,
     ensureRendered,
+    toggleVideoSelection,
+    setVideoSelection,
+    reorderVideoSelection,
+    clearVideoSelection,
+    retainVideoSelection,
   ]);
 
   return <UiContext.Provider value={value}>{children}</UiContext.Provider>;

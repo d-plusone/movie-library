@@ -38,10 +38,14 @@ import type {
 export interface ElectronAPI {
   /** production ビルドかどうか（main プロセスから追加引数経由で渡される） */
   isProduction: boolean;
+  /** 最初の画面描画が終わったことを main プロセスへ通知する */
+  rendererReady(): Promise<void>;
 
   // ---- Video operations ----
   getVideos(): Promise<Video[]>;
   updateVideo(id: number, data: VideoUpdateData): Promise<boolean>;
+  /** 指定した動画をファイルごとゴミ箱へ移動し、ライブラリから削除する */
+  deleteLibraryVideos(videoIds: number[], moveToTrash?: boolean): Promise<DeleteVideosResult>;
   openVideo(filePath: string): Promise<void>;
   hasVideoUpdates(lastCheckTime: number): Promise<boolean>;
   /** 現在のフレームを PNG で保存する（最高画質スクリーンショット） */
@@ -72,7 +76,10 @@ export interface ElectronAPI {
   // ---- Thumbnail operations ----
   generateThumbnails(): Promise<ThumbnailResult[]>;
   generateIncompleteThumbnails(): Promise<IncompleteThumbnailsResult>;
+  /** 画像ロードに失敗した動画のサムネイルを一度だけ補修する */
+  repairThumbnail(videoId: number): Promise<boolean>;
   regenerateAllThumbnails(): Promise<ThumbnailResult[]>;
+  regenerateThumbnailsForVideos(videoIds: number[]): Promise<ThumbnailResult[]>;
   /** null は再生成後の再取得時点で動画が削除済みだった場合 */
   regenerateMainThumbnail(videoId: number): Promise<Video | null>;
   regenerateMainThumbnailWithTimestamp(

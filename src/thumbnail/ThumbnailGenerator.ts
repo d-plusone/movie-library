@@ -39,6 +39,7 @@ class ThumbnailGenerator {
   private readonly maxFfmpegConcurrency = process.platform === "win32" ? 2 : 4;
   private runningFfmpeg = 0;
   private readonly ffmpegWaiters: Array<() => void> = [];
+  private initializationPromise: Promise<void> | null = null;
 
   constructor(database: PrismaDatabaseManager) {
     this.db = database;
@@ -53,6 +54,21 @@ class ThumbnailGenerator {
   }
 
   async initialize(): Promise<void> {
+    if (this.ffmpegPath !== null) return;
+    if (this.initializationPromise !== null) {
+      await this.initializationPromise;
+      return;
+    }
+
+    this.initializationPromise = this.initializeFfmpegPath();
+    try {
+      await this.initializationPromise;
+    } finally {
+      this.initializationPromise = null;
+    }
+  }
+
+  private async initializeFfmpegPath(): Promise<void> {
     try {
       // Get FFmpeg path asynchronously
       this.ffmpegPath = await getFfmpegPath();

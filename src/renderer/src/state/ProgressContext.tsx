@@ -21,7 +21,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { ProgressEvent } from "../../../types/types";
+import type { DeleteProgress, ProgressEvent } from "../../../types/types";
 import { useNotify } from "./NotificationContext";
 
 export interface ProgressEntry {
@@ -55,7 +55,13 @@ const COMPLETE_REMOVE_DELAY_MS = 1000;
  */
 const STALE_AFTER_MS = 30000;
 
-type ProgressChannel = "scan-progress" | "rescan-progress" | "thumbnail-progress";
+type ProgressChannel =
+  | "scan-progress"
+  | "rescan-progress"
+  | "thumbnail-progress"
+  | "delete-progress";
+
+type IncomingProgress = ProgressEvent | DeleteProgress;
 
 interface ChannelBinding {
   id: string;
@@ -85,7 +91,36 @@ function bindingFor(
       return { id: "settings-rescan-all", label: "全ての動画を再スキャン中", owner: true };
     case "thumbnail-progress":
       return resolveThumbnailBinding(entries);
+    case "delete-progress":
+      return { id: "delete-progress", label: "動画を削除中", owner: false };
   }
+}
+
+function normalizeProgressEvent(
+  channel: ProgressChannel,
+  data: IncomingProgress,
+): ProgressEvent {
+  if (channel !== "delete-progress") return data as ProgressEvent;
+
+  const deleteProgress = data as DeleteProgress;
+  if (deleteProgress.completed) {
+    return {
+      kind: "done",
+      message: deleteProgress.message ?? "動画の削除が完了しました",
+      // 完了通知は削除を開始した画面側の結果通知に任せる。
+      silent: true,
+    };
+  }
+  return {
+    kind: "progress",
+    current: deleteProgress.current,
+    total: deleteProgress.total,
+    message:
+      deleteProgress.message ??
+      `動画を削除中 (${deleteProgress.current}/${deleteProgress.total})`,
+    // バックグラウンド処理の進捗はトーストを連続表示しない。
+    silent: true,
+  };
 }
 
 function applyEvent(
@@ -172,7 +207,8 @@ export function ProgressProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const api = window.electronAPI;
 
-    const handle = (channel: ProgressChannel, data: ProgressEvent): void => {
+    const handle = (channel: ProgressChannel, data: IncomingProgress): void => {
+      const event = normalizeProgressEvent(channel, data);
       const previous = entriesRef.current;
       const binding = bindingFor(channel, previous);
       // 進行中のエントリがまだ無ければ、この progress イベントが操作の開始
@@ -180,19 +216,19 @@ export function ProgressProvider({ children }: { children: ReactNode }) {
         (entry) => entry.id === binding.id && !entry.completed,
       );
 
-      if (!data.silent) {
-        if (data.kind === "progress" && isNewOperation) {
+      if (!event.silent) {
+        if (event.kind === "progress" && isNewOperation) {
           notify(
-            data.message ?? `${binding.label} (${data.current}/${data.total})`,
+            event.message ?? `${binding.label} (${event.current}/${event.total})`,
             "info",
           );
-        } else if (data.kind === "done") {
-          notify(data.message, data.type ?? "success");
+        } else if (event.kind === "done") {
+          notify(event.message, event.type ?? "success");
         }
       }
 
       // 連続イベントで開始判定を誤らないよう、状態と ref を同期的に進める
-      const next = applyEvent(previous, channel, data);
+      const next = applyEvent(previous, channel, event);
       entriesRef.current = next;
       setEntries(next);
     };
@@ -203,16 +239,20 @@ export function ProgressProvider({ children }: { children: ReactNode }) {
       handle("rescan-progress", data);
     const onThumbnail = (data: ProgressEvent): void =>
       handle("thumbnail-progress", data);
+    const onDelete = (data: DeleteProgress): void =>
+      handle("delete-progress", data);
 
     api.onScanProgress(onScan);
     api.onRescanProgress(onRescan);
     api.onThumbnailProgress(onThumbnail);
+    api.onDeleteProgress(onDelete);
     // StrictMode の二重マウントで登録が重複しリスナーがリークするのを防ぐため、
     // 他のプログレスチャネルと同様にアンマウント時に必ず解除する。
     return () => {
       api.offScanProgress(onScan);
       api.offRescanProgress(onRescan);
       api.offThumbnailProgress(onThumbnail);
+      api.offDeleteProgress(onDelete);
     };
   }, [notify]);
 

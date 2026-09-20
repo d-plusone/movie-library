@@ -11,6 +11,7 @@ import type { Tag, Video } from "../types";
 
 interface BulkTagModalProps {
   videos: Video[];
+  selectedVideos?: Video[];
 }
 
 /** checks[tag][videoId] の形で現在のチェック状態を保持する */
@@ -28,10 +29,11 @@ function buildInitialMatrix(videos: Video[], tags: Tag[]): CheckMatrix {
   return matrix;
 }
 
-export function BulkTagModal({ videos }: BulkTagModalProps) {
+export function BulkTagModal({ videos, selectedVideos = [] }: BulkTagModalProps) {
   const qc = useQueryClient();
   const { notify } = useNotify();
   const ui = useUi();
+  const targetVideos = selectedVideos.length > 0 ? selectedVideos : videos;
 
   const tagsQuery = useQuery({
     queryKey: queryKeys.tags,
@@ -48,14 +50,14 @@ export function BulkTagModal({ videos }: BulkTagModalProps) {
   const modalRef = useRef<HTMLDivElement | null>(null);
   useFocusTrap(modalRef, ui.bulkTagOpen);
 
-  // 開くたびに表示中動画 × 全タグで初期化する
+  // 開くたびに対象動画 × 全タグで初期化する
   useEffect(() => {
     if (!ui.bulkTagOpen) return;
-    const initial = buildInitialMatrix(videos, tags);
+    const initial = buildInitialMatrix(targetVideos, tags);
     setInitialMatrix(initial);
     setMatrix(new Map([...initial.entries()].map(([tag, row]) => [tag, new Map(row)])));
     setKeyword("");
-  }, [ui.bulkTagOpen, videos, tags]);
+  }, [ui.bulkTagOpen, targetVideos, tags]);
 
   const applyMutation = useMutation({
     mutationFn: async (changes: Array<{ videoId: number; tagName: string; action: "add" | "remove" }>) => {
@@ -128,12 +130,12 @@ export function BulkTagModal({ videos }: BulkTagModalProps) {
   };
 
   function visibleVideosForColumn(): Video[] {
-    return videos;
+    return targetVideos;
   }
 
   const apply = (): void => {
     const changes: Array<{ videoId: number; tagName: string; action: "add" | "remove" }> = [];
-    for (const video of videos) {
+    for (const video of targetVideos) {
       for (const tag of tags) {
         const current = isChecked(tag.name, video.id);
         const original = initialMatrix.get(tag.name)?.get(video.id) ?? false;
@@ -163,7 +165,9 @@ export function BulkTagModal({ videos }: BulkTagModalProps) {
     <div ref={modalRef} id="bulkTagApplyDialog" className="modal" role="dialog" aria-modal="true" aria-labelledby="bulkTagApplyDialogTitle">
       <div className="modal-content bulk-tag-apply-modal">
         <div className="modal-header">
-          <h2 id="bulkTagApplyDialogTitle">タグ一括反映</h2>
+          <h2 id="bulkTagApplyDialogTitle">
+            タグ一括反映（{selectedVideos.length > 0 ? "選択中" : "表示中"}{targetVideos.length}件）
+          </h2>
           <button
             type="button"
             className="btn btn-icon"
@@ -214,7 +218,7 @@ export function BulkTagModal({ videos }: BulkTagModalProps) {
                   </tr>
                 </thead>
                 <tbody>
-                  {videos.map((video) => (
+                  {targetVideos.map((video) => (
                     <tr key={video.id}>
                       <td className="video-name-cell">{video.title}</td>
                       {visibleTags.map((tag) => (
@@ -243,7 +247,7 @@ export function BulkTagModal({ videos }: BulkTagModalProps) {
             type="button"
             id="applyBulkTagsBtn"
             className="btn btn-success bulk-tag-apply-btn"
-            disabled={applyMutation.isPending || videos.length === 0 || tags.length === 0}
+            disabled={applyMutation.isPending || targetVideos.length === 0 || tags.length === 0}
             onClick={apply}
           >
             反映

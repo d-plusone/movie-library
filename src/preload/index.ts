@@ -108,11 +108,16 @@ const isProduction = process.argv.includes("--movie-library-production=1");
 const electronAPI: ElectronAPI = {
   // アプリ情報
   isProduction,
+  rendererReady: async (): Promise<void> => {
+    await ipcRenderer.invoke("renderer-ready");
+  },
 
   // Video operations
   getVideos: () => ipcRenderer.invoke("get-videos"),
   updateVideo: (id: number, data: VideoUpdateData) =>
     ipcRenderer.invoke("update-video", id, data),
+  deleteLibraryVideos: (videoIds: number[], moveToTrash: boolean = true) =>
+    ipcRenderer.invoke("delete-library-videos", videoIds, moveToTrash),
   openVideo: (filePath: string) => ipcRenderer.invoke("open-video", filePath),
   hasVideoUpdates: (lastCheckTime: number) =>
     ipcRenderer.invoke("has-video-updates", lastCheckTime),
@@ -137,8 +142,12 @@ const electronAPI: ElectronAPI = {
   generateThumbnails: () => ipcRenderer.invoke("generate-thumbnails"),
   generateIncompleteThumbnails: () =>
     ipcRenderer.invoke("generate-incomplete-thumbnails"),
+  repairThumbnail: (videoId: number) =>
+    ipcRenderer.invoke("repair-thumbnail", videoId),
   regenerateAllThumbnails: () =>
     ipcRenderer.invoke("regenerate-all-thumbnails"),
+  regenerateThumbnailsForVideos: (videoIds: number[]) =>
+    ipcRenderer.invoke("regenerate-thumbnails-for-videos", videoIds),
   regenerateMainThumbnail: (videoId: number) =>
     ipcRenderer.invoke("regenerate-main-thumbnail", videoId),
   updateThumbnailSettings: (settings: ThumbnailSettings) =>

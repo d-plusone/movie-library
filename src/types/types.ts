@@ -98,7 +98,7 @@ export interface VideoUpdateData {
   description?: string;
   thumbnailPath?: string;
   chapterThumbnails?: ChapterThumbnail[];
-  watchedAt?: Date;
+  watchedAt?: Date | null;
   watchPosition?: number;
 }
 
@@ -434,4 +434,8 @@ export interface DeleteVideoRequest {
 export interface DeleteProgress {
   current: number;
   total: number;
+  /** 削除処理全体が完了したイベントかどうか */
+  completed?: boolean;
+  /** 完了時の内部向けメッセージ。進捗オーバーレイでは必要に応じて利用する */
+  message?: string;
 }

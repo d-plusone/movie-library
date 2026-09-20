@@ -2,7 +2,7 @@
  * アプリケーションルート。
  * プロバイダの構成、レイアウト、グローバルキーボード操作、起動時処理を担う。
  */
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ipc, queryKeys } from "./api/ipc";
 import { addDirectoriesFlow } from "./api/operations";
@@ -33,6 +33,11 @@ import type { DirectoryStatus, Video } from "./types";
 
 /** グリッドの 1 行あたり表示数を測定する（旧 calculateVideosPerRow の移植） */
 function measureVideosPerRow(container: HTMLDivElement): number {
+  const configuredColumns = Number(container.dataset.gridColumns);
+  if (Number.isInteger(configuredColumns) && configuredColumns > 0) {
+    return configuredColumns;
+  }
+
   const items = container.querySelectorAll<HTMLElement>(".video-item");
   if (items.length === 0) return 4;
   const itemWidth = items[0]!.offsetWidth + 20; // margin 込み
@@ -52,6 +57,7 @@ function Shell() {
 
   const listRef = useRef<HTMLDivElement | null>(null);
   const startupRanRef = useRef(false);
+  const [firstPainted, setFirstPainted] = useState(false);
   /** 接続エラーを通知済みのディレクトリ（起動時処理との二重通知を防ぐ） */
   const offlineNotifiedRef = useRef<Set<string>>(new Set());
 
@@ -72,10 +78,31 @@ function Shell() {
     queryKey: queryKeys.directoryStatuses,
     queryFn: () => ipc().getDirectoryStatuses(),
     staleTime: Infinity,
+    // 接続確認は NAS I/O を伴うため、初回カード描画後に始める。
+    enabled: firstPainted,
   });
 
   const allVideos = videosQuery.data ?? [];
   const availableDirectoryCount = filterState.availableDirectories.length;
+
+  // React が最初のカード群を描画した後で main 側の重い初期化を解放する。
+  // 2 フレーム待つことで、通知用 IPC が初回の合成を先回りしないようにする。
+  useEffect(() => {
+    if (!videosQuery.isSuccess || firstPainted) return;
+    let secondFrame: number | undefined;
+    const firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        setFirstPainted(true);
+        void ipc().rendererReady().catch((error) => {
+          console.error("Failed to notify main process of first paint:", error);
+        });
+      });
+    });
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      if (secondFrame !== undefined) window.cancelAnimationFrame(secondFrame);
+    };
+  }, [firstPainted, videosQuery.isSuccess]);
 
   // フィルタ結果とサイドバーのファセットを同じ1回の走査で共有する。
   const facets = useMemo(
@@ -91,6 +118,13 @@ function Shell() {
   const visibleVideos = useMemo(
     () => sortVideos(facets.visible, sort),
     [facets.visible, sort],
+  );
+  const selectedVideos = useMemo(
+    () =>
+      ui.selectedVideoOrder
+        .map((videoId) => allVideos.find((video) => video.id === videoId))
+        .filter((video): video is Video => video !== undefined),
+    [allVideos, ui.selectedVideoOrder],
   );
 
   // ディレクトリ一覧と接続状態をフィルタ状態へ同期。
@@ -187,6 +221,7 @@ function Shell() {
   // NAS の切断中でも登録は削除しない（main 側がオフラインとして保持し再接続を試行する）
   useEffect(() => {
     if (startupRanRef.current) return;
+    if (!firstPainted) return;
     const directories = directoriesQuery.data;
     if (directories === undefined) return;
 
@@ -229,7 +264,7 @@ function Shell() {
         console.error("Error during incomplete thumbnail generation:", e);
       }
     })();
-  }, [directoriesQuery.data, qc, notify]);
+  }, [directoriesQuery.data, firstPainted, qc, notify]);
 
   // グローバルキーボード操作（Esc / Enter / Space / 矢印）
   useEffect(() => {
@@ -277,6 +312,10 @@ function Shell() {
         }
         if (ui.detailsVideoId !== null) {
           ui.closeDetails();
+          return;
+        }
+        if (ui.selectedVideoIds.size > 0) {
+          ui.clearVideoSelection();
         }
         return;
       }
@@ -400,7 +439,7 @@ function Shell() {
       <CommandPalette />
       <SettingsModal />
       <ScanPreviewModal />
-      <BulkTagModal videos={visibleVideos} />
+      <BulkTagModal videos={visibleVideos} selectedVideos={selectedVideos} />
       <DuplicatesModal />
       <ChapterDialog />
       <CustomThumbnailDialog />

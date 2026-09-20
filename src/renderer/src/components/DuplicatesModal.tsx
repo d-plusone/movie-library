@@ -8,57 +8,330 @@ import { ipc, queryKeys } from "../api/ipc";
 import { formatDuration, formatFileSize, pathToFileUrl } from "../lib/format";
 import { useFocusTrap } from "../lib/hooks";
 import { useNotify } from "../state/NotificationContext";
+import { useProgress } from "../state/ProgressContext";
 import { useUi } from "../state/UiContext";
 import type {
-  DeleteProgress,
+  DeleteVideoRequest,
   DuplicateGroup,
   DuplicateSearchProgress,
 } from "../../../types/types";
 
-/** グループ内を解像度の高い順に並べ替える */
-function sortByQuality(group: DuplicateGroup): DuplicateGroup {
-  const videos = [...group.videos].sort(
+type DuplicateViewMode = "file" | "directory";
+
+interface DirectoryDuplicateGroup {
+  key: string;
+  directories: string[];
+  groups: DuplicateGroup[];
+}
+
+function directoryForPath(filePath: string): string {
+  const trimmed = filePath.replace(/[\\/]+$/, "");
+  const separatorIndex = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
+  if (separatorIndex < 0) return trimmed;
+  if (separatorIndex === 0) return trimmed.slice(0, 1);
+  return trimmed.slice(0, separatorIndex);
+}
+
+function buildDirectoryDuplicateGroups(groups: DuplicateGroup[]): DirectoryDuplicateGroup[] {
+  const grouped = new Map<string, DirectoryDuplicateGroup>();
+
+  for (const group of groups) {
+    const directories = [...new Set(group.videos.map((video) => directoryForPath(video.path)))].sort(
+      (a, b) => a.localeCompare(b),
+    );
+    if (directories.length < 2) continue;
+
+    const key = JSON.stringify(directories);
+    const current = grouped.get(key);
+    if (current) {
+      current.groups.push(group);
+    } else {
+      grouped.set(key, { key, directories, groups: [group] });
+    }
+  }
+
+  return [...grouped.values()].sort((a, b) => a.directories.join("\n").localeCompare(b.directories.join("\n")));
+}
+
+function sortVideosByQuality(group: DuplicateGroup): DuplicateGroup["videos"] {
+  return [...group.videos].sort(
     (a, b) => b.width * b.height - a.width * a.height,
   );
-  return { ...group, videos };
+}
+
+function directoryDeleteCount(
+  group: DirectoryDuplicateGroup,
+  targetDirectory: string,
+): number {
+  return group.groups.reduce((total, duplicateGroup) => {
+    const keep = sortVideosByQuality(duplicateGroup).find(
+      (video) => directoryForPath(video.path) === targetDirectory,
+    );
+    return total + (keep === undefined ? 0 : duplicateGroup.videos.length - 1);
+  }, 0);
+}
+
+interface DirectoryDuplicateBrowserProps {
+  groups: DirectoryDuplicateGroup[];
+  targets: Record<string, string>;
+  selectedGroupKey: string | null;
+  onSelectGroup: (key: string) => void;
+  onTargetChange: (key: string, target: string) => void;
+}
+
+function DirectoryDuplicateBrowser({
+  groups,
+  targets,
+  selectedGroupKey,
+  onSelectGroup,
+  onTargetChange,
+}: DirectoryDuplicateBrowserProps) {
+  const selectedGroup = groups.find((group) => group.key === selectedGroupKey) ?? groups[0];
+  if (selectedGroup === undefined) return null;
+
+  const selectedIndex = groups.findIndex((group) => group.key === selectedGroup.key);
+  const targetDirectory = targets[selectedGroup.key] ?? selectedGroup.directories[0]!;
+  const targetDeleteCount = directoryDeleteCount(selectedGroup, targetDirectory);
+
+  return (
+    <div className="duplicate-directory-browser">
+      <aside className="duplicate-directory-navigator" aria-label="ディレクトリ重複グループ一覧">
+        <div className="duplicate-directory-navigator-header">
+          <strong>{groups.length}</strong>
+          <span>グループ</span>
+        </div>
+        <div className="duplicate-directory-navigator-list">
+          {groups.map((group, index) => {
+            const groupTarget = targets[group.key] ?? group.directories[0]!;
+            const deleteCount = directoryDeleteCount(group, groupTarget);
+            const active = group.key === selectedGroup.key;
+            return (
+              <button
+                key={group.key}
+                type="button"
+                className={`duplicate-directory-navigator-item${active ? " active" : ""}`}
+                aria-current={active ? "page" : undefined}
+                onClick={() => onSelectGroup(group.key)}
+              >
+                <span className="duplicate-directory-navigator-number">{index + 1}</span>
+                <span className="duplicate-directory-navigator-info">
+                  <strong title={group.directories.join(" ↔ ")}>
+                    {group.directories.join(" ↔ ")}
+                  </strong>
+                  <small>
+                    {group.groups.length}グループ · {deleteCount}件を整理
+                  </small>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </aside>
+
+      <section className="duplicate-directory-detail" aria-label="選択中のディレクトリ重複">
+        <div className="duplicate-directory-detail-header">
+          <div>
+            <span className="duplicate-directory-detail-position">
+              グループ {selectedIndex + 1} / {groups.length}
+            </span>
+            <h3>ディレクトリ間の重複</h3>
+          </div>
+          <div className="duplicate-directory-detail-navigation">
+            <button
+              type="button"
+              className="btn btn-small btn-secondary"
+              disabled={selectedIndex <= 0}
+              onClick={() => onSelectGroup(groups[selectedIndex - 1]!.key)}
+            >
+              ← 前へ
+            </button>
+            <button
+              type="button"
+              className="btn btn-small btn-secondary"
+              disabled={selectedIndex >= groups.length - 1}
+              onClick={() => onSelectGroup(groups[selectedIndex + 1]!.key)}
+            >
+              次へ →
+            </button>
+          </div>
+        </div>
+
+        <div className="duplicate-directory-target-panel">
+          <div className="duplicate-directory-target-heading">
+            <span>寄せ先</span>
+            <strong>{targetDeleteCount}件をゴミ箱へ移動</strong>
+          </div>
+          {selectedGroup.directories.length <= 2 ? (
+            <div className="duplicate-directory-target-buttons" role="group" aria-label="寄せ先ディレクトリ">
+              {selectedGroup.directories.map((directory) => (
+                <button
+                  key={directory}
+                  type="button"
+                  className={`duplicate-directory-target-button${directory === targetDirectory ? " active" : ""}`}
+                  aria-pressed={directory === targetDirectory}
+                  title={directory}
+                  onClick={() => onTargetChange(selectedGroup.key, directory)}
+                >
+                  {directory}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <select
+              className="duplicate-directory-target-select"
+              value={targetDirectory}
+              aria-label="寄せ先ディレクトリ"
+              onChange={(event) => onTargetChange(selectedGroup.key, event.target.value)}
+            >
+              {selectedGroup.directories.map((directory) => (
+                <option key={directory} value={directory}>
+                  {directory}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+
+        <div className="duplicate-directory-content-list">
+          {selectedGroup.groups.map((group) => {
+            const sortedVideos = sortVideosByQuality(group);
+            const keep = sortedVideos.find(
+              (video) => directoryForPath(video.path) === targetDirectory,
+            );
+            return (
+              <div key={group.hash} className="duplicate-directory-content-group">
+                <div className="duplicate-directory-content-title">
+                  グループ {group.hash.substring(0, 8)}（{group.videos.length}件）
+                </div>
+                <div className="duplicate-directory-comparison">
+                  {selectedGroup.directories.map((directory) => {
+                    const directoryVideos = sortedVideos.filter(
+                      (video) => directoryForPath(video.path) === directory,
+                    );
+                    return (
+                      <div
+                        key={directory}
+                        className={`duplicate-directory-column${directory === targetDirectory ? " target" : ""}`}
+                      >
+                        <div className="duplicate-directory-column-header">
+                          <strong title={directory}>{directory}</strong>
+                          <span>{directoryVideos.length}件</span>
+                        </div>
+                        {directoryVideos.length === 0 && (
+                          <div className="duplicate-directory-column-empty">このグループにはありません</div>
+                        )}
+                        {directoryVideos.map((item) => {
+                          const isKept = item.id === keep?.id;
+                          return (
+                            <div
+                              key={item.id}
+                              className={`duplicate-directory-file-row${isKept ? " kept" : " to-delete"}`}
+                            >
+                              {item.thumbnailPath && (
+                                <img
+                                  src={pathToFileUrl(item.thumbnailPath)}
+                                  alt={item.filename}
+                                />
+                              )}
+                              <div className="duplicate-directory-file-info">
+                                <strong title={item.filename}>{item.filename}</strong>
+                                <span title={item.path}>{item.path}</span>
+                                <small>
+                                  {item.width}×{item.height} · {formatFileSize(item.size)} · {formatDuration(item.duration)}
+                                </small>
+                              </div>
+                              <em>{isKept ? "保持" : "整理"}</em>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+/** グループ内を解像度の高い順に並べ替える */
+function sortByQuality(group: DuplicateGroup): DuplicateGroup {
+  return { ...group, videos: sortVideosByQuality(group) };
 }
 
 export function DuplicatesModal() {
   const qc = useQueryClient();
   const { notify } = useNotify();
+  const { entries: progressEntries } = useProgress();
   const ui = useUi();
+  const { duplicatesOpen, setDuplicatesOpen } = ui;
 
   const [phase, setPhase] = useState<"idle" | "searching" | "done">("idle");
   const [searchProgress, setSearchProgress] =
     useState<DuplicateSearchProgress | null>(null);
-  const [deleteProgress, setDeleteProgress] = useState<DeleteProgress | null>(null);
   const [groups, setGroups] = useState<DuplicateGroup[]>([]);
+  const [viewMode, setViewMode] = useState<DuplicateViewMode>("file");
+  const [directoryTargets, setDirectoryTargets] = useState<Record<string, string>>({});
+  const [selectedDirectoryGroupKey, setSelectedDirectoryGroupKey] = useState<string | null>(null);
   /** 削除対象として選択された videoId の集合 */
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
-  const [deleting, setDeleting] = useState(false);
+  const deleteRunning = progressEntries.some(
+    (entry) => entry.id === "delete-progress" && !entry.completed,
+  );
+
+  const directoryGroups = buildDirectoryDuplicateGroups(groups);
+
+  useEffect(() => {
+    setDirectoryTargets((current) => {
+      let changed = false;
+      const next = { ...current };
+      const validKeys = new Set(directoryGroups.map((group) => group.key));
+
+      for (const key of Object.keys(next)) {
+        if (!validKeys.has(key)) {
+          delete next[key];
+          changed = true;
+        }
+      }
+      for (const group of directoryGroups) {
+        const currentTarget = next[group.key];
+        if (currentTarget === undefined || !group.directories.includes(currentTarget)) {
+          next[group.key] = group.directories[0]!;
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+  }, [directoryGroups]);
+
+  useEffect(() => {
+    setSelectedDirectoryGroupKey((current) => {
+      if (current !== null && directoryGroups.some((group) => group.key === current)) {
+        return current;
+      }
+      return directoryGroups[0]?.key ?? null;
+    });
+  }, [directoryGroups]);
 
   const modalRef = useRef<HTMLDivElement | null>(null);
   useFocusTrap(modalRef, ui.duplicatesOpen);
 
   // モーダルが開いたら検索を開始する
   useEffect(() => {
-    if (!ui.duplicatesOpen) return;
+    if (!duplicatesOpen) return;
 
     setPhase("searching");
     setGroups([]);
     setSelectedIds(new Set());
     setSearchProgress(null);
-    setDeleteProgress(null);
 
     const onProgress = (data: DuplicateSearchProgress): void => {
       setSearchProgress(data);
     };
     ipc().onDuplicateSearchProgress(onProgress);
-
-    const onDelete = (data: DeleteProgress): void => {
-      setDeleteProgress(data);
-    };
-    ipc().onDeleteProgress(onDelete);
 
     let cancelled = false;
     void (async () => {
@@ -83,7 +356,7 @@ export function DuplicatesModal() {
             `重複動画の検索に失敗しました (${e instanceof Error ? e.message : String(e)})`,
             "error",
           );
-          ui.setDuplicatesOpen(false);
+          setDuplicatesOpen(false);
         }
       }
     })();
@@ -92,9 +365,8 @@ export function DuplicatesModal() {
       cancelled = true;
       void ipc().cancelDuplicateSearch();
       ipc().offDuplicateSearchProgress(onProgress);
-      ipc().offDeleteProgress(onDelete);
     };
-  }, [ui.duplicatesOpen]);
+  }, [duplicatesOpen, notify, setDuplicatesOpen]);
 
   const toggleSelection = (group: DuplicateGroup, videoId: number): void => {
     setSelectedIds((current) => {
@@ -121,7 +393,7 @@ export function DuplicatesModal() {
    * 削除前に確認するため、対応する組を作れない id（保持候補がいないグループ）は
    * 安全側に倒して削除対象から外す。
    */
-  const buildDeleteRequests = (): Array<{ videoId: number; verifyAgainstVideoId: number }> =>
+  const buildDeleteRequests = (): DeleteVideoRequest[] =>
     groups.flatMap((group) => {
       const keep = group.videos.find((video) => !selectedIds.has(video.id));
       if (!keep) return [];
@@ -130,15 +402,51 @@ export function DuplicatesModal() {
         .map((video) => ({ videoId: video.id, verifyAgainstVideoId: keep.id }));
     });
 
+  /** 選択したディレクトリ側の最良コピーを残し、他方の重複コピーを整理する。 */
+  const buildDirectoryDeleteRequests = (): DeleteVideoRequest[] => {
+    const requests: DeleteVideoRequest[] = [];
+    const seenVideoIds = new Set<number>();
+
+    for (const directoryGroup of directoryGroups) {
+      const targetDirectory = directoryTargets[directoryGroup.key] ?? directoryGroup.directories[0];
+      if (targetDirectory === undefined) continue;
+
+      for (const group of directoryGroup.groups) {
+        const targetVideos = sortVideosByQuality(group).filter(
+          (video) => directoryForPath(video.path) === targetDirectory,
+        );
+        const keep = targetVideos[0];
+        if (keep === undefined) continue;
+
+        for (const video of group.videos) {
+          if (video.id === keep.id || seenVideoIds.has(video.id)) continue;
+          seenVideoIds.add(video.id);
+          requests.push({
+            videoId: video.id,
+            verifyAgainstVideoId: keep.id,
+          });
+        }
+      }
+    }
+
+    return requests;
+  };
+
+  const activeDeleteRequests =
+    viewMode === "directory" ? buildDirectoryDeleteRequests() : buildDeleteRequests();
+
   const deleteSelected = async (): Promise<void> => {
-    const requests = buildDeleteRequests();
-    if (requests.length === 0) return;
+    const requests = activeDeleteRequests;
+    if (requests.length === 0 || deleteRunning) return;
     const confirmed = window.confirm(
-      `選択した${requests.length}件の動画を削除しますか？\n\n動画ファイルはゴミ箱に移動されます。`,
+      viewMode === "directory"
+        ? `選択したディレクトリに重複動画を寄せますか？\n\n重複する${requests.length}件の動画ファイルはゴミ箱に移動されます。`
+        : `選択した${requests.length}件の動画を削除しますか？\n\n動画ファイルはゴミ箱に移動されます。`,
     );
     if (!confirmed) return;
 
-    setDeleting(true);
+    // 削除処理は Main 側で継続させ、モーダルを閉じて他の操作を可能にする。
+    ui.setDuplicatesOpen(false);
     try {
       const result = await ipc().deleteVideos(requests, true);
       await Promise.all([
@@ -146,12 +454,21 @@ export function DuplicatesModal() {
         qc.invalidateQueries({ queryKey: queryKeys.tags }),
         qc.invalidateQueries({ queryKey: queryKeys.directories }),
       ]);
-      ui.setDuplicatesOpen(false);
 
       if (result.failed === 0) {
-        notify(`${result.success}件の重複動画を削除しました`, "success");
+        notify(
+          viewMode === "directory"
+            ? `${result.success}件の重複動画を寄せました`
+            : `${result.success}件の重複動画を削除しました`,
+          "success",
+        );
       } else {
-        notify(`${result.success}件削除しました（${result.failed}件失敗）`, "warning");
+        notify(
+          viewMode === "directory"
+            ? `${result.success}件寄せました（${result.failed}件失敗）`
+            : `${result.success}件削除しました（${result.failed}件失敗）`,
+          "warning",
+        );
       }
     } catch (e) {
       console.error("Failed to delete duplicates:", e);
@@ -159,9 +476,6 @@ export function DuplicatesModal() {
         `動画の削除に失敗しました (${e instanceof Error ? e.message : String(e)})`,
         "error",
       );
-    } finally {
-      setDeleting(false);
-      setDeleteProgress(null);
     }
   };
 
@@ -179,6 +493,26 @@ export function DuplicatesModal() {
             onClick={() => ui.setDuplicatesOpen(false)}
           >
             ×
+          </button>
+        </div>
+
+        <div className="duplicate-view-mode" role="group" aria-label="重複表示モード">
+          <span className="duplicate-view-mode-label">表示単位</span>
+          <button
+            type="button"
+            className={`duplicate-view-mode-btn${viewMode === "file" ? " active" : ""}`}
+            aria-pressed={viewMode === "file"}
+            onClick={() => setViewMode("file")}
+          >
+            ファイル
+          </button>
+          <button
+            type="button"
+            className={`duplicate-view-mode-btn${viewMode === "directory" ? " active" : ""}`}
+            aria-pressed={viewMode === "directory"}
+            onClick={() => setViewMode("directory")}
+          >
+            ディレクトリ
           </button>
         </div>
 
@@ -235,17 +569,24 @@ export function DuplicatesModal() {
             <div className="duplicate-results">
               <div className="duplicate-summary">
                 <p>
-                  <strong>{groups.length}</strong> グループの重複が見つかりました
+                  <strong>{viewMode === "directory" ? directoryGroups.length : groups.length}</strong>{" "}
+                  {viewMode === "directory"
+                    ? "ディレクトリ間の重複グループが見つかりました"
+                    : "グループの重複が見つかりました"}
                 </p>
               </div>
               <div id="duplicateGroupsList" className="duplicate-groups-list">
-                {groups.length === 0 && (
+                {(viewMode === "directory" ? directoryGroups.length : groups.length) === 0 && (
                   <div className="no-duplicates-message">
                     <div className="icon">✓</div>
-                    <p>重複する動画は見つかりませんでした</p>
+                    <p>
+                      {viewMode === "directory"
+                        ? "ディレクトリをまたぐ重複動画は見つかりませんでした"
+                        : "重複する動画は見つかりませんでした"}
+                    </p>
                   </div>
                 )}
-                {groups.map((group) => (
+                {viewMode === "file" && groups.map((group) => (
                   <div key={group.hash} className="duplicate-group">
                     <div className="duplicate-group-header">
                       <div className="duplicate-group-title">
@@ -314,12 +655,21 @@ export function DuplicatesModal() {
                     </div>
                   </div>
                 ))}
+                {viewMode === "directory" && (
+                  <DirectoryDuplicateBrowser
+                    groups={directoryGroups}
+                    targets={directoryTargets}
+                    selectedGroupKey={selectedDirectoryGroupKey}
+                    onSelectGroup={setSelectedDirectoryGroupKey}
+                    onTargetChange={(key, target) => {
+                      setDirectoryTargets((current) => ({
+                        ...current,
+                        [key]: target,
+                      }));
+                    }}
+                  />
+                )}
               </div>
-              {deleting && deleteProgress !== null && (
-                <p>
-                  削除中... ({deleteProgress.current}/{deleteProgress.total})
-                </p>
-              )}
             </div>
           )}
         </div>
@@ -329,18 +679,21 @@ export function DuplicatesModal() {
             type="button"
             id="deleteDuplicatesBtn"
             className="btn btn-danger"
-            disabled={totalSelectedCount(selectedIds) === 0 || deleting}
+            disabled={activeDeleteRequests.length === 0 || deleteRunning}
             onClick={() => void deleteSelected()}
           >
-            {totalSelectedCount(selectedIds) > 0
-              ? `選択した${totalSelectedCount(selectedIds)}件の動画を削除`
-              : "選択した動画を削除"}
+            {viewMode === "directory"
+              ? activeDeleteRequests.length > 0
+                ? `選択したディレクトリに寄せる（${activeDeleteRequests.length}件）`
+                : "寄せる対象の重複はありません"
+              : activeDeleteRequests.length > 0
+                ? `選択した${activeDeleteRequests.length}件の動画を削除`
+                : "選択した動画を削除"}
           </button>
           <button
             type="button"
             id="cancelDuplicateBtn"
             className="btn btn-secondary"
-            disabled={deleting}
             onClick={() => ui.setDuplicatesOpen(false)}
           >
             キャンセル
@@ -349,8 +702,4 @@ export function DuplicatesModal() {
       </div>
     </div>
   );
-}
-
-function totalSelectedCount(selected: Set<number>): number {
-  return selected.size;
 }

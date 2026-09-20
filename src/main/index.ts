@@ -18,7 +18,6 @@ import {
   ProgressEvent,
   OperationProgress,
 } from "../types/types.js";
-import { initializeFFmpeg } from "../utils/ffmpeg-utils.js";
 import { createLogger } from "../utils/logger.js";
 import { registerLocalFileProtocol } from "./local-file-protocol.js";
 import { registerIpcHandlers } from "./ipc-handlers.js";
@@ -136,6 +135,7 @@ class MovieLibraryApp {
   private duplicateDetector: DuplicateDetector;
   private thumbnailGenerator: ThumbnailGenerator;
   private directoryWatcher: DirectoryWatcher;
+  private deferredInitialization: Promise<void> | null = null;
 
   constructor() {
     // データベースファイルのパスを設定
@@ -171,19 +171,8 @@ class MovieLibraryApp {
   async initialize(): Promise<void> {
     logger.log("🚀 Initializing Movie Library App...");
 
-    // Initialize FFmpeg binaries
-    try {
-      const { ffmpegPath, ffprobePath } = await initializeFFmpeg();
-      if (!ffmpegPath || !ffprobePath) {
-        console.error("⚠️  FFmpeg initialization failed");
-      }
-    } catch (error) {
-      console.error("❌ Failed to initialize FFmpeg:", error);
-    }
-
-    // Initialize database
+    // 画面の初期データ取得に必要なものだけを先に準備する。
     await this.db.initialize();
-    await cleanupStalePreviewThumbnails();
 
     // DB 初期化後に登録ディレクトリを許可ルートとして local-file:// を有効化する。
     // 任意の絶対パスを renderer から読めないようにする。
@@ -196,16 +185,31 @@ class MovieLibraryApp {
       ];
     });
 
-    // Initialize video scanner (async)
-    await this.videoScanner.initialize();
-
-    // Initialize thumbnail generator (async)
-    await this.thumbnailGenerator.initialize();
-
     // Setup IPC handlers
     this.setupIpcHandlers();
 
     logger.log("✅ Movie Library App initialized");
+  }
+
+  /**
+   * 初回カード描画後にのみ必要な初期化。
+   * フォルダ監視の初回走査・バイナリ確認・一時ファイル走査が、DB読込や画像表示と
+   * ディスク/NAS I/O を奪い合わないようにする。
+   */
+  private startDeferredInitialization(): void {
+    if (this.deferredInitialization !== null) return;
+    this.deferredInitialization = (async () => {
+      await Promise.all([
+        this.videoScanner.initialize(),
+        this.thumbnailGenerator.initialize(),
+        cleanupStalePreviewThumbnails(),
+      ]);
+      await this.startWatchingAllDirectories();
+      logger.log("Deferred startup services initialized");
+    })();
+    void this.deferredInitialization.catch((error) => {
+      console.error("Failed to initialize deferred startup services:", error);
+    });
   }
 
   createWindow(): void {
@@ -244,9 +248,19 @@ class MovieLibraryApp {
     // カスタムメニューを設定
     this.createMenu();
 
-    // ウィンドウを最大化してから表示
+    // ウィンドウを最大化する。表示は renderer の最初のフレームが準備できてから行い、
+    // 起動直後の空白ウィンドウを見せない。
     this.mainWindow.maximize();
-    this.mainWindow.show();
+    this.mainWindow.once("ready-to-show", () => this.mainWindow?.show());
+
+    // renderer から first-paint 通知が来ない異常時でも、監視機能が永遠に停止しない
+    // ようにフォールバックを置く。通常経路では startDeferredInitialization が冪等に
+    // 早期 return する。
+    const deferredFallback = setTimeout(
+      () => this.startDeferredInitialization(),
+      10_000,
+    );
+    deferredFallback.unref();
 
     // HTML の読み込み（開発時は Vite の開発サーバー、本番ではビルド済みファイル）
     if (!app.isPackaged && process.env["ELECTRON_RENDERER_URL"]) {
@@ -494,6 +508,7 @@ class MovieLibraryApp {
           data: { partialHash: null, fileHash: null },
         });
       },
+      onRendererReady: () => this.startDeferredInitialization(),
     });
   }
   async generateThumbnailsForSingleVideo(video: ProcessedVideo): Promise<boolean> {
@@ -567,9 +582,6 @@ app.whenReady().then(async () => {
 
     movieApp.createWindow();
     logger.log("Window created successfully");
-
-    await movieApp.startWatchingAllDirectories();
-    logger.log("Directory watching started successfully");
   } catch (error) {
     console.error("Failed to initialize app:", error);
 

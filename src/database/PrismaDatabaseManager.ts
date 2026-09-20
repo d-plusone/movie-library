@@ -549,6 +549,66 @@ class PrismaDatabaseManager {
   }
 
   /**
+   * 起動時に補完が必要と DB 上で明確に分かる動画だけを取得する。
+   *
+   * 生成済みサムネイルの実ファイル確認を全件に対して行うと、NAS 上の動画本体まで
+   * 毎回アクセスしてしまう。通常は DB の生成結果を信頼し、手動削除などで壊れた
+   * 個別画像は renderer の load error から補修する。
+   */
+  async getVideosWithIncompleteThumbnailsCount(): Promise<number> {
+    return this._prisma.video.count({
+      where: {
+        OR: [
+          { thumbnailPath: null },
+          { thumbnailPath: "" },
+          { chapterThumbnails: "" },
+          { chapterThumbnails: "[]" },
+        ],
+      },
+    });
+  }
+
+  async getVideosWithIncompleteThumbnailsPage(
+    limit: number,
+    afterId: number = 0,
+  ): Promise<VideoScanRecord[]> {
+    const videos = await this._prisma.video.findMany({
+      where: {
+        ...(afterId > 0 ? { id: { gt: afterId } } : {}),
+        OR: [
+          { thumbnailPath: null },
+          { thumbnailPath: "" },
+          { chapterThumbnails: "" },
+          { chapterThumbnails: "[]" },
+        ],
+      },
+      select: {
+        id: true,
+        path: true,
+        filename: true,
+        title: true,
+        duration: true,
+        size: true,
+        width: true,
+        height: true,
+        fps: true,
+        codec: true,
+        modifiedAt: true,
+        thumbnailPath: true,
+        chapterThumbnails: true,
+      },
+      orderBy: { id: "asc" },
+      take: limit,
+    });
+    return videos.map((video) => ({
+      ...video,
+      modifiedAt: new Date(video.modifiedAt),
+      thumbnailPath: video.thumbnailPath ?? undefined,
+      chapterThumbnails: safeParseChapterThumbnails(video.chapterThumbnails),
+    }));
+  }
+
+  /**
    * スキャン比較用の最小 DTO。
    * サムネイル JSON やタグを含めず、ページ単位で読み込むことで大規模 DB でも
    * 不要なレコードをメモリへ展開しない。
@@ -691,7 +751,7 @@ class PrismaDatabaseManager {
       description?: string;
       thumbnailPath?: string;
       chapterThumbnails?: string;
-      watchedAt?: Date;
+      watchedAt?: Date | null;
       watchPosition?: number;
       updatedAt?: Date;
     } = {};

@@ -41,6 +41,7 @@ class VideoScanner {
   private db: PrismaDatabaseManager;
   private supportedExtensions: string[];
   private ffprobePath: string | null;
+  private initializationPromise: Promise<void> | null = null;
 
   constructor(database: PrismaDatabaseManager) {
     this.db = database;
@@ -66,9 +67,22 @@ class VideoScanner {
   }
 
   async initialize(): Promise<void> {
+    if (this.ffprobePath !== null) return;
+    if (this.initializationPromise !== null) {
+      await this.initializationPromise;
+      return;
+    }
+
     // Get ffprobe path from shared utility
-    this.ffprobePath = await getFfprobePath();
-    logger.debug("VideoScanner: Using ffprobe path:", this.ffprobePath);
+    this.initializationPromise = (async () => {
+      this.ffprobePath = await getFfprobePath();
+      logger.debug("VideoScanner: Using ffprobe path:", this.ffprobePath);
+    })();
+    try {
+      await this.initializationPromise;
+    } finally {
+      this.initializationPromise = null;
+    }
   }
 
   isVideoFile(filePath: string): boolean {
@@ -539,6 +553,7 @@ class VideoScanner {
         };
       }
 
+      if (!this.ffprobePath) await this.initialize();
       const metadata = await this.getVideoMetadata(filePath);
 
       // ビデオストリームを明示的に探す

@@ -42,9 +42,14 @@ export function PlayerModal() {
   const playbackRateRef = useRef(1);
   const loopARef = useRef<number | null>(null);
   const loopBRef = useRef<number | null>(null);
+  const playlistVideoIdsRef = useRef<readonly number[]>([]);
   /** 外部プレーヤーへのフォールバックを 1 開始あたり 1 回だけ行うためのフラグ */
   const fallbackTriggeredRef = useRef(false);
   const modalRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    playlistVideoIdsRef.current = ui.playlistVideoIds;
+  }, [ui.playlistVideoIds]);
 
   useEffect(() => {
     if (ui.playerVideoId === null) {
@@ -170,6 +175,15 @@ export function PlayerModal() {
       }
       updateProgressText(0, 0);
       setCurrentTime(0);
+
+      const playlist = playlistVideoIdsRef.current;
+      const currentIndex = playlist.indexOf(video.id);
+      const nextVideoId = currentIndex >= 0 ? playlist[currentIndex + 1] : undefined;
+      if (nextVideoId !== undefined) {
+        ui.playPlaylistVideo(nextVideoId);
+      } else if (playlist.length > 0) {
+        ui.clearPlaylist();
+      }
     };
 
     const onError = (): void => {
@@ -212,7 +226,7 @@ export function PlayerModal() {
     // 初回実行時に video が null なら早期 return（クリーンアップなし）し、
     // video 到着後の再実行で初期化される。ID が同一のまま video オブジェクトだけ
     // 変わった場合は再初期化しないよう video.id（プリミティブ）で比較する。
-  }, [ui.playerVideoId, video?.id]);
+  }, [ui.playerVideoId, ui.playPlaylistVideo, ui.clearPlaylist, video?.id]);
 
   // video 要素へのフォーカスは上の effect が担うため、この trap は Tab 循環のみ担当する
   useFocusTrap(modalRef, ui.playerVideoId !== null);
@@ -448,7 +462,14 @@ export function PlayerModal() {
     <div ref={modalRef} id="videoPlayerModal" className="video-player-modal" role="dialog" aria-modal="true" aria-label="動画プレーヤー">
       <div className="video-player-container">
         <div className="video-player-header">
-          <span id="playerVideoTitle" className="video-player-title">{video.title}</span>
+          <div className="video-player-title-group">
+            <span id="playerVideoTitle" className="video-player-title">{video.title}</span>
+            {ui.playlistVideoIds.length > 0 && (
+              <span className="video-player-playlist-position">
+                プレイリスト {Math.max(0, ui.playlistVideoIds.indexOf(video.id)) + 1}/{ui.playlistVideoIds.length}
+              </span>
+            )}
+          </div>
           <div className="video-player-actions">
             <button
               type="button"
