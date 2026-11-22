@@ -59,7 +59,7 @@ export function CommandPalette() {
     {
       id: "generate-thumbnails",
       label: "不足サムネイルを生成",
-      description: "サムネイルがない動画だけを処理する",
+      description: "メイン無し／チャプター5枚未満だけを処理する",
       keywords: "thumbnail generate サムネイル 生成",
       run: () => ui.runScanExclusive(() => generateThumbnailsOp({ qc, notify })),
     },

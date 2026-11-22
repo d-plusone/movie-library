@@ -138,6 +138,32 @@ function safeParseChapterThumbnails(raw: string | null): ChapterThumbnail[] {
   }
 }
 
+/**
+ * ThumbnailGenerator が生成するチャプターサムネイルの期待枚数。
+ * ThumbnailGenerator の timestamps 配列（20%/35%/50%/65%/80% の5枚）と揃える。
+ */
+const EXPECTED_CHAPTER_THUMBNAIL_COUNT = 5;
+
+/** chapterThumbnails JSON の配列長。壊れている場合は不足として0を返す。 */
+function countChapterThumbnails(raw: string | null): number {
+  if (!raw) return 0;
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.length : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** メインサムネイル無し、またはチャプター5枚未満なら再生成対象にする。 */
+function needsThumbnails(
+  thumbnailPath: string | null,
+  chapterThumbnails: string | null,
+): boolean {
+  if (!thumbnailPath || thumbnailPath === "") return true;
+  return countChapterThumbnails(chapterThumbnails) < EXPECTED_CHAPTER_THUMBNAIL_COUNT;
+}
+
 // Prisma のレコードをアプリ用の VideoRecord に変換する
 // （Prisma の nullable フィールドを optional に変換し、日付文字列を Date に変換する）
 function mapVideoRecord(video: VideoWithTags): VideoRecord {
@@ -567,6 +593,7 @@ class PrismaDatabaseManager {
   async getVideosWithIncompleteThumbnailsCount(): Promise<number> {
     return this._prisma.video.count({
       where: {
+        hidden: false,
         OR: [
           { thumbnailPath: null },
           { thumbnailPath: "" },
@@ -583,6 +610,7 @@ class PrismaDatabaseManager {
   ): Promise<VideoScanRecord[]> {
     const videos = await this._prisma.video.findMany({
       where: {
+        hidden: false,
         ...(afterId > 0 ? { id: { gt: afterId } } : {}),
         OR: [
           { thumbnailPath: null },
@@ -889,12 +917,83 @@ class PrismaDatabaseManager {
     return this._prisma.video.count({ where: { hidden: false } });
   }
 
+  /**
+   * サムネイル不足（メイン無し／チャプター5枚未満）の総件数を返す。
+   * chapterThumbnails は TEXT の JSON なので Prisma の where だけでは
+   * 配列長を数えられない。IDカーソルでページングしながら JS で判定する。
+   */
   async getVideosWithoutThumbnailsCount(): Promise<number> {
-    return this._prisma.video.count({
-      where: {
-        OR: [{ thumbnailPath: null }, { thumbnailPath: "" }],
-      },
-    });
+    const PAGE_SIZE = 500;
+    let count = 0;
+    let afterId = 0;
+    for (;;) {
+      const videos = await this._prisma.video.findMany({
+        where: {
+          hidden: false,
+          ...(afterId > 0 ? { id: { gt: afterId } } : {}),
+        },
+        select: { id: true, thumbnailPath: true, chapterThumbnails: true },
+        orderBy: { id: "asc" },
+        take: PAGE_SIZE,
+      });
+      if (videos.length === 0) break;
+      for (const video of videos) {
+        if (needsThumbnails(video.thumbnailPath, video.chapterThumbnails)) {
+          count++;
+        }
+      }
+      afterId = videos[videos.length - 1]!.id;
+      if (videos.length < PAGE_SIZE) break;
+    }
+    return count;
+  }
+
+  /**
+   * サムネイル不足（メイン無し／チャプター5枚未満）を ID カーソルでページング取得する。
+   * thumbnail-batch の stablePagination 用に使う。生成中に不足が解消する一覧でも
+   * ID 順に一度だけ走行するため、失敗行を同一バッチで繰り返し掴まない。
+   */
+  async getVideosWithoutThumbnailsPage(
+    limit: number,
+    afterId: number = 0,
+  ): Promise<ThumbnailGenerationRecord[]> {
+    if (limit <= 0) return [];
+    const PAGE_SIZE = 500;
+    const results: ThumbnailGenerationRecord[] = [];
+    let cursor = afterId;
+    while (results.length < limit) {
+      const videos = await this._prisma.video.findMany({
+        where: {
+          hidden: false,
+          ...(cursor > 0 ? { id: { gt: cursor } } : {}),
+        },
+        select: {
+          id: true,
+          path: true,
+          filename: true,
+          duration: true,
+          thumbnailPath: true,
+          chapterThumbnails: true,
+        },
+        orderBy: { id: "asc" },
+        take: PAGE_SIZE,
+      });
+      if (videos.length === 0) break;
+      for (const video of videos) {
+        if (needsThumbnails(video.thumbnailPath, video.chapterThumbnails)) {
+          results.push({
+            id: video.id,
+            path: video.path,
+            filename: video.filename,
+            duration: video.duration,
+          });
+          if (results.length >= limit) break;
+        }
+      }
+      cursor = videos[videos.length - 1]!.id;
+      if (videos.length < PAGE_SIZE) break;
+    }
+    return results;
   }
 
   async getVideosWithoutThumbnails(
@@ -904,15 +1003,24 @@ class PrismaDatabaseManager {
     try {
       logger.debug("getVideosWithoutThumbnails: Starting Prisma query");
 
-      const videos = await this._prisma.video.findMany({
-        where: {
-          OR: [{ thumbnailPath: null }, { thumbnailPath: "" }],
-        },
-        select: { id: true, path: true, filename: true, duration: true },
-        orderBy: [{ filename: "asc" }, { id: "asc" }],
-        take: limit ?? undefined,
-        skip: offset,
-      });
+      // 旧インターフェース（limit/offset）互換用の先頭取得。
+      // 条件は getVideosWithoutThumbnailsPage と揃え、offset 分を読み飛ばす。
+      if (limit === null) {
+        // 全件が必要な場合は ID カーソルで全走行する
+        const all: ThumbnailGenerationRecord[] = [];
+        let afterId = 0;
+        for (;;) {
+          const page = await this.getVideosWithoutThumbnailsPage(500, afterId);
+          if (page.length === 0) break;
+          all.push(...page);
+          afterId = page[page.length - 1]!.id;
+          if (page.length < 500) break;
+        }
+        return all.slice(offset);
+      }
+      const wanted = offset + limit;
+      const collected = await this.getVideosWithoutThumbnailsPage(wanted, 0);
+      const videos = collected.slice(offset, offset + limit);
 
       logger.debug(
         `getVideosWithoutThumbnails: Found ${videos.length} videos without thumbnails`,

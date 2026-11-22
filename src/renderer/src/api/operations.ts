@@ -86,7 +86,7 @@ export async function scanDirectoriesFlow(deps: OperationDeps): Promise<void> {
   }
 }
 
-/** サムネイルが無い動画への生成 */
+/** サムネイルが不足している動画（メイン無し／チャプター5枚未満）への生成 */
 export async function generateThumbnailsOp(deps: OperationDeps): Promise<void> {
   const { qc } = deps;
   try {

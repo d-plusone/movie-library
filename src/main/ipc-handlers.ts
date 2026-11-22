@@ -281,16 +281,15 @@ export function registerIpcHandlers(context: IpcHandlerContext): void {
       const details = result.errors
         .map((error) => `ファイル: ${error.filePath}\nエラー: ${error.error}`)
         .join("\n\n");
-      dialog.showErrorBox(
-        `スキャンエラー (${result.errors.length}件)`,
-        `以下のファイルでエラーが発生しました:\n\n${details}`,
-      );
+      // ネイティブダイアログは出さず、ログへ残して完了トーストで件数のみ知らせる。
+      logger.error(`スキャンエラー (${result.errors.length}件):\n${details}`);
     }
     const details: string[] = [];
     if (result.newVideos.length > 0) details.push(`新規: ${result.newVideos.length}件`);
     if (result.updatedVideos.length > 0) details.push(`更新: ${result.updatedVideos.length}件`);
     if (result.reprocessedVideos.length > 0) details.push(`再処理: ${result.reprocessedVideos.length}件`);
     if (result.deletedVideos.length > 0) details.push(`削除: ${result.deletedVideos.length}件`);
+    if (result.errors.length > 0) details.push(`エラー: ${result.errors.length}件`);
     sendProgress("scan-progress", {
       kind: "done",
       message:
@@ -332,10 +331,8 @@ export function registerIpcHandlers(context: IpcHandlerContext): void {
       const details = result.errors
         .map((error) => `ファイル: ${error.filePath}\nエラー: ${error.error}`)
         .join("\n\n");
-      dialog.showErrorBox(
-        `再スキャンエラー (${result.errors.length}件)`,
-        `以下のファイルでエラーが発生しました:\n\n${details}`,
-      );
+      // ネイティブダイアログは出さず、ログへ残して完了トーストで件数のみ知らせる。
+      logger.error(`再スキャンエラー (${result.errors.length}件):\n${details}`);
     }
     const rescanDetails = [`処理: ${result.totalProcessed}件`];
     if (result.totalUpdated > 0) rescanDetails.push(`更新: ${result.totalUpdated}件`);
@@ -390,9 +387,10 @@ export function registerIpcHandlers(context: IpcHandlerContext): void {
   ipcMain.handle("generate-thumbnails", async () => {
     const totalVideos = await db.getVideosWithoutThumbnailsCount();
     const results = await generateThumbnailsBatch({
-      fetchPage: (limit) => db.getVideosWithoutThumbnails(limit, 0),
+      fetchPage: (limit, afterId) => db.getVideosWithoutThumbnailsPage(limit, afterId),
       totalVideos,
       verb: "サムネイル生成",
+      stablePagination: true,
       generate: (video) => thumbnailGenerator.generateThumbnails(video),
       sendProgress: (payload) => sendProgress("thumbnail-progress", payload),
     });
