@@ -1,8 +1,8 @@
 /**
  * 動画アイテム（グリッドカード / リスト行）。
- * グリッドではポインターの横位置をチャプター画像へ直接対応させる。
+ * グリッドではホバー中にチャプターサムネイルを自動巡回する。
  */
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   formatDate,
   formatDuration,
@@ -13,6 +13,8 @@ import {
 import { parseChapters } from "../lib/chapters";
 import { PLACEHOLDER_THUMBNAIL, thumbnailUrl } from "../lib/thumbnails";
 import type { Video } from "../types";
+
+const CYCLE_INTERVAL_MS = 800;
 
 export interface VideoSelectionGesture {
   ctrlKey: boolean;
@@ -58,6 +60,7 @@ export function VideoItem({
   const isGrid = view === "grid";
   const chapters = parseChapters(video.chapterThumbnails).slice(0, 5);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [hovering, setHovering] = useState(false);
   // 初期描画ではメイン画像だけを読む。チャプター画像はカードに触れた時点で
   // 前後分もまとめて読み、ホバー切り替えの体感を維持する。
   const [loadedIndices, setLoadedIndices] = useState<Set<number>>(
@@ -83,21 +86,44 @@ export function VideoItem({
     })),
   ];
 
-  const updateActiveFromPointer = (event: React.MouseEvent<HTMLDivElement>): void => {
+  const cycleTimerRef = useRef<number | null>(null);
+
+  const stopCycle = (): void => {
+    if (cycleTimerRef.current !== null) {
+      window.clearInterval(cycleTimerRef.current);
+      cycleTimerRef.current = null;
+    }
+  };
+
+  const startCycle = (): void => {
     if (!isGrid || images.length <= 1) return;
-    const rect = event.currentTarget.getBoundingClientRect();
-    if (rect.width <= 0) return;
-    const ratio = Math.min(0.999999, Math.max(0, (event.clientX - rect.left) / rect.width));
-    const nextIndex = Math.floor(ratio * images.length);
-    setActiveIndex(nextIndex);
+    stopCycle();
+    cycleTimerRef.current = window.setInterval(() => {
+      setActiveIndex((current) => (current + 1) % images.length);
+    }, CYCLE_INTERVAL_MS);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (cycleTimerRef.current !== null) {
+        window.clearInterval(cycleTimerRef.current);
+        cycleTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  // ホバー中だけ、現在の画像と前後を読み込む。
+  // 初回描画で全カードのチャプター画像を要求しないための遅延読み込み。
+  useEffect(() => {
+    if (!isGrid || !hovering || images.length === 0) return;
     setLoadedIndices((current) => {
       const next = new Set(current);
-      next.add(nextIndex);
-      next.add((nextIndex + 1) % images.length);
-      next.add((nextIndex - 1 + images.length) % images.length);
+      next.add(activeIndex);
+      next.add((activeIndex + 1) % images.length);
+      next.add((activeIndex - 1 + images.length) % images.length);
       return next.size === current.size ? current : next;
     });
-  };
+  }, [activeIndex, hovering, images.length, isGrid]);
 
   return (
     <div
@@ -165,9 +191,16 @@ export function VideoItem({
       </label>
       <div
         className={`video-thumbnail${!video.thumbnailPath ? " thumbnail-skeleton" : ""}`}
-        onMouseEnter={updateActiveFromPointer}
-        onMouseMove={updateActiveFromPointer}
-        onMouseLeave={() => setActiveIndex(0)}
+        onMouseEnter={() => {
+          if (!isGrid) return;
+          setHovering(true);
+          startCycle();
+        }}
+        onMouseLeave={() => {
+          setHovering(false);
+          stopCycle();
+          setActiveIndex(0);
+        }}
       >
         {isGrid ? (
           <>
@@ -195,6 +228,7 @@ export function VideoItem({
                     onClick={(e) => {
                       e.stopPropagation();
                       setActiveIndex(imageIndex);
+                      startCycle();
                     }}
                   />
                 ))}
