@@ -19,6 +19,8 @@ export interface FilterState {
   tagMatchMode: TagMatchMode;
   unratedOnly: boolean;
   untaggedOnly: boolean;
+  /** 内蔵プレーヤーで直接再生できない動画だけを表示する */
+  internalPlaybackUnavailableOnly: boolean;
 }
 
 export interface SavedFilter {

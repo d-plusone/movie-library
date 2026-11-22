@@ -202,9 +202,11 @@ const electronAPI: ElectronAPI = {
     duplicateSearchListeners.off(callback);
   },
 
-  // Container check / remux
+  // Container check / MP4 conversion
   checkContainerMismatches: () =>
     ipcRenderer.invoke("check-container-mismatches"),
+  getMp4ConversionEligibility: (videoId: number) =>
+    ipcRenderer.invoke("get-mp4-conversion-eligibility", videoId),
   convertVideosToMp4: (videoIds: number[]) =>
     ipcRenderer.invoke("convert-videos-to-mp4", videoIds),
   onContainerCheckProgress: (callback: (data: OperationProgress) => void) => {

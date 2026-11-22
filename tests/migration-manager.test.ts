@@ -15,6 +15,8 @@ const execFileAsync = promisify(execFile);
 const ALL_MIGRATIONS = [
   ...LEGACY_BASELINE_MIGRATIONS,
   "20260918000000_normalize_video_dates_and_indexes",
+  "20260921000000_add_hidden_video_state",
+  "20260921100000_add_original_video_path",
 ];
 const temporaryDirectories: string[] = [];
 

@@ -45,6 +45,14 @@ describe("detectContainerKind", () => {
     expect(detectContainerKind(head(flv))).toBe("flv");
   });
 
+  it("ASF ヘッダ GUID から asf / wmv を判定する", () => {
+    const asf = [
+      0x30, 0x26, 0xb2, 0x75, 0x8e, 0x66, 0xcf, 0x11,
+      0xa6, 0xd9, 0x00, 0xaa, 0x00, 0x62, 0xce, 0x6c,
+    ];
+    expect(detectContainerKind(head(asf))).toBe("asf");
+  });
+
   it("ftyp を持たない古い QuickTime (.mov) の moov ボックスも isobmff と判定する", () => {
     const moov = "moov".split("").map((c) => c.charCodeAt(0));
     const bytes = [0, 0, 0, 8, ...moov, ...new Array<number>(16).fill(0)];
@@ -70,6 +78,7 @@ describe("expectedKindForExtension", () => {
     [".mts", "mpegts"],
     [".avi", "avi"],
     [".flv", "flv"],
+    [".wmv", "asf"],
   ] as const)("%s の期待種別は %s", (ext, kind) => {
     expect(expectedKindForExtension(ext)).toBe(kind);
   });
@@ -115,6 +124,7 @@ describe("containerLabel", () => {
     ["mpegts", "MPEG-TS"],
     ["avi", "AVI"],
     ["flv", "FLV"],
+    ["asf", "ASF / Windows Media"],
     ["unknown", "不明"],
   ] as const)("%s のラベルは %s", (kind, label) => {
     expect(containerLabel(kind)).toBe(label);

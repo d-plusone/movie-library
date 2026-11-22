@@ -1,7 +1,7 @@
 /**
- * 拡張子チェックモーダル
- * 「拡張子不一致 or 内蔵再生不可コンテナ」の動画を一覧表示し、
- * チェックした動画をストリームコピー（劣化なし）で MP4 へリマックスして上書きする。
+ * 内蔵再生チェックモーダル。
+ * 再生できない動画を検出し、無劣化で MP4 へストリームコピーできるものだけを
+ * 元ファイルを残したまま変換する。
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -10,13 +10,15 @@ import { formatFileSize } from "../lib/format";
 import { useFocusTrap } from "../lib/hooks";
 import { useNotify } from "../state/NotificationContext";
 import { useUi } from "../state/UiContext";
-import type { ContainerMismatchItem } from "../../../types/types";
+import type { ContainerMismatchItem, OperationProgress } from "../../../types/types";
 
 type Phase = "idle" | "checking" | "list" | "converting" | "done";
 
 interface ConvertLogEntry {
   path: string;
   ok: boolean;
+  outputPath?: string;
+  conversionMode?: "remux" | "transcode";
   error?: string;
 }
 
@@ -27,7 +29,7 @@ export function ContainerCheckModal() {
 
   const [open, setOpen] = useState(false);
   const [phase, setPhase] = useState<Phase>("idle");
-  const [progress, setProgress] = useState({ current: 0, total: 0, message: "" });
+  const [progress, setProgress] = useState<OperationProgress>({ current: 0, total: 0, message: "" });
   const [items, setItems] = useState<ContainerMismatchItem[]>([]);
   /** 変換実行対象として選択された videoId（デフォルト: 変換可能なもの全て） */
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -49,10 +51,10 @@ export function ContainerCheckModal() {
     if (!open) return;
     const api = window.electronAPI;
 
-    const onCheck = (data: { current: number; total: number; message: string }): void => {
+    const onCheck = (data: OperationProgress): void => {
       setProgress(data);
     };
-    const onConvert = (data: { current: number; total: number; message: string }): void => {
+    const onConvert = (data: OperationProgress): void => {
       setProgress(data);
     };
 
@@ -113,10 +115,10 @@ export function ContainerCheckModal() {
     const ids = [...selectedIds];
     if (ids.length === 0) return;
     const confirmed = window.confirm(
-      `選択した${ids.length}件をストリームコピー（画質劣化なし）で MP4 に変換し、` +
-        "元ファイルを上書きしますか？\n\n" +
-        "※ コンテナだけを付け替えるため映像・音声は無劣化です。\n" +
-        "※ MP4 に入らないコーデックのファイルは失敗扱いになります。",
+      `選択した${ids.length}件を別 MP4 に変換しますか？\n\n` +
+        "※ 元ファイルは削除も上書きもせず、一覧からだけ除外します。\n" +
+        "※ 対応ストリームは無劣化リマックスし、それ以外は H.264/320kbps MP3 の高品質変換を行います。\n" +
+        "※ 変換後は映像品質・解像度・映像/音声トラック数・同期を検証します。",
     );
     if (!confirmed) return;
 
@@ -166,18 +168,18 @@ export function ContainerCheckModal() {
         }}
       >
         <span className="icon">🧐</span>
-        <span>拡張子チェック</span>
+        <span>内蔵再生チェック</span>
       </button>
 
       {!open && phase !== "checking" && phase !== "converting" ? null : (
         <div ref={modalRef} className="modal container-check-modal" role="dialog" aria-modal="true">
           <div className="modal-content">
             <div className="modal-header">
-              <h2>拡張子チェック</h2>
+              <h2>内蔵再生チェック</h2>
               <button
                 type="button"
                 className="btn btn-icon"
-                aria-label="拡張子チェックを閉じる"
+                aria-label="内蔵再生チェックを閉じる"
                 disabled={phase === "checking" || phase === "converting"}
                 onClick={close}
               >
@@ -190,9 +192,12 @@ export function ContainerCheckModal() {
                 <div className="container-check-progress">
                   <div className="spinner" />
                   <p>
-                    {phase === "checking" ? "コンテナ形式を確認中..." : "MP4 へ変換中..."}
+                    {phase === "checking" ? "内蔵再生可否を確認中..." : "MP4 へ変換中..."}
                     {" "}
                     ({progress.current}/{progress.total})
+                    {phase === "converting" && progress.detailTotal
+                      ? ` ${Math.round(((progress.detailCurrent ?? 0) / progress.detailTotal) * 100)}%`
+                      : ""}
                   </p>
                   <p className="setting-description">{progress.message}</p>
                 </div>
@@ -201,8 +206,8 @@ export function ContainerCheckModal() {
               {(phase === "list" || phase === "converting") && items.length > 0 && (
                 <>
                   <p className="setting-description">
-                    拡張子と中身が一致しない、または内蔵プレーヤーで再生できないコンテナの一覧です。
-                    チェックしたファイルはストリームコピー（画質劣化なし）で MP4 に変換され、元ファイルを上書きします。
+                    内蔵プレーヤーで直接再生できない、または拡張子と中身が一致しない動画です。
+                    選択できるものを別 MP4 に変換します。対応ストリームは無劣化リマックスし、それ以外は H.264/320kbps MP3 の高品質変換を行います。元ファイルは残し、一覧からのみ除外します。
                   </p>
                   <div className="container-check-controls">
                     <button
@@ -244,6 +249,12 @@ export function ContainerCheckModal() {
                           {item.extensionMismatch && (
                             <span className="container-badge badge-warning">拡張子不一致</span>
                           )}
+                          {item.convertible && item.conversionMode === "remux" && (
+                            <span className="container-badge badge-ok">無劣化</span>
+                          )}
+                          {item.convertible && item.conversionMode === "transcode" && (
+                            <span className="container-badge badge-warning">高品質変換</span>
+                          )}
                         </span>
                         <span className="container-check-meta">
                           拡張子 {item.extension} / 実際: {item.detectedLabel} /{" "}
@@ -251,7 +262,7 @@ export function ContainerCheckModal() {
                         </span>
                         {!item.convertible && (
                           <span className="container-badge badge-muted">
-                            拡張子が mp4 ではないため対象外
+                            {item.conversionReason ?? "MP4 変換の対象外"}
                           </span>
                         )}
                       </label>
@@ -272,6 +283,12 @@ export function ContainerCheckModal() {
                           {entry.ok ? "成功" : "失敗"}
                         </span>{" "}
                         {entry.path}
+                        {entry.outputPath !== undefined && (
+                          <span> → {entry.outputPath}</span>
+                        )}
+                        {entry.conversionMode !== undefined && (
+                          <span> ({entry.conversionMode === "remux" ? "無劣化" : "高品質変換"})</span>
+                        )}
                         {entry.error !== undefined && (
                           <span className="container-convert-error"> — {entry.error}</span>
                         )}
@@ -291,7 +308,7 @@ export function ContainerCheckModal() {
                   disabled={selectedIds.size === 0}
                   onClick={() => void runConversion()}
                 >
-                  選択した{selectedIds.size}件を MP4 に変換（上書き）
+                  選択した{selectedIds.size}件を MP4 に変換
                 </button>
               )}
               <button

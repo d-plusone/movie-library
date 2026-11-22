@@ -21,7 +21,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { DeleteProgress, ProgressEvent } from "../../../types/types";
+import type { DeleteProgress, OperationProgress, ProgressEvent } from "../../../types/types";
 import { useNotify } from "./NotificationContext";
 
 export interface ProgressEntry {
@@ -36,6 +36,9 @@ export interface ProgressEntry {
   updatedAt: number;
   /** 完了時刻。完了後 COMPLETE_REMOVE_DELAY_MS 経過で一覧から取り除く */
   completedAt?: number;
+  /** 現在の対象内の進捗 */
+  detailCurrent?: number;
+  detailTotal?: number;
 }
 
 interface ProgressContextValue {
@@ -59,9 +62,11 @@ type ProgressChannel =
   | "scan-progress"
   | "rescan-progress"
   | "thumbnail-progress"
-  | "delete-progress";
+  | "delete-progress"
+  | "container-check-progress"
+  | "container-convert-progress";
 
-type IncomingProgress = ProgressEvent | DeleteProgress;
+type IncomingProgress = ProgressEvent | DeleteProgress | OperationProgress;
 
 interface ChannelBinding {
   id: string;
@@ -93,6 +98,10 @@ function bindingFor(
       return resolveThumbnailBinding(entries);
     case "delete-progress":
       return { id: "delete-progress", label: "動画を削除中", owner: false };
+    case "container-check-progress":
+      return { id: "container-check-progress", label: "内蔵再生可否を確認中", owner: false };
+    case "container-convert-progress":
+      return { id: "container-convert-progress", label: "MP4 に変換中", owner: true };
   }
 }
 
@@ -100,6 +109,26 @@ function normalizeProgressEvent(
   channel: ProgressChannel,
   data: IncomingProgress,
 ): ProgressEvent {
+  if (channel === "container-check-progress" || channel === "container-convert-progress") {
+    const operationProgress = data as OperationProgress;
+    if (operationProgress.completed) {
+      return {
+        kind: "done",
+        message: operationProgress.message,
+        type: operationProgress.type,
+        silent: operationProgress.silent ?? true,
+      };
+    }
+    return {
+      kind: "progress",
+      current: operationProgress.current,
+      total: operationProgress.total,
+      message: operationProgress.message,
+      silent: operationProgress.silent ?? true,
+      detailCurrent: operationProgress.detailCurrent,
+      detailTotal: operationProgress.detailTotal,
+    };
+  }
   if (channel !== "delete-progress") return data as ProgressEvent;
 
   const deleteProgress = data as DeleteProgress;
@@ -146,12 +175,23 @@ function applyEvent(
           owner: binding.owner,
           completed: false,
           updatedAt: now,
+          detailCurrent: event.detailCurrent,
+          detailTotal: event.detailTotal,
         },
       ];
     }
     return previous.map((entry) =>
       entry.id === binding.id
-        ? { ...entry, total: event.total, current: event.current, message, completed: false, updatedAt: now }
+        ? {
+            ...entry,
+            total: event.total,
+            current: event.current,
+            message,
+            completed: false,
+            updatedAt: now,
+            detailCurrent: event.detailCurrent,
+            detailTotal: event.detailTotal,
+          }
         : entry,
     );
   }
@@ -241,11 +281,17 @@ export function ProgressProvider({ children }: { children: ReactNode }) {
       handle("thumbnail-progress", data);
     const onDelete = (data: DeleteProgress): void =>
       handle("delete-progress", data);
+    const onContainerCheck = (data: OperationProgress): void =>
+      handle("container-check-progress", data);
+    const onContainerConvert = (data: OperationProgress): void =>
+      handle("container-convert-progress", data);
 
     api.onScanProgress(onScan);
     api.onRescanProgress(onRescan);
     api.onThumbnailProgress(onThumbnail);
     api.onDeleteProgress(onDelete);
+    api.onContainerCheckProgress(onContainerCheck);
+    api.onContainerConvertProgress(onContainerConvert);
     // StrictMode の二重マウントで登録が重複しリスナーがリークするのを防ぐため、
     // 他のプログレスチャネルと同様にアンマウント時に必ず解除する。
     return () => {
@@ -253,6 +299,8 @@ export function ProgressProvider({ children }: { children: ReactNode }) {
       api.offRescanProgress(onRescan);
       api.offThumbnailProgress(onThumbnail);
       api.offDeleteProgress(onDelete);
+      api.offContainerCheckProgress(onContainerCheck);
+      api.offContainerConvertProgress(onContainerConvert);
     };
   }, [notify]);
 

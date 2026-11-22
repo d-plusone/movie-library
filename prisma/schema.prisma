@@ -33,6 +33,8 @@ model Video {
   partialHash       String?    @map("partial_hash")
   watchedAt         DateTime?  @map("watched_at")
   watchPosition     Int        @default(0) @map("watch_position")
+  hidden            Boolean    @default(false)
+  originalPath      String?    @map("original_path")
   videoTags         VideoTag[]
 
   @@index([updatedAt])
@@ -45,6 +47,8 @@ model Video {
   @@index([rating])
   @@index([duration])
   @@index([size])
+  @@index([hidden])
+  @@index([originalPath])
   @@map("videos")
 }
 

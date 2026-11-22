@@ -1972,6 +1972,34 @@ body {
     font-weight: 500;
 }
 
+/* Chromium の内蔵プレーヤーで直接開けない動画を、一覧上ですぐ識別できるようにする。 */
+.video-playback-unavailable-badge {
+    position: absolute;
+    top: 6px;
+    left: 6px;
+    z-index: 3;
+    padding: 3px 6px;
+    border-radius: 4px;
+    background: rgba(170, 55, 0, 0.9);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1.2;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.video-playback-unavailable-inline {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: rgba(170, 55, 0, 0.16);
+    color: var(--warning-color, #b35a00);
+    font-size: 11px;
+    font-weight: 600;
+    vertical-align: middle;
+}
+
 .video-rating-overlay {
     position: absolute;
     top: 6px;

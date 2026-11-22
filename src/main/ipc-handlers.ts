@@ -23,7 +23,15 @@ import { classifyContainer, containerLabel, detectContainerKind } from "../utils
 import { getFfmpegPath } from "../utils/ffmpeg-utils.js";
 import { createLogger } from "../utils/logger.js";
 import { readFileHead } from "../utils/file-head.js";
-import { remuxToMp4 } from "./remux.js";
+import { getInternalPlaybackStatus } from "../utils/playback-compatibility.js";
+import {
+  findConvertedMp4Path,
+  getMp4ConversionEligibility,
+  remuxToMp4,
+  transcodeToMp4,
+  verifyConvertedMp4,
+  verifyHighQualityVideo,
+} from "./remux.js";
 import { generateThumbnailsBatch } from "./thumbnail-batch.js";
 
 const execFileAsync = promisify(execFile);
@@ -746,6 +754,15 @@ export function registerIpcHandlers(context: IpcHandlerContext): void {
   ipcMain.handle("check-container-mismatches", async () => {
     const items: ContainerMismatchItem[] = [];
     const totalVideos = await db.getVideoCount();
+    if (totalVideos > 0) {
+      sendOperationProgress("container-check-progress", {
+        current: 0,
+        total: totalVideos,
+        message: `確認を準備中 (0/${totalVideos})`,
+        silent: true,
+      });
+    }
+    await videoScanner.initialize();
     const batchSize = 100;
     let checkedCount = 0;
     let afterId = 0;
@@ -755,12 +772,30 @@ export function registerIpcHandlers(context: IpcHandlerContext): void {
       await runConcurrent(videos, 4, async (video) => {
         try {
           const head = await readFileHead(video.path, 512);
-          if (head === null) return;
-          const kind = detectContainerKind(head);
-          if (kind === "unknown") return;
           const extension = path.extname(video.path).toLowerCase();
-          const verdict = classifyContainer(kind, extension);
-          if (verdict.nativePlayable && !verdict.extensionMismatch) return;
+          const kind = head === null ? "unknown" : detectContainerKind(head);
+          const containerVerdict = classifyContainer(kind, extension);
+          const codecStatus = getInternalPlaybackStatus(video.path, video.codec);
+          const nativePlayable =
+            codecStatus.playable &&
+            (kind === "unknown" || containerVerdict.nativePlayable);
+          if (nativePlayable && !containerVerdict.extensionMismatch) return;
+
+          let convertible = false;
+          let conversionMode: ContainerMismatchItem["conversionMode"];
+          let conversionReason: string | undefined;
+          try {
+            const metadata = await videoScanner.getVideoMetadata(video.path);
+            const eligibility = getMp4ConversionEligibility(metadata);
+            convertible = eligibility.convertible;
+            conversionReason = eligibility.reason;
+            conversionMode = eligibility.mode;
+          } catch (error) {
+            conversionReason = `ストリーム情報を取得できません: ${
+              error instanceof Error ? error.message : String(error)
+            }`;
+          }
+
           items.push({
             videoId: video.id,
             path: video.path,
@@ -768,10 +803,12 @@ export function registerIpcHandlers(context: IpcHandlerContext): void {
             size: Number(video.size ?? 0),
             extension,
             detectedKind: kind,
-            detectedLabel: containerLabel(kind),
-            nativePlayable: verdict.nativePlayable,
-            extensionMismatch: verdict.extensionMismatch,
-            convertible: extension === ".mp4" || extension === ".m4v",
+            detectedLabel: kind === "unknown" ? "未判定" : containerLabel(kind),
+            nativePlayable,
+            extensionMismatch: containerVerdict.extensionMismatch,
+            convertible,
+            conversionMode,
+            conversionReason,
           });
         } catch (error) {
           logger.error(`Error checking container: ${video.path}`, error);
@@ -787,7 +824,40 @@ export function registerIpcHandlers(context: IpcHandlerContext): void {
       afterId = videos[videos.length - 1]!.id;
       if (videos.length < batchSize) break;
     }
+    sendOperationProgress("container-check-progress", {
+      current: checkedCount,
+      total: totalVideos,
+      message: `確認が完了しました (${checkedCount}/${totalVideos})`,
+      completed: true,
+      silent: true,
+    });
     return items;
+  });
+
+  ipcMain.handle("get-mp4-conversion-eligibility", async (_event, videoId: number) => {
+    const video = await db.getVideo(videoId);
+    if (!video || video.hidden) {
+      return { convertible: false, reason: "動画が見つかりません" };
+    }
+    if (video.internalPlayable) {
+      return {
+        convertible: false,
+        reason: "この動画は既に内蔵プレーヤーで直接再生できる見込みです",
+      };
+    }
+    try {
+      await videoScanner.initialize();
+      return getMp4ConversionEligibility(
+        await videoScanner.getVideoMetadata(video.path),
+      );
+    } catch (error) {
+      return {
+        convertible: false,
+        reason: `ストリーム情報を取得できません: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      };
+    }
   });
 
   ipcMain.handle(
@@ -795,45 +865,128 @@ export function registerIpcHandlers(context: IpcHandlerContext): void {
     async (_event, videoIds: number[]): Promise<ConvertVideosResult> => {
       const ffmpegPath = await getFfmpegPath();
       if (!ffmpegPath) throw new Error("FFmpeg binary not found");
+      await videoScanner.initialize();
       const items: ConvertItemResult[] = [];
       let succeeded = 0;
       let failed = 0;
-      const total = videoIds.length;
+      const uniqueVideoIds = [...new Set(videoIds.filter((videoId) => Number.isInteger(videoId) && videoId > 0))];
+      const total = uniqueVideoIds.length;
+      const detailTotal = 100;
+      const reportConversionProgress = (
+        current: number,
+        detailCurrent: number | undefined,
+        message: string,
+        completed = false,
+      ): void => {
+        sendOperationProgress("container-convert-progress", {
+          current,
+          total,
+          detailCurrent,
+          detailTotal: detailCurrent === undefined ? undefined : detailTotal,
+          message,
+          completed,
+          silent: true,
+        });
+      };
+      if (total > 0) {
+        reportConversionProgress(0, 0, `変換を準備中 (0/${total})`);
+      }
       for (let index = 0; index < total; index++) {
-        const videoId = videoIds[index] ?? 0;
+        const videoId = uniqueVideoIds[index] ?? 0;
+        let sourcePath = `(id:${videoId})`;
+        let outputPath: string | undefined;
         try {
           const video = await db.getVideo(videoId);
           if (!video) throw new Error("動画が見つかりません");
-          const extension = path.extname(video.path).toLowerCase();
-          if (extension !== ".mp4" && extension !== ".m4v") {
-            throw new Error("拡張子が mp4/m4v ではないため上書き変換できません");
+          sourcePath = video.path;
+          if (video.hidden) {
+            throw new Error("変換元の動画は既に一覧から除外されています");
           }
-          sendOperationProgress("container-convert-progress", {
-            current: index,
-            total,
-            message: `変換中: ${video.filename}`,
-          });
-          await remuxToMp4(ffmpegPath, video.path);
+          if (video.internalPlayable) {
+            throw new Error("この動画は既に内蔵プレーヤーで直接再生できる見込みです");
+          }
+
+          const sourceMetadata = await videoScanner.getVideoMetadata(video.path);
+          const eligibility = getMp4ConversionEligibility(sourceMetadata);
+          if (!eligibility.convertible || !eligibility.mode) {
+            throw new Error(eligibility.reason ?? "MP4 変換の対象外です");
+          }
+          outputPath = await findConvertedMp4Path(video.path);
+          const conversionLabel = eligibility.mode === "remux" ? "無劣化リマックス" : "高品質 H.264/MP3 変換";
+          reportConversionProgress(index, 0, `${conversionLabel}を開始: ${video.filename}`);
+          const onFfmpegProgress = (progress: number | null): void => {
+            if (progress === null) {
+              reportConversionProgress(index, undefined, `${conversionLabel}中: ${video.filename}`);
+              return;
+            }
+            // 残り10%を検証・登録に確保し、変換完了前に100%とは表示しない。
+            const detailCurrent = Math.min(90, Math.round(progress * 90));
+            reportConversionProgress(
+              index,
+              detailCurrent,
+              `${conversionLabel}中 (${detailCurrent}%): ${video.filename}`,
+            );
+          };
+          if (eligibility.mode === "remux") {
+            await remuxToMp4(
+              ffmpegPath,
+              video.path,
+              outputPath,
+              sourceMetadata.format.duration,
+              onFfmpegProgress,
+            );
+          } else {
+            await transcodeToMp4(
+              ffmpegPath,
+              video.path,
+              outputPath,
+              sourceMetadata.format.duration,
+              onFfmpegProgress,
+            );
+          }
+          reportConversionProgress(index, 90, `品質・同期を検証中: ${video.filename}`);
+          verifyConvertedMp4(
+            sourceMetadata,
+            await videoScanner.getVideoMetadata(outputPath),
+            eligibility.mode,
+          );
+          if (eligibility.mode === "transcode") {
+            await verifyHighQualityVideo(ffmpegPath, video.path, outputPath);
+          }
+          const convertedVideo = await videoScanner.processFile(outputPath, true);
+          if (!convertedVideo?.id) {
+            throw new Error("変換後の動画をライブラリへ登録できませんでした");
+          }
+          await db.inheritConvertedVideo(videoId, convertedVideo.id);
           try {
             await context.clearVideoHashes(videoId);
-            const reprocessed = await videoScanner.processFile(video.path, true);
-            if (reprocessed) await context.generateThumbnailsForSingleVideo(reprocessed);
           } catch (error) {
-            logger.warn(`Remux succeeded but post-process failed for ${video.path}:`, error);
+            // 変換と属性引継ぎは成功済み。ハッシュだけは次回の重複検索で再作成される。
+            logger.warn(`Failed to clear source hashes after conversion: ${video.path}`, error);
           }
           succeeded++;
-          items.push({ path: video.path, ok: true });
+          items.push({
+            path: video.path,
+            outputPath,
+            conversionMode: eligibility.mode,
+            ok: true,
+          });
         } catch (error) {
+          if (outputPath) {
+            // 属性引継ぎまで完了しなかったアプリ生成物は残さない。元ファイルは一切触れない。
+            await db.removeVideo(outputPath).catch(() => {});
+            await fs.unlink(outputPath).catch(() => {});
+          }
           failed++;
           const message = error instanceof Error ? error.message : String(error);
-          const fallbackPath = (await db.getVideo(videoId))?.path ?? `(id:${videoId})`;
-          items.push({ path: fallbackPath, ok: false, error: message });
+          items.push({ path: sourcePath, ok: false, error: message });
         }
-        sendOperationProgress("container-convert-progress", {
-          current: index + 1,
-          total,
-          message: `変換完了 (${index + 1}/${total})`,
-        });
+        reportConversionProgress(
+          index + 1,
+          index + 1 === total ? detailTotal : undefined,
+          `変換完了 (${index + 1}/${total})`,
+          index + 1 === total,
+        );
       }
       return { succeeded, failed, items };
     },

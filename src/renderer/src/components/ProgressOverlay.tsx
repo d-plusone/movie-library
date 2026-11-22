@@ -4,9 +4,18 @@
  */
 import { useProgress } from "../state/ProgressContext";
 
-function percent(current: number, total: number): number {
+function percent(
+  current: number,
+  total: number,
+  detailCurrent?: number,
+  detailTotal?: number,
+): number {
   if (total <= 0) return 0;
-  return Math.min(100, Math.round((current / total) * 100));
+  const detailProgress =
+    detailCurrent !== undefined && detailTotal !== undefined && detailTotal > 0
+      ? Math.min(1, Math.max(0, detailCurrent / detailTotal))
+      : 0;
+  return Math.min(100, Math.round(((current + detailProgress) / total) * 100));
 }
 
 export function ProgressOverlay() {
@@ -17,7 +26,9 @@ export function ProgressOverlay() {
     <div id="unifiedProgressModal" className="unified-progress-modal">
       <div className="progress-list">
         {entries.map((entry) => {
-          const pct = entry.completed ? 100 : percent(entry.current, entry.total);
+          const pct = entry.completed
+            ? 100
+            : percent(entry.current, entry.total, entry.detailCurrent, entry.detailTotal);
           return (
             <div
               key={entry.id}

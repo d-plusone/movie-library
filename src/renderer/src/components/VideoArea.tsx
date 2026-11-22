@@ -48,6 +48,7 @@ export function VideoArea({ videos, listRef }: VideoAreaProps) {
   const [watchAction, setWatchAction] = useState("");
   const [thumbnailRegenerating, setThumbnailRegenerating] = useState(false);
   const [deletingSelected, setDeletingSelected] = useState(false);
+  const [convertingSelected, setConvertingSelected] = useState(false);
   const [draggingVideoId, setDraggingVideoId] = useState<number | null>(null);
   const [dragOverVideoId, setDragOverVideoId] = useState<number | null>(null);
   const selectionAnchorIndexRef = useRef<number | null>(null);
@@ -59,13 +60,17 @@ export function VideoArea({ videos, listRef }: VideoAreaProps) {
     .map((videoId) => videos.find((video) => video.id === videoId))
     .filter((video): video is Video => video !== undefined);
   const selectedCount = selectedVisibleVideos.length;
+  const selectedConversionCandidateVideos = selectedVisibleVideos.filter(
+    (video) => video.internalPlayable === false,
+  );
   const allVisibleSelected = videos.length > 0 && selectedCount === videos.length;
   const selectedActionBusy =
     ratingAction !== "" ||
     tagRemovalAction !== "" ||
     watchAction !== "" ||
     thumbnailRegenerating ||
-    deletingSelected;
+    deletingSelected ||
+    convertingSelected;
   const tags = tagsQuery.data ?? [];
   const thumbnailProgress = progressEntries.find(
     (entry) => entry.id === "thumbnail-progress" && !entry.completed,
@@ -292,6 +297,62 @@ export function VideoArea({ videos, listRef }: VideoAreaProps) {
       return;
     }
     ui.openPlaylist(selectedVisibleVideos.map((video) => video.id));
+  };
+
+  const convertSelectedVideos = async (): Promise<void> => {
+    const potentialTargets = selectedConversionCandidateVideos;
+    if (potentialTargets.length === 0 || convertingSelected) return;
+    if (ui.scanLocked) {
+      notify("他のスキャン処理が実行中です。完了までお待ちください", "warning");
+      return;
+    }
+
+    setConvertingSelected(true);
+    try {
+      // 拡張子・動画コーデックだけでは音声や字幕ストリームまで判定できないため、
+      // 実ファイルを ffprobe で確認してから確認ダイアログと変換対象を確定する。
+      const checks = await Promise.all(
+        potentialTargets.map(async (video) => ({
+          video,
+          eligibility: await ipc().getMp4ConversionEligibility(video.id),
+        })),
+      );
+      const targets = checks
+        .filter(({ eligibility }) => eligibility.convertible)
+        .map(({ video }) => video);
+      if (targets.length === 0) {
+        notify("選択した動画に MP4 変換できるものはありません", "warning");
+        return;
+      }
+      if (
+        !window.confirm(
+          `選択中の${targets.length}件を別 MP4 に変換しますか？\n\n` +
+            "元ファイルは削除も上書きもせず、一覧からだけ除外します。\n" +
+            `無劣化: ${checks.filter(({ eligibility }) => eligibility.convertible && eligibility.mode === "remux").length}件 / 高品質変換: ${checks.filter(({ eligibility }) => eligibility.convertible && eligibility.mode === "transcode").length}件\n` +
+            "タイトル・評価・説明・タグ・視聴位置・サムネイルを引き継ぎます。",
+        )
+      ) {
+        return;
+      }
+
+      await ui.runScanExclusive(async () => {
+        const result = await ipc().convertVideosToMp4(targets.map((video) => video.id));
+        await qc.invalidateQueries({ queryKey: queryKeys.videos });
+        ui.clearVideoSelection();
+        const type = result.failed > 0 ? "warning" : "success";
+        notify(
+          `MP4 変換が完了しました (成功: ${result.succeeded}件 / 失敗: ${result.failed}件)`,
+          type,
+        );
+      });
+    } catch (error) {
+      notify(
+        `一括変換に失敗しました (${error instanceof Error ? error.message : String(error)})`,
+        "error",
+      );
+    } finally {
+      setConvertingSelected(false);
+    }
   };
 
   const deleteSelectedVideos = async (): Promise<void> => {
@@ -551,6 +612,17 @@ export function VideoArea({ videos, listRef }: VideoAreaProps) {
               ))}
             </select>
           </label>
+          {selectedConversionCandidateVideos.length > 0 && (
+            <button
+              type="button"
+              id="selectedVideosConvertToMp4Btn"
+              className="btn btn-small btn-success"
+              disabled={selectedActionBusy || ui.scanLocked}
+              onClick={() => void convertSelectedVideos()}
+            >
+              {convertingSelected ? "確認・変換中..." : `MP4 に変換 (${selectedConversionCandidateVideos.length})`}
+            </button>
+          )}
           <button
             type="button"
             id="selectedVideosDeleteBtn"

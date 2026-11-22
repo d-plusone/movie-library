@@ -78,6 +78,9 @@ function matchesCommonFilters(
   if (state.rating > 0 && (video.rating || 0) < state.rating) return false;
   if (state.unratedOnly && (video.rating || 0) > 0) return false;
   if (state.untaggedOnly && (video.tags?.length ?? 0) > 0) return false;
+  if (state.internalPlaybackUnavailableOnly && video.internalPlayable !== false) {
+    return false;
+  }
 
   if (availableDirectoryCount > 0) {
     if (state.directories.length === 0) return false;

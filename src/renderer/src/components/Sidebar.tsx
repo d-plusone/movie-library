@@ -212,6 +212,16 @@ export function Sidebar({ facets }: { facets: FilterFacets }) {
               />
               タグ未割り当てのみ
             </label>
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={filters.internalPlaybackUnavailableOnly}
+                onChange={(e) =>
+                  filtersState.setInternalPlaybackUnavailableOnly(e.target.checked)
+                }
+              />
+              内蔵再生不可のみ
+            </label>
           </div>
         </div>
 

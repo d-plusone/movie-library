@@ -29,6 +29,7 @@ function state(overrides: Partial<FilterState> = {}): FilterState {
     tagMatchMode: "OR",
     unratedOnly: false,
     untaggedOnly: false,
+    internalPlaybackUnavailableOnly: false,
     ...overrides,
   };
 }
@@ -45,5 +46,21 @@ describe("video filters", () => {
     expect(filterVideos(videos, state({ unratedOnly: true }), 0, "").map((item) => item.id)).toEqual([1, 3]);
     expect(filterVideos(videos, state({ untaggedOnly: true }), 0, "").map((item) => item.id)).toEqual([3]);
     expect(filterVideos(videos, state({ unratedOnly: true, untaggedOnly: true }), 0, "").map((item) => item.id)).toEqual([3]);
+  });
+
+  it("can filter videos unavailable in the internal player", () => {
+    const withPlaybackStatus = [
+      { ...videos[0]!, internalPlayable: true },
+      { ...videos[1]!, internalPlayable: false },
+      { ...videos[2]!, internalPlayable: false },
+    ];
+    expect(
+      filterVideos(
+        withPlaybackStatus,
+        state({ internalPlaybackUnavailableOnly: true }),
+        0,
+        "",
+      ).map((item) => item.id),
+    ).toEqual([2, 3]);
   });
 });

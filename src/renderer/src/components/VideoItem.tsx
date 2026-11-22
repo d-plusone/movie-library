@@ -70,6 +70,7 @@ export function VideoItem({
   });
   const resolutionLabel = getResolutionLabel(video.width ?? 0, video.height ?? 0);
   const ratingText = "⭐".repeat(video.rating || 0);
+  const internalPlaybackUnavailable = video.internalPlayable === false;
 
   const images: Array<{ src: string; label: string }> = [
     {
@@ -210,6 +211,14 @@ export function VideoItem({
         )}
 
         <div className="video-duration">{formatDuration(video.duration ?? 0)}</div>
+        {internalPlaybackUnavailable && (
+          <div
+            className="video-playback-unavailable-badge"
+            title="内蔵プレーヤーでは直接再生できません。外部プレーヤーを利用するか、無劣化変換できる場合は MP4 に変換してください。"
+          >
+            ⚠ 内蔵再生不可
+          </div>
+        )}
         {isGrid && ratingText !== "" && <div className="video-rating-overlay">{ratingText}</div>}
         {resolutionLabel && <div className="video-resolution-badge">{resolutionLabel}</div>}
         {(video.watchPosition ?? 0) > 0 && (video.duration ?? 0) > 0 && (
@@ -225,6 +234,9 @@ export function VideoItem({
         <div className="video-title">
           {video.title}
           <span className="video-extension">{getFileExtension(video.filename)}</span>
+          {internalPlaybackUnavailable && !isGrid && (
+            <span className="video-playback-unavailable-inline">内蔵再生不可</span>
+          )}
         </div>
         <div className="video-meta">
           <div className="meta-info">

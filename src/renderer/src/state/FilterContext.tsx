@@ -27,6 +27,7 @@ interface FilterContextValue {
   setTagMatchMode: (mode: TagMatchMode) => void;
   setUnratedOnly: (enabled: boolean) => void;
   setUntaggedOnly: (enabled: boolean) => void;
+  setInternalPlaybackUnavailableOnly: (enabled: boolean) => void;
   toggleTag: (tag: string) => void;
   clearTags: () => void;
   toggleDirectory: (path: string) => void;
@@ -79,6 +80,7 @@ interface PersistedFilters {
   tagMatchMode?: TagMatchMode;
   unratedOnly?: boolean;
   untaggedOnly?: boolean;
+  internalPlaybackUnavailableOnly?: boolean;
 }
 
 function readSaveEnabled(): boolean {
@@ -101,6 +103,7 @@ function emptyFilters(): FilterState {
     tagMatchMode: "OR",
     unratedOnly: false,
     untaggedOnly: false,
+    internalPlaybackUnavailableOnly: false,
   };
 }
 
@@ -121,6 +124,8 @@ function readInitialFilters(): FilterState {
       tagMatchMode: parsed.tagMatchMode === "AND" ? "AND" : "OR",
       unratedOnly: parsed.unratedOnly === true,
       untaggedOnly: parsed.untaggedOnly === true,
+      internalPlaybackUnavailableOnly:
+        parsed.internalPlaybackUnavailableOnly === true,
     };
   } catch {
     return emptyFilters();
@@ -146,6 +151,8 @@ function readInitialSavedFilters(): SavedFilter[] {
         tagMatchMode: raw.tagMatchMode === "AND" ? "AND" : "OR",
         unratedOnly: raw.unratedOnly === true,
         untaggedOnly: raw.untaggedOnly === true,
+        internalPlaybackUnavailableOnly:
+          raw.internalPlaybackUnavailableOnly === true,
       };
       const now = new Date().toISOString();
       return [{
@@ -287,6 +294,7 @@ export function FilterProvider({ children }: { children: ReactNode }) {
         tagMatchMode: filters.tagMatchMode,
         unratedOnly: filters.unratedOnly,
         untaggedOnly: filters.untaggedOnly,
+        internalPlaybackUnavailableOnly: filters.internalPlaybackUnavailableOnly,
       }),
     );
     localStorage.setItem(LS_SEARCH_QUERY, search);
@@ -335,6 +343,8 @@ export function FilterProvider({ children }: { children: ReactNode }) {
       setTagMatchMode: (tagMatchMode) => setFilters((prev) => ({ ...prev, tagMatchMode })),
       setUnratedOnly: (unratedOnly) => setFilters((prev) => ({ ...prev, unratedOnly })),
       setUntaggedOnly: (untaggedOnly) => setFilters((prev) => ({ ...prev, untaggedOnly })),
+      setInternalPlaybackUnavailableOnly: (internalPlaybackUnavailableOnly) =>
+        setFilters((prev) => ({ ...prev, internalPlaybackUnavailableOnly })),
       toggleTag,
       clearTags: () => setFilters((prev) => ({ ...prev, tags: [] })),
       toggleDirectory,

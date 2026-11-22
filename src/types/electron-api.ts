@@ -13,6 +13,7 @@ import type {
   BulkTagChange,
   BulkTagResult,
   ContainerMismatchItem,
+  Mp4ConversionEligibility,
   ConvertVideosResult,
   DeleteProgress,
   DeleteVideoRequest,
@@ -120,10 +121,12 @@ export interface ElectronAPI {
     moveToTrash?: boolean,
   ): Promise<DeleteVideosResult>;
 
-  // ---- Container check / remux ----
-  /** ライブラリ内の「拡張子不一致 or 内蔵再生不可コンテナ」動画を列挙する */
+  // ---- 内蔵再生チェック / MP4 変換 ----
+  /** ライブラリ内の「拡張子不一致 or 内蔵再生不可」動画を列挙する */
   checkContainerMismatches(): Promise<ContainerMismatchItem[]>;
-  /** 選択された動画をストリームコピーで MP4 にリマックスし、元ファイルを上書きする */
+  /** 詳細画面用の、単一動画に対する MP4 変換可否 */
+  getMp4ConversionEligibility(videoId: number): Promise<Mp4ConversionEligibility>;
+  /** 選択された動画を別 MP4 に変換し、元は一覧から除外する */
   convertVideosToMp4(videoIds: number[]): Promise<ConvertVideosResult>;
   onContainerCheckProgress(
     callback: (data: OperationProgress) => void,

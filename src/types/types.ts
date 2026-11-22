@@ -41,6 +41,12 @@ export interface Video {
   updatedAt?: Date;
   watchedAt?: Date;
   watchPosition?: number;
+  /** 変換前ファイルなど、ディスクには残すが通常一覧には出さない動画 */
+  hidden?: boolean;
+  /** 変換後動画に紐づく、ディスクに保持した変換元ファイルのパス */
+  originalPath?: string;
+  /** 現在の内蔵プレーヤーで直接再生できる見込みがあるか */
+  internalPlayable?: boolean;
 }
 
 export interface Directory {
@@ -186,6 +192,9 @@ export type ProgressEvent =
       message?: string;
       /** 処理対象ファイル名 */
       file?: string;
+      /** 現在の対象内の進捗（操作進捗で使用） */
+      detailCurrent?: number;
+      detailTotal?: number;
       /** true のときトースト通知は出さず、進捗オーバーレイにのみ表示する */
       silent?: boolean;
     }
@@ -213,6 +222,13 @@ export interface OperationProgress {
   current: number;
   total: number;
   message: string;
+  /** 現在の対象内の進捗（例: FFmpeg の変換率） */
+  detailCurrent?: number;
+  detailTotal?: number;
+  /** true のとき、この操作自体が完了したことを示す */
+  completed?: boolean;
+  type?: NotificationType;
+  silent?: boolean;
 }
 
 /**
@@ -225,21 +241,38 @@ export interface ContainerMismatchItem {
   size: number;
   /** パスの拡張子（ドット付き・小文字） */
   extension: string;
-  /** 実際のコンテナ種別（"isobmff" | "webm" | "mpegts" | "avi" | "flv" | "unknown"） */
+  /** 実際のコンテナ種別（"isobmff" | "webm" | "asf" | "mpegts" | "avi" | "flv" | "unknown"） */
   detectedKind: string;
   detectedLabel: string;
   /** 内蔵プレーヤーで再生できないコンテナか（MPEG-TS 等） */
   nativePlayable: boolean;
   /** 拡張子と実際のコンテナが一致しないか */
   extensionMismatch: boolean;
-  /** ストリームコピーで MP4 への上書き変換が可能か（拡張子が .mp4/.m4v のみ） */
+  /** 別 MP4 ファイルへ変換可能か */
   convertible: boolean;
+  /** 実行する変換モード */
+  conversionMode?: Mp4ConversionMode;
+  /** 変換できない場合の理由 */
+  conversionReason?: string;
+}
+
+export type Mp4ConversionMode = "remux" | "transcode";
+
+/** 1本の動画を内蔵再生向け MP4 に変換できるかの事前確認結果 */
+export interface Mp4ConversionEligibility {
+  convertible: boolean;
+  mode?: Mp4ConversionMode;
+  reason?: string;
 }
 
 /** 単一動画の変換結果 */
 export interface ConvertItemResult {
   path: string;
   ok: boolean;
+  /** 成功時に新規作成した MP4 のパス */
+  outputPath?: string;
+  /** 成功時に利用した変換モード */
+  conversionMode?: Mp4ConversionMode;
   error?: string;
 }
 
@@ -394,6 +427,7 @@ export interface VideoMetadata {
     r_frame_rate?: string;
     avg_frame_rate?: string;
     duration?: number | string;
+    start_time?: number | string;
     bit_rate?: number | string;
   }>;
 }

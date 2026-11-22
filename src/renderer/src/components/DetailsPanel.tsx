@@ -42,11 +42,18 @@ export function DetailsPanel() {
 
   const video =
     videosQuery.data?.find((candidate) => candidate.id === ui.detailsVideoId) ?? null;
+  const conversionEligibilityQuery = useQuery({
+    queryKey: ["mp4-conversion-eligibility", video?.id],
+    queryFn: () => ipc().getMp4ConversionEligibility(video?.id ?? 0),
+    staleTime: Infinity,
+    enabled: video?.internalPlayable === false,
+  });
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [tagInput, setTagInput] = useState("");
   const [hoverRating, setHoverRating] = useState(0);
+  const [converting, setConverting] = useState(false);
 
   // 表示対象が切り替わったら入力欄を同期する
   // video.id のみを依存にする: video オブジェクトはクエリ再取得ごとに新しい参照になるため、
@@ -136,6 +143,55 @@ export function DetailsPanel() {
       return;
     }
     void addTagsMutation.mutateAsync(tagNames);
+  };
+
+  const conversionCandidate =
+    video.internalPlayable === false && conversionEligibilityQuery.data?.convertible === true;
+  const conversionMode = conversionEligibilityQuery.data?.mode;
+
+  const convertToMp4 = async (): Promise<void> => {
+    if (!conversionCandidate || !conversionMode || converting) return;
+    if (ui.scanLocked) {
+      notify("他のスキャン処理が実行中です。完了までお待ちください", "warning");
+      return;
+    }
+    const isRemux = conversionMode === "remux";
+    const confirmed = window.confirm(
+      `${isRemux ? "この動画を再エンコードなしで" : "この動画を H.264/320kbps MP3 の高品質設定で"}別 MP4 に変換しますか？\n\n` +
+        "元ファイルは削除も上書きもせず、一覧からだけ除外します。\n" +
+        "タイトル・評価・説明・タグ・視聴位置・サムネイルは新しい動画へ引き継がれます。\n" +
+        (isRemux
+          ? "映像・音声は無劣化です。"
+          : "変換後に映像品質・解像度・映像/音声トラック数・同期を検証し、問題があれば登録しません。"),
+    );
+    if (!confirmed) return;
+
+    setConverting(true);
+    try {
+      await ui.runScanExclusive(async () => {
+        // 入力欄に残った編集内容も、変換後の動画へ確実に引き継ぐ。
+        const saved = await ipc().updateVideo(video.id, { title, description });
+        if (!saved) throw new Error("変換前の動画情報を保存できませんでした");
+        const result = await ipc().convertVideosToMp4([video.id]);
+        const item = result.items[0];
+        if (!item?.ok) {
+          throw new Error(item?.error ?? "MP4 変換に失敗しました");
+        }
+        await qc.invalidateQueries({ queryKey: queryKeys.videos });
+        ui.closeDetails();
+        notify(
+          `${item.conversionMode === "remux" ? "無劣化 MP4 変換" : "高品質 MP4 変換"}が完了しました: ${item.outputPath ?? "変換後の動画"}`,
+          "success",
+        );
+      });
+    } catch (error) {
+      notify(
+        `変換に失敗しました (${error instanceof Error ? error.message : String(error)})`,
+        "error",
+      );
+    } finally {
+      setConverting(false);
+    }
   };
 
   return (
@@ -373,7 +429,38 @@ export function DetailsPanel() {
               <span className="icon">↗</span>
               外部プレーヤーで開く
             </button>
+            {video.originalPath && (
+              <button
+                type="button"
+                id="externalPlayOriginalVideoBtn"
+                className="btn btn-secondary"
+                title="変換前のオリジナル動画を外部プレーヤーで開く"
+                onClick={() => void ipc().openVideo(video.originalPath!)}
+              >
+                <span className="icon">↗</span>
+                オリジナル動画を外部プレーヤーで再生
+              </button>
+            )}
+            {conversionCandidate && (
+              <button
+                type="button"
+                id="convertVideoToMp4Btn"
+                className="btn btn-success"
+                disabled={converting || saveMutation.isPending}
+                onClick={() => void convertToMp4()}
+              >
+                {converting ? "変換中..." : conversionMode === "remux" ? "無劣化 MP4 に変換" : "高品質 MP4 に変換"}
+              </button>
+            )}
           </div>
+          {video.internalPlayable === false && conversionEligibilityQuery.isPending && (
+            <p className="setting-description">MP4 変換の可否を確認中...</p>
+          )}
+          {video.internalPlayable === false && conversionEligibilityQuery.isSuccess && !conversionCandidate && (
+            <p className="setting-description">
+              この動画は内蔵再生できません。{conversionEligibilityQuery.data.reason ?? "MP4 変換には対応していません。"}
+            </p>
+          )}
         </div>
       </div>
     </aside>

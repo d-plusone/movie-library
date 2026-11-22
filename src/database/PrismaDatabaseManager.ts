@@ -17,6 +17,7 @@ import type {
   VideoUpdateData,
 } from "../types/types";
 import { createLogger } from "../utils/logger.js";
+import { getInternalPlaybackStatus } from "../utils/playback-compatibility.js";
 import {
   LEGACY_BASELINE_MIGRATIONS,
   databasePathFromUrl,
@@ -54,6 +55,7 @@ export interface ContainerCheckRecord {
   path: string;
   filename: string;
   size: bigint;
+  codec: string;
 }
 
 export interface VideoScanRecord {
@@ -148,6 +150,9 @@ function mapVideoRecord(video: VideoWithTags): VideoRecord {
     updatedAt: video.updatedAt ? new Date(video.updatedAt) : undefined,
     watchedAt: video.watchedAt ?? undefined,
     watchPosition: video.watchPosition,
+    hidden: video.hidden,
+    originalPath: video.originalPath ?? undefined,
+    internalPlayable: getInternalPlaybackStatus(video.path, video.codec).playable,
     tags: video.videoTags.map((vt) => vt.tag.name),
     chapterThumbnails: safeParseChapterThumbnails(video.chapterThumbnails),
   };
@@ -500,6 +505,7 @@ class PrismaDatabaseManager {
     const orderBy = resolveOrderBy(safeSortBy, safeOrder);
 
     const videos = await this._prisma.video.findMany({
+      where: { hidden: false },
       include: {
         videoTags: {
           include: {
@@ -521,7 +527,10 @@ class PrismaDatabaseManager {
     afterId: number = 0,
   ): Promise<VideoScanRecord[]> {
     const videos = await this._prisma.video.findMany({
-      where: afterId > 0 ? { id: { gt: afterId } } : undefined,
+      where: {
+        hidden: false,
+        ...(afterId > 0 ? { id: { gt: afterId } } : {}),
+      },
       select: {
         id: true,
         path: true,
@@ -646,8 +655,11 @@ class PrismaDatabaseManager {
     afterId: number = 0,
   ): Promise<ContainerCheckRecord[]> {
     return this._prisma.video.findMany({
-      select: { id: true, path: true, filename: true, size: true },
-      where: afterId > 0 ? { id: { gt: afterId } } : undefined,
+      select: { id: true, path: true, filename: true, size: true, codec: true },
+      where: {
+        hidden: false,
+        ...(afterId > 0 ? { id: { gt: afterId } } : {}),
+      },
       orderBy: { id: "asc" },
       take: limit,
     });
@@ -659,6 +671,7 @@ class PrismaDatabaseManager {
   ): Promise<Array<{ id: number; path: string }>> {
     const videos = await this._prisma.video.findMany({
       where: {
+        hidden: false,
         partialHash: null,
         ...(afterId > 0 ? { id: { gt: afterId } } : {}),
       },
@@ -675,6 +688,7 @@ class PrismaDatabaseManager {
   ): Promise<DuplicateDetectionRecord[]> {
     const videos = await this._prisma.video.findMany({
       where: {
+        hidden: false,
         partialHash: { not: null },
         ...(afterId > 0 ? { id: { gt: afterId } } : {}),
       },
@@ -799,6 +813,66 @@ class PrismaDatabaseManager {
     return false;
   }
 
+  /**
+   * 変換後の新規レコードへ、利用者が設定した属性を丸ごと引き継ぐ。
+   * 元レコードは削除せず hidden にするため、元ファイルもサムネイルも保持される。
+   */
+  async inheritConvertedVideo(
+    sourceVideoId: number,
+    convertedVideoId: number,
+  ): Promise<void> {
+    if (sourceVideoId === convertedVideoId) {
+      throw new Error("変換元と変換先が同じ動画です");
+    }
+
+    await this._prisma.$transaction(async (tx) => {
+      const source = await tx.video.findUnique({
+        where: { id: sourceVideoId },
+        include: { videoTags: true },
+      });
+      if (!source) throw new Error("変換元の動画が見つかりません");
+      if (source.hidden) throw new Error("変換元の動画は既に一覧から除外されています");
+
+      const converted = await tx.video.findUnique({
+        where: { id: convertedVideoId },
+        select: { id: true },
+      });
+      if (!converted) throw new Error("変換後の動画を登録できませんでした");
+
+      // カスタムサムネイル・視聴位置・タグを含め、一覧上の利用者属性を欠損させない。
+      // 高品質変換時もサムネイルは利用者が選んだ見た目として引き継ぐ。
+      await tx.video.update({
+        where: { id: convertedVideoId },
+        data: {
+          title: source.title,
+          rating: source.rating,
+          description: source.description,
+          addedAt: source.addedAt,
+          watchedAt: source.watchedAt,
+          watchPosition: source.watchPosition,
+          thumbnailPath: source.thumbnailPath,
+          chapterThumbnails: source.chapterThumbnails,
+          fileHash: null,
+          partialHash: null,
+          originalPath: source.originalPath ?? source.path,
+        },
+      });
+      await tx.videoTag.deleteMany({ where: { videoId: convertedVideoId } });
+      if (source.videoTags.length > 0) {
+        await tx.videoTag.createMany({
+          data: source.videoTags.map((videoTag) => ({
+            videoId: convertedVideoId,
+            tagId: videoTag.tagId,
+          })),
+        });
+      }
+      await tx.video.update({
+        where: { id: sourceVideoId },
+        data: { hidden: true },
+      });
+    });
+  }
+
   async removeVideo(path: string): Promise<boolean> {
     try {
       await this._prisma.video.delete({
@@ -812,7 +886,7 @@ class PrismaDatabaseManager {
   }
 
   async getVideoCount(): Promise<number> {
-    return this._prisma.video.count();
+    return this._prisma.video.count({ where: { hidden: false } });
   }
 
   async getVideosWithoutThumbnailsCount(): Promise<number> {
@@ -953,7 +1027,14 @@ class PrismaDatabaseManager {
   // Tag management
   async getTags(): Promise<TagRecord[]> {
     const tags = await this._prisma.tag.findMany({
-      include: { _count: { select: { videoTags: true } } },
+      include: {
+        _count: {
+          select: {
+            // 変換元の hidden レコードは一覧に存在しないため、タグ件数にも含めない。
+            videoTags: { where: { video: { hidden: false } } },
+          },
+        },
+      },
       orderBy: { name: "asc" },
     });
     return tags.map(({ _count, ...tag }) => ({
@@ -1285,6 +1366,7 @@ class PrismaDatabaseManager {
     try {
       const count = await this._prisma.video.count({
         where: {
+          hidden: false,
           OR: [
             { updatedAt: { gt: checkTime } },
             { addedAt: { gt: checkTime } },

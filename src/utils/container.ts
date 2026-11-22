@@ -12,6 +12,7 @@ export type ContainerKind =
   | "mpegts" // MPEG-TS（188 バイト周期の同期バイト）
   | "avi"
   | "flv"
+  | "asf" // ASF / WMV / WMA（ヘッダ GUID）
   | "unknown";
 
 // ISOBMFF（MP4/M4V/MOV）の先頭ボックスとして現れうる 4 文字タイプ。
@@ -81,6 +82,30 @@ export function detectContainerKind(
     }
   }
 
+  // ASF: Header Object GUID 75B22630-668E-11CF-A6D9-00AA0062CE6C
+  // ファイル上は GUID の先頭3フィールドがリトルエンディアンで並ぶ。
+  if (
+    head.length >= 16 &&
+    head[0] === 0x30 &&
+    head[1] === 0x26 &&
+    head[2] === 0xb2 &&
+    head[3] === 0x75 &&
+    head[4] === 0x8e &&
+    head[5] === 0x66 &&
+    head[6] === 0xcf &&
+    head[7] === 0x11 &&
+    head[8] === 0xa6 &&
+    head[9] === 0xd9 &&
+    head[10] === 0x00 &&
+    head[11] === 0xaa &&
+    head[12] === 0x00 &&
+    head[13] === 0x62 &&
+    head[14] === 0xce &&
+    head[15] === 0x6c
+  ) {
+    return "asf";
+  }
+
   // MPEG-TS: 188 バイト周期のパケット同期バイト 0x47 を 3 点確認
   if (head.length >= 377) {
     if (head[0] === 0x47 && head[188] === 0x47 && head[376] === 0x47) {
@@ -112,6 +137,10 @@ export function expectedKindForExtension(
       return "avi";
     case ".flv":
       return "flv";
+    case ".asf":
+    case ".wmv":
+    case ".wma":
+      return "asf";
     default:
       return null;
   }
@@ -130,6 +159,8 @@ export function containerLabel(kind: ContainerKind): string {
       return "AVI";
     case "flv":
       return "FLV";
+    case "asf":
+      return "ASF / Windows Media";
     default:
       return "不明";
   }
