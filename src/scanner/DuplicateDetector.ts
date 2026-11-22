@@ -1,6 +1,6 @@
 import { createHash } from "crypto";
 import { promises as fs } from "fs";
-import { app } from "electron";
+import { app, shell } from "electron";
 import PrismaDatabaseManager, {
   type DuplicateDetectionRecord,
 } from "../database/PrismaDatabaseManager.js";
@@ -11,6 +11,31 @@ const logger = createLogger(app?.isPackaged ?? false);
 
 /** ファイル比較時に一度に読み込むバイト数 */
 const COMPARE_CHUNK_SIZE = 1024 * 1024; // 1MB
+/** ゴミ箱移動と SQLite 更新を同時に走らせる上限。NAS を飽和させない値に抑える。 */
+const DELETE_CONCURRENCY = 4;
+
+interface RemovalEventHooks {
+  markExpectedFileRemoval: (filePath: string) => void;
+  cancelExpectedFileRemoval: (filePath: string) => void;
+}
+
+async function runWithConcurrency<T>(
+  items: readonly T[],
+  concurrency: number,
+  task: (item: T) => Promise<void>,
+): Promise<void> {
+  let nextIndex = 0;
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      const index = nextIndex++;
+      if (index >= items.length) return;
+      await task(items[index]!);
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, items.length) }, () => worker()),
+  );
+}
 
 /** chapterThumbnails JSON の安全なパース（DB 層と同等。壊れた行で落とさない） */
 function safeParseChapterThumbnailPaths(raw: string | null): string[] {
@@ -92,13 +117,52 @@ export interface DuplicateGroup {
 
 export default class DuplicateDetector {
   private db: PrismaDatabaseManager;
+  private readonly removalEventHooks?: RemovalEventHooks;
   private readonly CHUNK_SIZE = 64 * 1024; // 64KB chunks for partial hash
   private readonly HASH_CONCURRENCY = 4;
   /** 検索ごとの世代。新しい検索開始・キャンセルで世代を進める。 */
   private searchGeneration = 0;
 
-  constructor(db: PrismaDatabaseManager) {
+  constructor(db: PrismaDatabaseManager, removalEventHooks?: RemovalEventHooks) {
     this.db = db;
+    this.removalEventHooks = removalEventHooks;
+  }
+
+  /**
+   * アプリ自身が発生させる unlink を監視側の「外部で消えたかもしれない」処理から
+   * 区別する。失敗時には予約を取り消すため、実際には削除できなかったファイルを
+   * 監視対象から隠すことはない。
+   */
+  private async removeVideoFile(filePath: string, moveToTrash: boolean): Promise<void> {
+    this.removalEventHooks?.markExpectedFileRemoval(filePath);
+    try {
+      if (moveToTrash) {
+        await shell.trashItem(filePath);
+      } else {
+        await fs.unlink(filePath);
+      }
+    } catch (error) {
+      this.removalEventHooks?.cancelExpectedFileRemoval(filePath);
+      throw error;
+    }
+  }
+
+  /** 動画を移動後、アプリ生成物はまとめて同時に後片付けする。 */
+  private async removeThumbnails(
+    thumbnailPath: string | null,
+    chapterThumbnails: string | null,
+  ): Promise<void> {
+    const paths = [
+      ...(thumbnailPath ? [thumbnailPath] : []),
+      ...safeParseChapterThumbnailPaths(chapterThumbnails),
+    ];
+    await Promise.all(
+      paths.map((thumbnail) =>
+        fs.unlink(thumbnail).catch((error) =>
+          console.warn(`Failed to delete thumbnail: ${error}`),
+        ),
+      ),
+    );
   }
 
   cancelSearch(): void {
@@ -322,32 +386,11 @@ export default class DuplicateDetector {
       );
     }
 
-    // Delete or move to trash
-    if (moveToTrash) {
-      const { shell } = await import("electron");
-      await shell.trashItem(video.path);
-    } else {
-      await fs.unlink(video.path);
-    }
+    await this.removeVideoFile(video.path, moveToTrash);
 
     // アプリが生成した副産物（メイン＋チャプターサムネイル）をベストエフォートで削除する。
     // removeDirectory と同じ範囲を消さないとチャプター画像（最大5枚）がゴミとして残る。
-    if (video.thumbnailPath) {
-      try {
-        await fs.unlink(video.thumbnailPath);
-      } catch (error) {
-        console.warn(`Failed to delete thumbnail: ${error}`);
-      }
-    }
-    for (const chapterPath of safeParseChapterThumbnailPaths(
-      video.chapterThumbnails,
-    )) {
-      try {
-        await fs.unlink(chapterPath);
-      } catch (error) {
-        console.warn(`Failed to delete chapter thumbnail: ${error}`);
-      }
-    }
+    await this.removeThumbnails(video.thumbnailPath, video.chapterThumbnails);
 
     // Delete from database. ファイルは既に削除済みのため、ここで失敗しても
     // （DB 行が孤立するだけで）ユーザーの意図した「重複ファイルの削除」自体は
@@ -379,8 +422,8 @@ export default class DuplicateDetector {
     let success = 0;
     let failed = 0;
 
-    for (let i = 0; i < videoIds.length; i++) {
-      const videoId = videoIds[i]!;
+    let completed = 0;
+    await runWithConcurrency(videoIds, DELETE_CONCURRENCY, async (videoId) => {
       try {
         const video = await this.db.prisma.video.findUnique({
           where: { id: videoId },
@@ -388,23 +431,8 @@ export default class DuplicateDetector {
         });
         if (!video) throw new Error(`Video ${videoId} not found`);
 
-        if (moveToTrash) {
-          const { shell } = await import("electron");
-          await shell.trashItem(video.path);
-        } else {
-          await fs.unlink(video.path);
-        }
-
-        if (video.thumbnailPath) {
-          await fs.unlink(video.thumbnailPath).catch((error) =>
-            console.warn(`Failed to delete thumbnail: ${error}`),
-          );
-        }
-        for (const chapterPath of safeParseChapterThumbnailPaths(video.chapterThumbnails)) {
-          await fs.unlink(chapterPath).catch((error) =>
-            console.warn(`Failed to delete chapter thumbnail: ${error}`),
-          );
-        }
+        await this.removeVideoFile(video.path, moveToTrash);
+        await this.removeThumbnails(video.thumbnailPath, video.chapterThumbnails);
 
         // ファイル監視側が先にDB行を消していても、ファイル削除自体は成功として扱う。
         await this.db.prisma.video.delete({ where: { id: videoId } }).catch((error) => {
@@ -415,9 +443,11 @@ export default class DuplicateDetector {
       } catch (error) {
         console.error(`Failed to delete selected video ${videoId}:`, error);
         failed++;
+      } finally {
+        completed++;
+        onProgress?.(completed, videoIds.length);
       }
-      onProgress?.(i + 1, videoIds.length);
-    }
+    });
 
     return { success, failed };
   }
@@ -433,8 +463,8 @@ export default class DuplicateDetector {
     let success = 0;
     let failed = 0;
 
-    for (let i = 0; i < requests.length; i++) {
-      const request = requests[i];
+    let completed = 0;
+    await runWithConcurrency(requests, DELETE_CONCURRENCY, async (request) => {
       try {
         await this.deleteVideo(
           request.videoId,
@@ -445,12 +475,11 @@ export default class DuplicateDetector {
       } catch (error) {
         console.error(`Failed to delete video ${request.videoId}:`, error);
         failed++;
+      } finally {
+        completed++;
+        onProgress?.(completed, requests.length);
       }
-
-      if (onProgress) {
-        onProgress(i + 1, requests.length);
-      }
-    }
+    });
 
     return { success, failed };
   }

@@ -31,6 +31,7 @@ const MAX_CONSECUTIVE_MOUNT_ATTEMPTS = 3;
 const FS_CHECK_TIMEOUT_MS = 10000;
 const MOUNT_WAIT_MS = 20000;
 const NETWORK_HEALTH_CHECK_INTERVAL_MS = 60000;
+const EXPECTED_FILE_REMOVAL_TTL_MS = 60_000;
 
 type ProgressChannel = "scan-progress" | "rescan-progress" | "thumbnail-progress";
 
@@ -66,6 +67,8 @@ export default class DirectoryWatcher {
   private registeredDirectoriesCache: { at: number; paths: string[] } | null = null;
   private healthCheckTimer: NodeJS.Timeout | null = null;
   private healthCheckRunning = false;
+  /** アプリの明示削除で発生する unlink。外部削除用の再確認を行わない。 */
+  private expectedFileRemovals: Map<string, number> = new Map();
 
   constructor(options: {
     db: PrismaDatabaseManager;
@@ -83,6 +86,29 @@ export default class DirectoryWatcher {
 
   private get mainWindow(): BrowserWindow | null {
     return this.getMainWindow();
+  }
+
+  public markExpectedFileRemoval(filePath: string): void {
+    const now = Date.now();
+    for (const [candidate, expiresAt] of this.expectedFileRemovals) {
+      if (expiresAt < now) this.expectedFileRemovals.delete(candidate);
+    }
+    this.expectedFileRemovals.set(
+      path.resolve(filePath),
+      now + EXPECTED_FILE_REMOVAL_TTL_MS,
+    );
+  }
+
+  public cancelExpectedFileRemoval(filePath: string): void {
+    this.expectedFileRemovals.delete(path.resolve(filePath));
+  }
+
+  private consumeExpectedFileRemoval(filePath: string): boolean {
+    const key = path.resolve(filePath);
+    const expiresAt = this.expectedFileRemovals.get(key);
+    if (expiresAt === undefined) return false;
+    this.expectedFileRemovals.delete(key);
+    return expiresAt >= Date.now();
   }
   // ディレクトリの可用性判定と再接続（NAS / SMB 切断対策）
   // ============================================================
@@ -730,6 +756,10 @@ export default class DirectoryWatcher {
 
     watcher.on("unlink", async (filePath: string) => {
       if (this.videoScanner.isVideoFile(filePath)) {
+        if (this.consumeExpectedFileRemoval(filePath)) {
+          logger.debug("Skipping expected video removal event:", filePath);
+          return;
+        }
         try {
           logger.debug("Processing video file removal:", filePath);
 
@@ -873,6 +903,7 @@ export default class DirectoryWatcher {
   }
 
   public async cleanup(): Promise<void> {
+    this.expectedFileRemovals.clear();
     for (const watcher of this.watchers.values()) {
       try {
         await watcher.close();

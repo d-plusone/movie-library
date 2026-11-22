@@ -156,7 +156,6 @@ class MovieLibraryApp {
 
     this.db = new PrismaDatabaseManager();
     this.videoScanner = new VideoScanner(this.db);
-    this.duplicateDetector = new DuplicateDetector(this.db);
     this.thumbnailGenerator = new ThumbnailGenerator(this.db);
     this.directoryWatcher = new DirectoryWatcher({
       db: this.db,
@@ -165,6 +164,12 @@ class MovieLibraryApp {
       sendProgress: (channel, payload) => this.sendProgress(channel, payload),
       generateThumbnailsForSingleVideo: (video) =>
         this.generateThumbnailsForSingleVideo(video),
+    });
+    this.duplicateDetector = new DuplicateDetector(this.db, {
+      markExpectedFileRemoval: (filePath) =>
+        this.directoryWatcher.markExpectedFileRemoval(filePath),
+      cancelExpectedFileRemoval: (filePath) =>
+        this.directoryWatcher.cancelExpectedFileRemoval(filePath),
     });
   }
 
