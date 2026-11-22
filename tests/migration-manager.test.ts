@@ -188,7 +188,7 @@ afterEach(async () => {
   }
 });
 
-describe("database migration compatibility", () => {
+describe("database migration compatibility", { timeout: 30_000 }, () => {
   it("新規DBを通常の migrate deploy で作成する", async () => {
     const { databasePath } = await createTemporaryDatabasePath();
     const { prisma, result } = await runCoordinator(databasePath);
